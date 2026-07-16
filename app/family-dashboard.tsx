@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsView } from "./transactions";
-import { GiftRecord, TransferRequest } from "./back-office";
+import { TransferRequest } from "./back-office";
 import { Administration } from "./administration";
-import { LedgerLive } from "./ledger-live";
+import { GiftPortfolio } from "./gift-portfolio";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
 
@@ -113,15 +113,6 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     }).catch(() => undefined);
   }
 
-  function saveGift(record: GiftRecord) {
-    setToast(record.occasion + " de " + record.member + " enregistré : " + record.btcAmount.toFixed(8) + " BTC · " + record.custody);
-    window.setTimeout(() => setToast(""), 4200);
-    void authenticatedFetch("/api/gifts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(record),
-    }).catch(() => undefined);
-  }
 
   return (
     <main className="app-shell">
@@ -173,7 +164,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         )}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={viewer} />}
         {view === "transactions" && <TransactionsView transactions={viewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === viewer.name)} onAdd={() => setModalOpen(true)} onTransferRequest={requestTransfer} />}
-        {view === "backoffice" && viewer.role === "admin" && <Administration requests={transferRequests} onGiftSaved={saveGift} onRequestStatus={updateRequestStatus} />}
+        {view === "backoffice" && viewer.role === "admin" && <Administration viewer={viewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "missions" && <Missions openModal={() => setModalOpen(true)} />}
         {view === "apprendre" && <Learn />}
         {view === "parametres" && <Settings viewer={viewer} onSignOut={onSignOut} />}
@@ -253,16 +244,8 @@ function Dashboard({ totalDue, missing, activity, openModal, navigate }: {
   );
 }
 
-function Portfolios({ openModal, viewer }: { openModal: () => void; viewer: Viewer }) {
-  const displayedMembers = viewer.role === "admin" ? members : members.filter((member) => member.name === viewer.name);
-  return (
-    <div className="page-stack">
-      <section className="portfolio-hero panel"><div><span className="soft-pill">PATRIMOINE FINANCIER FAMILIAL</span><h2>Un seul endroit pour tout comprendre.</h2><p>Bitcoin aujourd’hui, puis PEA, compte-titres, épargne et autres actifs demain.</p></div><button className="primary-button" onClick={openModal}>＋ Saisir un investissement</button></section>
-      <LedgerLive visibleMember={viewer.role === "admin" ? undefined : viewer.name} />
-      <div className="stats-row"><Stat label="Cadeaux suivis" value="1 696,22 €" note="Coût historique, frais inclus" tone="navy" icon="€" /><Stat label="BTC documentés" value="0,01449200" note="Quantités historiques connues" tone="teal" icon="₿" /><Stat label="Comptes à connecter" value="10" note="5 Binance + 5 Ledger" tone="amber" icon="↗" /></div>
-      <section className="panel table-panel"><PanelTitle eyebrow="PAR MEMBRE" title="Portefeuilles et enveloppes" action="Configurer" /><div className="responsive-table"><table><thead><tr><th>Membre</th><th>Bitcoin</th><th>PEA</th><th>Autres</th><th>État</th></tr></thead><tbody>{displayedMembers.map((member) => <tr key={member.name}><td><span className={`avatar tiny ${member.color}`}>{member.initials}</span><strong>{member.name}</strong></td><td>{member.btc.toFixed(8)} BTC</td><td><span className="empty-value">À créer</span></td><td>—</td><td><span className="warning-pill">{member.missing} lignes manquantes</span></td></tr>)}</tbody></table></div></section>
-    </div>
-  );
+function Portfolios({ viewer }: { openModal: () => void; viewer: Viewer }) {
+  return <GiftPortfolio viewer={viewer} />;
 }
 
 function Missions({ openModal }: { openModal: () => void }) {

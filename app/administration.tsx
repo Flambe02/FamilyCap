@@ -2,7 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
-import { BackOffice, GiftRecord, TransferRequest } from "./back-office";
+import { TransferRequest } from "./back-office";
+import type { Viewer } from "../lib/auth-types";
+import { GiftPortfolio } from "./gift-portfolio";
 import "./administration.css";
 
 type Tab = "gifts" | "members" | "accounts" | "settings";
@@ -24,7 +26,7 @@ async function api(url:string, init:RequestInit = {}) {
 const formatDate = (value?:string|null) => value ? new Intl.DateTimeFormat("fr-FR", { dateStyle:"medium", timeStyle:"short" }).format(new Date(value)) : "Jamais";
 const euro = new Intl.NumberFormat("fr-FR", { style:"currency", currency:"EUR" });
 
-export function Administration({ requests, onGiftSaved, onRequestStatus }:{ requests:TransferRequest[]; onGiftSaved:(record:GiftRecord)=>void; onRequestStatus:(id:string,status:TransferRequest["status"])=>void }) {
+export function Administration({ viewer, requests, onRequestStatus }:{ viewer:Viewer; requests:TransferRequest[]; onRequestStatus:(id:string,status:TransferRequest["status"])=>void }) {
   const [tab,setTab] = useState<Tab>("gifts");
   const tabs:{id:Tab;label:string;icon:string}[] = [
     {id:"gifts",label:"Cadeaux BTC",icon:"₿"},{id:"members",label:"Membres & accès",icon:"◎"},
@@ -33,7 +35,7 @@ export function Administration({ requests, onGiftSaved, onRequestStatus }:{ requ
   return <div className="admin-root">
     <section className="admin-command"><div><span>ZONE PRIVÉE · FLORENT UNIQUEMENT</span><h2>Administration familiale</h2><p>Gérer les accès, les comptes et les données financières sans stocker de mot de passe, clé privée ou phrase Ledger.</p></div><b>Administrateur vérifié</b></section>
     <nav className="admin-tabs">{tabs.map(item=><button key={item.id} className={tab===item.id?"active":""} onClick={()=>setTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
-    {tab==="gifts"&&<BackOffice requests={requests} onGiftSaved={onGiftSaved} onRequestStatus={onRequestStatus} />}
+    {tab==="gifts"&&<GiftPortfolio viewer={viewer} requests={requests} onRequestStatus={onRequestStatus} />}
     {tab==="members"&&<Members />}
     {tab==="accounts"&&<Accounts />}
     {tab==="settings"&&<Settings />}

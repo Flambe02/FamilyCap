@@ -2,6 +2,7 @@ import { isSupabaseConfigured, supabaseRest } from "../../../lib/supabase-rest";
 import { authErrorResponse, requireAdmin, requireFamilyMember } from "../../../lib/auth-server";
 
 type GiftInput = {
+  id?: string;
   member?: string;
   occasion?: string;
   giftDate?: string;
@@ -9,60 +10,138 @@ type GiftInput = {
   amountEur?: number;
   btcAmount?: number;
   custody?: string;
-  transferDate?: string;
-  ledgerAmount?: number;
-  publicAddress?: string;
-  txid?: string;
+  transferDate?: string | null;
+  ledgerAmount?: number | null;
+  publicAddress?: string | null;
+  txid?: string | null;
   blockchainStatus?: string;
   confirmations?: number;
-  note?: string;
+  note?: string | null;
 };
 
+type StoredGift = {
+  id: string;
+  member_name: string;
+  custody: string;
+  txid: string | null;
+  blockchain_status: string;
+  confirmations: number;
+};
+
+function isLedgerLocked(record: StoredGift) {
+  return record.custody === "Ledger" && Boolean(
+    record.confirmations > 0 ||
+    (record.txid && /valid|confirm/i.test(record.blockchain_status)),
+  );
+}
+
+function validate(body: GiftInput) {
+  if (!body.member || !body.occasion || !body.giftDate || !body.purchaseDate || !body.custody) return "Informations obligatoires manquantes.";
+  if (!Number.isFinite(body.amountEur) || !Number.isFinite(body.btcAmount) || Number(body.btcAmount) <= 0) return "Montants invalides.";
+  if (!["Anniversaire", "Noël", "Autre cadeau"].includes(body.occasion)) return "Occasion invalide.";
+  if (!["Binance commun", "Ledger"].includes(body.custody)) return "Lieu de conservation invalide.";
+  return null;
+}
+
+async function memberIdFor(name: string) {
+  const rows = await supabaseRest<Array<{ id: string }>>(
+    "family_members?select=id&name=eq." + encodeURIComponent(name) + "&limit=1",
+  );
+  return rows[0]?.id ?? null;
+}
+
+function payload(body: GiftInput, memberId: string | null) {
+  return {
+    member_id: memberId,
+    member_name: body.member,
+    occasion: body.occasion,
+    gift_date: body.giftDate,
+    purchase_date: body.purchaseDate,
+    amount_eur: body.amountEur,
+    btc_amount: body.btcAmount,
+    custody: body.custody,
+    transfer_date: body.transferDate || null,
+    ledger_amount: body.ledgerAmount ?? null,
+    public_address: body.publicAddress || null,
+    txid: body.txid || null,
+    blockchain_status: body.blockchainStatus || (body.custody === "Ledger" ? "À vérifier" : "Stocké sur Binance commun"),
+    confirmations: body.confirmations ?? 0,
+    note: body.note || null,
+  };
+}
+
 export async function GET(request: Request) {
-  if (isSupabaseConfigured()) {
-    try { await requireFamilyMember(request); } catch (error) { return authErrorResponse(error); }
-  }
-  if (isSupabaseConfigured()) {
-    const records = await supabaseRest<Record<string, unknown>[]>("gift_records?select=*&order=purchase_date.desc,created_at.desc");
+  if (!isSupabaseConfigured()) return Response.json({ records: [], persistence: "unavailable" });
+  try {
+    const viewer = await requireFamilyMember(request);
+    const filter = viewer.role === "admin" ? "" : "&member_id=eq." + encodeURIComponent(viewer.id);
+    const records = await supabaseRest<Record<string, unknown>[]>(
+      "gift_records?select=*&order=gift_date.desc,created_at.desc" + filter,
+    );
     return Response.json({ records, persistence: "supabase" });
+  } catch (error) {
+    return authErrorResponse(error);
   }
-  return Response.json({ records: [], persistence: "unavailable" });
 }
 
 export async function POST(request: Request) {
-  if (isSupabaseConfigured()) {
-    try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
-  }
-  const body = (await request.json()) as GiftInput;
-  if (!body.member || !body.occasion || !body.giftDate || !body.purchaseDate || !body.custody) {
-    return Response.json({ error: "Informations obligatoires manquantes." }, { status: 400 });
-  }
-  if (!Number.isFinite(body.amountEur) || !Number.isFinite(body.btcAmount) || Number(body.btcAmount) <= 0) {
-    return Response.json({ error: "Montants invalides." }, { status: 400 });
-  }
-  if (isSupabaseConfigured()) {
+  if (!isSupabaseConfigured()) return Response.json({ error: "Supabase est requis sur Vercel." }, { status: 503 });
+  try {
+    await requireAdmin(request);
+    const body = await request.json() as GiftInput;
+    const error = validate(body);
+    if (error) return Response.json({ error }, { status: 400 });
+    const memberId = await memberIdFor(body.member!);
     const records = await supabaseRest<Array<{ id: string }>>("gift_records", {
       method: "POST",
       headers: { prefer: "return=representation" },
-      body: JSON.stringify({
-        member_name: body.member,
-        occasion: body.occasion,
-        gift_date: body.giftDate,
-        purchase_date: body.purchaseDate,
-        amount_eur: body.amountEur,
-        btc_amount: body.btcAmount,
-        custody: body.custody,
-        transfer_date: body.transferDate ?? null,
-        ledger_amount: body.ledgerAmount ?? null,
-        public_address: body.publicAddress ?? null,
-        txid: body.txid ?? null,
-        blockchain_status: body.blockchainStatus ?? "not_checked",
-        confirmations: body.confirmations ?? 0,
-        note: body.note ?? null,
-      }),
+      body: JSON.stringify(payload(body, memberId)),
     });
     return Response.json({ saved: true, id: records[0]?.id, persistence: "supabase" }, { status: 201 });
+  } catch (error) {
+    return authErrorResponse(error);
   }
+}
 
-  return Response.json({ saved: false, error: "Supabase est requis sur Vercel." }, { status: 503 });
+export async function PATCH(request: Request) {
+  if (!isSupabaseConfigured()) return Response.json({ error: "Supabase est requis sur Vercel." }, { status: 503 });
+  try {
+    await requireAdmin(request);
+    const body = await request.json() as GiftInput;
+    if (!body.id) return Response.json({ error: "Cadeau manquant." }, { status: 400 });
+    const current = await supabaseRest<StoredGift[]>(
+      "gift_records?select=id,member_name,custody,txid,blockchain_status,confirmations&id=eq." + encodeURIComponent(body.id) + "&limit=1",
+    );
+    if (!current[0]) return Response.json({ error: "Cadeau introuvable." }, { status: 404 });
+    if (isLedgerLocked(current[0])) return Response.json({ error: "Cette transaction est confirmée sur le Ledger et ne peut plus être modifiée." }, { status: 409 });
+    const error = validate(body);
+    if (error) return Response.json({ error }, { status: 400 });
+    const memberId = await memberIdFor(body.member!);
+    await supabaseRest("gift_records?id=eq." + encodeURIComponent(body.id), {
+      method: "PATCH",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify(payload(body, memberId)),
+    });
+    return Response.json({ updated: true });
+  } catch (error) {
+    return authErrorResponse(error);
+  }
+}
+
+export async function DELETE(request: Request) {
+  if (!isSupabaseConfigured()) return Response.json({ error: "Supabase est requis sur Vercel." }, { status: 503 });
+  try {
+    await requireAdmin(request);
+    const id = new URL(request.url).searchParams.get("id");
+    if (!id) return Response.json({ error: "Cadeau manquant." }, { status: 400 });
+    const current = await supabaseRest<StoredGift[]>(
+      "gift_records?select=id,member_name,custody,txid,blockchain_status,confirmations&id=eq." + encodeURIComponent(id) + "&limit=1",
+    );
+    if (!current[0]) return Response.json({ error: "Cadeau introuvable." }, { status: 404 });
+    if (isLedgerLocked(current[0])) return Response.json({ error: "Une transaction Ledger confirmée ne peut pas être supprimée." }, { status: 409 });
+    await supabaseRest("gift_records?id=eq." + encodeURIComponent(id), { method: "DELETE", headers: { prefer: "return=minimal" } });
+    return Response.json({ deleted: true });
+  } catch (error) {
+    return authErrorResponse(error);
+  }
 }
