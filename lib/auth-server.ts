@@ -1,8 +1,12 @@
-import { env } from "cloudflare:workers";
 import { supabaseRest } from "./supabase-rest";
 
 type RuntimeEnv = { SUPABASE_URL?: string; SUPABASE_PUBLISHABLE_KEY?: string };
-const runtime = env as unknown as RuntimeEnv;
+function runtimeEnv(): RuntimeEnv {
+  return {
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
+  };
+}
 
 export type AuthenticatedMember = {
   authUserId: string;
@@ -13,6 +17,7 @@ export type AuthenticatedMember = {
 };
 
 export async function requireFamilyMember(request: Request): Promise<AuthenticatedMember> {
+  const runtime = runtimeEnv();
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Response("Non authentifié", { status: 401 });
   if (!runtime.SUPABASE_URL || !runtime.SUPABASE_PUBLISHABLE_KEY) throw new Response("Authentification non configurée", { status: 503 });

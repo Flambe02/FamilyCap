@@ -1,18 +1,24 @@
-import { env } from "cloudflare:workers";
-
 type SupabaseRuntimeEnv = {
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
   SUPABASE_SECRET_KEY?: string;
 };
 
-const runtime = env as unknown as SupabaseRuntimeEnv;
+function runtimeEnv(): SupabaseRuntimeEnv {
+  return {
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
+    SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+  };
+}
 
 export function isSupabaseConfigured() {
+  const runtime = runtimeEnv();
   return Boolean(runtime.SUPABASE_URL && runtime.SUPABASE_SECRET_KEY);
 }
 
 export function getSupabaseProjectInfo() {
+  const runtime = runtimeEnv();
   return {
     configured: isSupabaseConfigured(),
     projectUrl: runtime.SUPABASE_URL ?? null,
@@ -22,6 +28,7 @@ export function getSupabaseProjectInfo() {
 }
 
 export async function supabaseRest<T>(path: string, init: RequestInit = {}) {
+  const runtime = runtimeEnv();
   const projectUrl = runtime.SUPABASE_URL?.replace(/\/$/, "");
   const secretKey = runtime.SUPABASE_SECRET_KEY;
   if (!projectUrl || !secretKey) throw new Error("Supabase n’est pas configuré côté serveur.");

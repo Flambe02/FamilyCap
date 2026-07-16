@@ -1,15 +1,17 @@
-import { env } from "cloudflare:workers";
 import { isSupabaseConfigured, supabaseRest } from "../../../lib/supabase-rest";
 import { authErrorResponse, requireAdmin, requireFamilyMember } from "../../../lib/auth-server";
 
 type RuntimeEnv = {
-  DB?: D1Database;
   RESEND_API_KEY?: string;
   ALERT_EMAIL_FROM?: string;
   ALERT_EMAIL_TO?: string;
 };
 
-const runtime = env as unknown as RuntimeEnv;
+const runtime: RuntimeEnv = {
+  RESEND_API_KEY: process.env.RESEND_API_KEY,
+  ALERT_EMAIL_FROM: process.env.ALERT_EMAIL_FROM,
+  ALERT_EMAIL_TO: process.env.ALERT_EMAIL_TO,
+};
 
 export async function GET(request: Request) {
   if (isSupabaseConfigured()) {
@@ -29,10 +31,7 @@ export async function GET(request: Request) {
       persistence: "supabase",
     });
   }
-  if (!runtime.DB) return Response.json({ requests: [], persistence: "unavailable" });
-  await ensureTable(runtime.DB);
-  const result = await runtime.DB.prepare("SELECT id, member_name AS member, transaction_id AS transactionId, btc_amount AS btcAmount, requested_at AS requestedAt, status FROM transfer_requests ORDER BY requested_at DESC LIMIT 100").all();
-  return Response.json({ requests: result.results, persistence: "d1" });
+  return Response.json({ requests: [], persistence: "unavailable" });
 }
 
 export async function POST(request: Request) {
@@ -63,11 +62,6 @@ export async function POST(request: Request) {
       });
       persisted = true;
       persistence = "supabase";
-    } else if (runtime.DB) {
-      await ensureTable(runtime.DB);
-      await runtime.DB.prepare("INSERT OR IGNORE INTO transfer_requests (id, member_name, transaction_id, btc_amount, requested_at, status) VALUES (?, ?, ?, ?, ?, 'Nouvelle')").bind(id, member, transactionId, btcAmount, requestedAt).run();
-      persisted = true;
-      persistence = "d1";
     }
 
     const email = await sendAlertEmail({ id, member, transactionId, btcAmount, requestedAt });
@@ -94,17 +88,7 @@ export async function PATCH(request: Request) {
     });
     return Response.json({ updated: true, persistence: "supabase" });
   }
-  if (!runtime.DB) return Response.json({ updated: false, persistence: "unavailable" });
-  await ensureTable(runtime.DB);
-  await runtime.DB.prepare("UPDATE transfer_requests SET status = ? WHERE id = ?").bind(payload.status, payload.id).run();
-  return Response.json({ updated: true });
-}
-
-async function ensureTable(db: D1Database) {
-  await db.batch([
-    db.prepare("CREATE TABLE IF NOT EXISTS transfer_requests (id TEXT PRIMARY KEY, member_name TEXT NOT NULL, transaction_id TEXT NOT NULL, btc_amount REAL, requested_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'Nouvelle', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"),
-    db.prepare("CREATE INDEX IF NOT EXISTS transfer_requests_status_idx ON transfer_requests(status)"),
-  ]);
+  return Response.json({ updated: false, persistence: "unavailable" }, { status: 503 });
 }
 
 async function sendAlertEmail(data: { id: string; member: string; transactionId: string; btcAmount: number | null; requestedAt: string }) {

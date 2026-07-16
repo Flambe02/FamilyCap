@@ -1,12 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
-import { env } from "cloudflare:workers";
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
 import { supabaseRest } from "../../../../lib/supabase-rest";
 
 type RuntimeEnv = { SUPABASE_URL?: string; SUPABASE_SECRET_KEY?: string };
-const runtime = env as unknown as RuntimeEnv;
-
 function adminClient() {
+  const runtime: RuntimeEnv = { SUPABASE_URL: process.env.SUPABASE_URL, SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY };
   if (!runtime.SUPABASE_URL || !runtime.SUPABASE_SECRET_KEY) throw new Error("Supabase Admin non configuré");
   return createClient(runtime.SUPABASE_URL, runtime.SUPABASE_SECRET_KEY, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
