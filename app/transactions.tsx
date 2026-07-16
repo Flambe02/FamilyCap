@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { supabaseBrowser } from "../lib/supabase-browser";
 import "./transactions.css";
 
 export type TransactionRecord = {
@@ -13,21 +14,28 @@ export type TransactionRecord = {
   amount: number;
   quantity?: number;
   author: string;
-  authorRole: "Administrateur" | "Enfant" | "Adulte";
+  authorRole: "Administrateur" | "Enfant" | "Adulte" | "Blockchain";
   status: "Confirmée" | "À transférer" | "À compléter";
   reference?: string;
   note?: string;
 };
 
 export const initialTransactions: TransactionRecord[] = [
-  { id: "tx-2026-th", date: "2026-03-15", member: "Thibault", kind: "Anniversaire", asset: "Bitcoin", account: "Binance commun", amount: 55, author: "Administrateur", authorRole: "Administrateur", status: "À compléter", note: "Quantité BTC à retrouver dans l’historique Binance." },
-  { id: "tx-2025-noel-th", date: "2025-12-25", member: "Thibault", kind: "Noël", asset: "Bitcoin", account: "Binance commun", amount: 55, author: "Administrateur", authorRole: "Administrateur", status: "À compléter" },
-  { id: "tx-2025-noel-uh", date: "2025-12-25", member: "Uhaina", kind: "Noël", asset: "Bitcoin", account: "Binance commun", amount: 55, author: "Administrateur", authorRole: "Administrateur", status: "À compléter" },
-  { id: "tx-2023-th", date: "2023-03-15", member: "Thibault", kind: "Anniversaire", asset: "Bitcoin", account: "Binance → Ledger", amount: 50.6, quantity: 0.00217, author: "Administrateur", authorRole: "Administrateur", status: "Confirmée", reference: "Historique familial", note: "Premier montant historique confirmé." },
-  { id: "tx-2023-uh", date: "2023-08-16", member: "Uhaina", kind: "Anniversaire", asset: "Bitcoin", account: "Binance → Ledger", amount: 55.42, quantity: 0.00207, author: "Administrateur", authorRole: "Administrateur", status: "Confirmée", reference: "Historique familial" },
-  { id: "tx-2023-au", date: "2023-08-27", member: "Aurore", kind: "Anniversaire", asset: "Bitcoin", account: "Binance → Ledger", amount: 50.2, quantity: 0.00208, author: "Administrateur", authorRole: "Administrateur", status: "Confirmée", reference: "Historique familial" },
-  { id: "tx-2023-pa", date: "2023-11-20", member: "Paul", kind: "Anniversaire", asset: "Bitcoin", account: "Binance commun", amount: 55, quantity: 0.001362, author: "Administrateur", authorRole: "Administrateur", status: "À transférer", reference: "Historique familial" },
-  { id: "tx-2023-noel-to", date: "2023-12-25", member: "Thomas", kind: "Noël", asset: "Bitcoin", account: "Binance commun", amount: 55, quantity: 0.001362, author: "Administrateur", authorRole: "Administrateur", status: "À transférer", reference: "Quantité à confirmer par enfant" },
+  ...["Thibault", "Uhaina", "Paul", "Aurore", "Thomas"].map((member) => ({
+    id: `tx-2023-noel-${member.toLowerCase()}`,
+    date: "2023-12-25",
+    member,
+    kind: "Noël",
+    asset: "Bitcoin",
+    account: "Binance commun",
+    amount: 55,
+    quantity: 0.001362,
+    author: "Administrateur",
+    authorRole: "Administrateur" as const,
+    status: "À transférer" as const,
+    reference: "Achat groupé du 25/12/2023",
+    note: "Achat réalisé pour les cinq enfants le même jour. Valeurs historiques par enfant : 55 € et 0,001362 BTC.",
+  })),
 ];
 
 const memberNames = ["Thibault", "Uhaina", "Paul", "Aurore", "Thomas"];
@@ -38,12 +46,71 @@ export function TransactionsView({ transactions, onAdd, onTransferRequest }: { t
   const [memberFilter, setMemberFilter] = useState("Tous");
   const [statusFilter, setStatusFilter] = useState("Tous");
   const [selected, setSelected] = useState<TransactionRecord | null>(null);
+  const [giftTransactions, setGiftTransactions] = useState<TransactionRecord[]>([]);
+  const [ledgerTransactions, setLedgerTransactions] = useState<TransactionRecord[]>([]);
 
-  const filtered = useMemo(() => transactions.filter((transaction) => {
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      const { data } = await supabaseBrowser.auth.getSession();
+      const headers: Record<string, string> = data.session ? { authorization: "Bearer " + data.session.access_token } : {};
+      const [giftResponse, ledgerResponse] = await Promise.all([
+        fetch("/api/gifts", { signal: controller.signal, headers }),
+        fetch("/api/ledger", { signal: controller.signal, headers }),
+      ]);
+      if (!giftResponse.ok || !ledgerResponse.ok) throw new Error("Historique financier indisponible");
+      const giftResult = await giftResponse.json() as { records?: Array<{ id: string; member_name: string; occasion: string; gift_date: string; amount_eur: number | string; btc_amount: number | string; custody: string; confirmations?: number; txid?: string | null; note?: string | null }> };
+      const ledgerResult = await ledgerResponse.json() as { wallets?: Array<{ member: string; transactions?: Array<{ txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number }> }> };
+      setGiftTransactions((giftResult.records ?? []).filter((record) => record.gift_date >= "2023-12-25").map((record) => ({
+        id: "gift-" + record.id,
+        date: record.gift_date,
+        member: record.member_name,
+        kind: record.occasion,
+        asset: "Bitcoin",
+        account: record.custody,
+        amount: Number(record.amount_eur),
+        quantity: Number(record.btc_amount),
+        author: "Administrateur",
+        authorRole: "Administrateur" as const,
+        status: record.custody === "Binance commun" ? "À transférer" as const : (record.confirmations ?? 0) > 0 ? "Confirmée" as const : "À compléter" as const,
+        reference: record.txid ?? undefined,
+        note: record.note ?? undefined,
+      })));
+      setLedgerTransactions((ledgerResult.wallets ?? []).flatMap((wallet) => (wallet.transactions ?? []).filter((transaction) => !transaction.date || transaction.date.slice(0, 10) >= "2023-12-25").map((transaction) => ({
+        id: "ledger-" + transaction.txid,
+        date: transaction.date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        member: wallet.member,
+        kind: "Transaction Ledger",
+        asset: "Bitcoin",
+        account: "Ledger personnel · blockchain",
+        amount: 0,
+        quantity: transaction.amountBtc,
+        author: "Blockchain",
+        authorRole: "Blockchain" as const,
+        status: transaction.confirmations > 0 ? "Confirmée" as const : "À compléter" as const,
+        reference: transaction.txid,
+        note: `${transaction.direction} sur l’adresse Ledger publique · ${transaction.confirmations} confirmations. Donnée en lecture seule.`,
+      }))));
+    })().catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError")) console.error(error);
+    });
+    return () => controller.abort();
+  }, []);
+
+  const detailedTransactions = useMemo(() => {
+    const giftsByEvent = new Map<string, TransactionRecord>();
+    for (const transaction of [...transactions, ...giftTransactions]) giftsByEvent.set(`${transaction.member}|${transaction.kind}|${transaction.date}`, transaction);
+    const giftRecords = [...giftsByEvent.values()];
+    const references = new Set(giftRecords.map((transaction) => transaction.reference).filter(Boolean));
+    return [...giftRecords, ...ledgerTransactions.filter((transaction) => !references.has(transaction.reference))]
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [transactions, giftTransactions, ledgerTransactions]);
+
+  const filtered = useMemo(() => detailedTransactions.filter((transaction) => {
     const memberMatches = memberFilter === "Tous" || transaction.member === memberFilter;
     const statusMatches = statusFilter === "Tous" || transaction.status === statusFilter;
     return memberMatches && statusMatches;
-  }), [transactions, memberFilter, statusFilter]);
+  }), [detailedTransactions, memberFilter, statusFilter]);
 
   return (
     <div className="page-stack">
@@ -79,7 +146,7 @@ export function TransactionsView({ transactions, onAdd, onTransferRequest }: { t
                 <td>{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</td>
                 <td><strong>{transaction.member}</strong></td>
                 <td><strong>{transaction.kind}</strong><small>{transaction.asset} · {transaction.account}</small></td>
-                <td className="number-cell">{euro.format(transaction.amount)}</td>
+                <td className="number-cell">{transaction.authorRole === "Blockchain" ? "—" : euro.format(transaction.amount)}</td>
                 <td className="number-cell">{transaction.quantity ? `${transaction.quantity.toFixed(8)} BTC` : "À saisir"}</td>
                 <td><span className={transaction.authorRole === "Enfant" ? "author-chip child" : "author-chip"}>{transaction.author}</span></td>
                 <td><span className={`transaction-status ${statusClass(transaction.status)}`}>{transaction.status}</span></td>
@@ -139,7 +206,7 @@ export function InvestmentModal({ onClose, onSave }: { onClose: () => void; onSa
 }
 
 function TransactionDetail({ transaction, onClose }: { transaction: TransactionRecord; onClose: () => void }) {
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="transaction-detail" role="dialog" aria-modal="true" aria-labelledby="transaction-title"><header><div><span>DÉTAIL DE L’OPÉRATION</span><h2 id="transaction-title">{transaction.kind}</h2><p>{transaction.member} · {dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><div className="detail-amount"><small>Montant investi</small><strong>{euro.format(transaction.amount)}</strong><span className={`transaction-status ${statusClass(transaction.status)}`}>{transaction.status}</span></div><dl className="detail-list"><div><dt>Actif</dt><dd>{transaction.asset}</dd></div><div><dt>Quantité</dt><dd>{transaction.quantity ? transaction.quantity.toFixed(8) : "Non renseignée"}</dd></div><div><dt>Compte</dt><dd>{transaction.account}</dd></div><div><dt>Saisie par</dt><dd>{transaction.author} · {transaction.authorRole}</dd></div><div><dt>Référence</dt><dd>{transaction.reference ?? "Aucune"}</dd></div><div><dt>Commentaire</dt><dd>{transaction.note ?? "Aucun commentaire"}</dd></div></dl><div className="detail-safety">Cette fiche contient uniquement des informations de suivi. Elle ne contient aucune clé privée ni aucun mot Ledger.</div><button className="primary-button" onClick={onClose}>Fermer</button></section></div>;
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="transaction-detail" role="dialog" aria-modal="true" aria-labelledby="transaction-title"><header><div><span>DÉTAIL DE L’OPÉRATION</span><h2 id="transaction-title">{transaction.kind}</h2><p>{transaction.member} · {dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><div className="detail-amount"><small>{transaction.authorRole === "Blockchain" ? "Valeur publique" : "Montant investi"}</small><strong>{transaction.authorRole === "Blockchain" ? "Transaction Ledger" : euro.format(transaction.amount)}</strong><span className={`transaction-status ${statusClass(transaction.status)}`}>{transaction.status}</span></div><dl className="detail-list"><div><dt>Actif</dt><dd>{transaction.asset}</dd></div><div><dt>Quantité</dt><dd>{transaction.quantity ? transaction.quantity.toFixed(8) : "Non renseignée"}</dd></div><div><dt>Compte</dt><dd>{transaction.account}</dd></div><div><dt>Saisie par</dt><dd>{transaction.author} · {transaction.authorRole}</dd></div><div><dt>Référence</dt><dd>{transaction.reference ?? "Aucune"}</dd></div><div><dt>Commentaire</dt><dd>{transaction.note ?? "Aucun commentaire"}</dd></div></dl><div className="detail-safety">Cette fiche contient uniquement des informations de suivi. Elle ne contient aucune clé privée ni aucun mot Ledger.</div><button className="primary-button" onClick={onClose}>Fermer</button></section></div>;
 }
 
 function statusClass(status: TransactionRecord["status"]) { return status === "Confirmée" ? "confirmed" : status === "À transférer" ? "transfer" : "incomplete"; }

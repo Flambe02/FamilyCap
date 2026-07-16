@@ -54,6 +54,7 @@
 .gift-story span, .gift-story strong, .gift-story small, .gift-amount strong, .gift-amount small, .custody-chip span > * { display: block; }
 .gift-story span { color: #159486; font-size: .67rem; font-weight: 800; letter-spacing: .08em; }
 .gift-story strong { margin: 4px 0; color: #17384b; }
+.gift-story em { display: block; margin-top: 5px; color: #61737b; font-size: .7rem; font-style: normal; line-height: 1.35; }
 .gift-story small, .gift-amount small, .custody-chip small { color: #77868c; }
 .gift-amount { text-align: right; }
 .gift-amount strong { color: #17384b; font-size: 1rem; }

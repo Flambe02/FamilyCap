@@ -44,13 +44,19 @@ const addresses: Record<string, string> = {
   Aurore: "bc1qxs2uy67myzfx8z2vtzr6lm3cgrx808azqkt4pg",
   Thomas: "bc1qfwuze87xnhxjfdmr3wnfy3wguu5ymedk4qcwjr",
 };
-const historical: Omit<GiftRecord, "origin">[] = [
-  { member_name: "Thibault", occasion: "Anniversaire", gift_date: "2023-03-15", purchase_date: "2023-03-15", amount_eur: 50.6, btc_amount: 0.00217, custody: "Ledger", note: "Historique familial communiqué" },
-  { member_name: "Uhaina", occasion: "Anniversaire", gift_date: "2023-08-16", purchase_date: "2023-08-16", amount_eur: 55.42, btc_amount: 0.00207, custody: "Ledger", note: "Historique familial communiqué" },
-  { member_name: "Aurore", occasion: "Anniversaire", gift_date: "2023-08-27", purchase_date: "2023-08-27", amount_eur: 50.2, btc_amount: 0.00208, custody: "Ledger", note: "Historique familial communiqué" },
-  { member_name: "Paul", occasion: "Anniversaire", gift_date: "2023-11-18", purchase_date: "2023-11-20", amount_eur: 55, btc_amount: 0.001362, custody: "Binance commun", note: "Achat du 20 novembre 2023" },
-  ...people.map((person) => ({ member_name: person.name, occasion: "Noël", gift_date: "2023-12-25", purchase_date: "2023-12-25", amount_eur: 55, btc_amount: 0.001362, custody: "Binance commun" as const, note: "Cadeau de Noël 2023" })),
-];
+const PROGRAM_START_DATE = "2023-12-25";
+const CHRISTMAS_2023_EUR_PER_CHILD = 55;
+const CHRISTMAS_2023_BTC_PER_CHILD = 0.001362;
+const historical: Omit<GiftRecord, "origin">[] = people.map((person) => ({
+  member_name: person.name,
+  occasion: "Noël",
+  gift_date: PROGRAM_START_DATE,
+  purchase_date: PROGRAM_START_DATE,
+  amount_eur: CHRISTMAS_2023_EUR_PER_CHILD,
+  btc_amount: CHRISTMAS_2023_BTC_PER_CHILD,
+  custody: "Binance commun" as const,
+  note: "Achat réalisé pour les cinq enfants le même jour. Valeurs historiques indiquées pour chaque enfant.",
+}));
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const monthYear = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
 const fullDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
@@ -76,7 +82,8 @@ function expectedRecords() {
   const records: GiftRecord[] = [];
   for (const person of people) {
     for (let year = 2023; year <= currentYear; year += 1) {
-      records.push({ member_name: person.name, occasion: "Anniversaire", gift_date: `${year}-${String(person.month).padStart(2, "0")}-${String(person.day).padStart(2, "0")}`, purchase_date: "", amount_eur: 55, btc_amount: 0, custody: "Binance commun", origin: "expected" });
+      const birthdayDate = `${year}-${String(person.month).padStart(2, "0")}-${String(person.day).padStart(2, "0")}`;
+      if (birthdayDate >= PROGRAM_START_DATE) records.push({ member_name: person.name, occasion: "Anniversaire", gift_date: birthdayDate, purchase_date: "", amount_eur: 55, btc_amount: 0, custody: "Binance commun", origin: "expected" });
       records.push({ member_name: person.name, occasion: "Noël", gift_date: `${year}-12-25`, purchase_date: "", amount_eur: 55, btc_amount: 0, custody: "Binance commun", origin: "expected" });
     }
   }
@@ -103,11 +110,12 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus }: { view
   }, [load]);
 
   const allRecords = useMemo(() => {
-    const databaseKeys = new Set(databaseRecords.map(keyOf));
+    const eligibleDatabaseRecords = databaseRecords.filter((record) => record.gift_date >= PROGRAM_START_DATE);
+    const databaseKeys = new Set(eligibleDatabaseRecords.map(keyOf));
     const history = historical.filter((record) => !databaseKeys.has(keyOf(record))).map((record) => ({ ...record, origin: "historical" as const }));
-    const recordedKeys = new Set([...databaseRecords, ...history].map(keyOf));
+    const recordedKeys = new Set([...eligibleDatabaseRecords, ...history].map(keyOf));
     const expected = expectedRecords().filter((record) => !recordedKeys.has(keyOf(record)));
-    return [...databaseRecords, ...history, ...expected].sort((a, b) => b.gift_date.localeCompare(a.gift_date));
+    return [...eligibleDatabaseRecords, ...history, ...expected].sort((a, b) => b.gift_date.localeCompare(a.gift_date));
   }, [databaseRecords]);
   const records = allRecords.filter((record) => record.member_name === selected);
   const recorded = records.filter((record) => record.origin !== "expected");
@@ -150,12 +158,12 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus }: { view
 
     <section className="gift-stats"><article><span>✓</span><div><strong>{recorded.length}</strong><small>cadeaux documentés</small></div></article><article><span>!</span><div><strong>{missing}</strong><small>cadeaux passés à compléter</small></div></article><article><span>↗</span><div><strong>{wallet?.transactions?.length ?? 0}</strong><small>transactions Ledger publiques</small></div></article></section>
 
-    <section className="panel gift-timeline-panel"><header><div><span>HISTOIRE DES CADEAUX</span><h2>Anniversaires et Noëls, année après année</h2><p>Chaque ligne raconte le cadeau, la quantité achetée et son lieu de conservation.</p></div><div className="timeline-legend"><span className="ledger">Ledger</span><span className="binance">Binance commun</span><span className="missing">À compléter</span></div></header>
+    <section className="panel gift-timeline-panel"><header><div><span>HISTOIRE DES CADEAUX</span><h2>Anniversaires et Noëls, année après année</h2><p>Le registre commence le 25 décembre 2023. Chaque ligne raconte le cadeau, la quantité achetée et son lieu de conservation.</p></div><div className="timeline-legend"><span className="ledger">Ledger</span><span className="binance">Binance commun</span><span className="missing">À compléter</span></div></header>
       <div className="gift-years">{years.map((year) => <section key={year} className="gift-year"><h3>{year}</h3><div>{records.filter((record) => record.gift_date.startsWith(year)).map((record) => {
         const isMissing = record.origin === "expected";
         const isFuture = isMissing && new Date(record.gift_date + "T23:59:59Z") >= new Date();
         const isLocked = locked(record);
-        return <article key={keyOf(record)} className={isMissing ? "missing" : ""}><div className={`occasion-icon ${record.occasion === "Noël" ? "christmas" : "birthday"}`}>{record.occasion === "Noël" ? "✦" : "♕"}</div><div className="gift-story"><span>{record.occasion.toUpperCase()} · {monthYear.format(new Date(record.gift_date + "T00:00:00Z"))}</span><strong>{record.occasion === "Noël" ? "Le cadeau de Noël d’Amatxi" : `Le cadeau d’anniversaire de ${selected}`}</strong><small>{isMissing ? (isFuture ? `Prévu le ${fullDate.format(new Date(record.gift_date + "T00:00:00Z"))}` : "Achat ou quantité BTC à renseigner") : `Acheté le ${fullDate.format(new Date(record.purchase_date + "T00:00:00Z"))}`}</small></div><div className="gift-amount">{isMissing ? <><strong>55,00 €</strong><small>BTC à saisir</small></> : <><strong>{record.btc_amount.toFixed(8)} BTC</strong><small>{euro.format(record.amount_eur)} · frais inclus</small></>}</div><div className={`custody-chip ${isMissing ? "missing" : record.custody === "Ledger" ? "ledger" : "binance"}`}><b>{isMissing ? "?" : record.custody === "Ledger" ? "L" : "₿"}</b><span><strong>{isMissing ? (isFuture ? "À venir" : "À compléter") : record.custody}</strong><small>{isLocked ? `${record.confirmations} confirmations` : record.origin === "historical" ? "Historique à confirmer" : record.custody === "Ledger" ? "Déclaré sur Ledger" : "En attente de transfert"}</small></span></div>{isAdmin && <div className="gift-actions">{isLocked ? <span title="Donnée confirmée par la blockchain">🔒 Lecture seule</span> : <><button onClick={() => startEntry(record)}>{record.origin === "database" ? "Modifier" : "Renseigner"}</button>{record.origin === "database" && <button className="delete" onClick={() => void remove(record)}>Supprimer</button>}</>}</div>}</article>;
+        return <article key={keyOf(record)} className={isMissing ? "missing" : ""}><div className={`occasion-icon ${record.occasion === "Noël" ? "christmas" : "birthday"}`}>{record.occasion === "Noël" ? "✦" : "♕"}</div><div className="gift-story"><span>{record.occasion.toUpperCase()} · {monthYear.format(new Date(record.gift_date + "T00:00:00Z"))}</span><strong>{record.occasion === "Noël" ? "Le cadeau de Noël d’Amatxi" : `Le cadeau d’anniversaire de ${selected}`}</strong><small>{isMissing ? (isFuture ? `Prévu le ${fullDate.format(new Date(record.gift_date + "T00:00:00Z"))}` : "Achat ou quantité BTC à renseigner") : `Acheté le ${fullDate.format(new Date(record.purchase_date + "T00:00:00Z"))}`}</small>{record.note && !isMissing && <em>{record.note}</em>}</div><div className="gift-amount">{isMissing ? <><strong>55,00 €</strong><small>BTC à saisir</small></> : <><strong>{record.btc_amount.toFixed(8)} BTC</strong><small>{euro.format(record.amount_eur)} · frais inclus</small></>}</div><div className={`custody-chip ${isMissing ? "missing" : record.custody === "Ledger" ? "ledger" : "binance"}`}><b>{isMissing ? "?" : record.custody === "Ledger" ? "L" : "₿"}</b><span><strong>{isMissing ? (isFuture ? "À venir" : "À compléter") : record.custody}</strong><small>{isLocked ? `${record.confirmations} confirmations` : record.origin === "historical" ? "Historique à confirmer" : record.custody === "Ledger" ? "Déclaré sur Ledger" : "En attente de transfert"}</small></span></div>{isAdmin && <div className="gift-actions">{isLocked ? <span title="Donnée confirmée par la blockchain">🔒 Lecture seule</span> : <><button onClick={() => startEntry(record)}>{record.origin === "database" ? "Modifier" : "Renseigner"}</button>{record.origin === "database" && <button className="delete" onClick={() => void remove(record)}>Supprimer</button>}</>}</div>}</article>;
       })}</div></section>)}</div>
     </section>
 
