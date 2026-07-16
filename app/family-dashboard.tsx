@@ -45,6 +45,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [view, setView] = useState<View>("famille");
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const publishedVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "local";
   const [activity, setActivity] = useState([
     { member: "Thibault", label: "Cadeau anniversaire", detail: "55,00 € · Bitcoin", time: "15 mars" },
     { member: "Famille", label: "Mission publiée", detail: "Comprendre les ETF indiciels", time: "1 juil." },
@@ -167,7 +168,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         {view === "backoffice" && viewer.role === "admin" && <Administration viewer={viewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "missions" && <Missions openModal={() => setModalOpen(true)} />}
         {view === "apprendre" && <Learn />}
-        {view === "parametres" && <Settings viewer={viewer} onSignOut={onSignOut} />}
+        {view === "parametres" && <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />}
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
@@ -267,15 +268,15 @@ function Learn() {
   return <div className="page-stack"><section className="learn-head"><span className="soft-pill">BIBLIOTHÈQUE FAMILIALE</span><h2>Apprendre juste ce qu’il faut,<br />au bon moment.</h2><p>Des explications courtes, reliées à une vraie action dans le portefeuille.</p></section><section className="lesson-grid">{lessons.map((lesson, i) => <article className="lesson-card" key={lesson.title}><div className={`lesson-icon ${lesson.color}`}>{lesson.icon}</div><span>{lesson.level} · {i + 4} MIN</span><h3>{lesson.title}</h3><p>{lesson.text}</p><button>Commencer la leçon →</button></article>)}</section></div>;
 }
 
-function Settings({ viewer, onSignOut }: { viewer: Viewer; onSignOut: () => void }) {
+function Settings({ viewer, onSignOut, publishedVersion }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string }) {
   const adminTabs = [["utilisateurs", "Utilisateurs & accès"], ["portefeuilles", "Comptes & wallets"], ["cadeaux", "Règles des cadeaux"], ["securite", "Sécurité"], ["donnees", "Données & exports"], ["compte", "Mon compte"]];
   const memberTabs = [["compte", "Mon compte"], ["portefeuilles", "Mes portefeuilles"], ["securite", "Sécurité"]];
   const tabs = viewer.role === "admin" ? adminTabs : memberTabs;
   const [tab, setTab] = useState(viewer.role === "admin" ? "utilisateurs" : "compte");
-  return <div className="settings-layout"><aside className="settings-nav"><p>RÉGLAGES</p>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}<span>›</span></button>)}</aside><section className="settings-content panel">{tab === "utilisateurs" && viewer.role === "admin" && <UsersSettings />}{tab === "portefeuilles" && (viewer.role === "admin" ? <WalletSettings /> : <MemberWalletSettings viewer={viewer} />)}{tab === "cadeaux" && viewer.role === "admin" && <GiftSettings />}{tab === "securite" && <SecuritySettings />}{tab === "donnees" && viewer.role === "admin" && <DataSettings />}{tab === "compte" && <PersonalSettings viewer={viewer} onSignOut={onSignOut} />}</section></div>;
+  return <div className="settings-layout"><aside className="settings-nav"><p>RÉGLAGES</p>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}<span>›</span></button>)}</aside><section className="settings-content panel">{tab === "utilisateurs" && viewer.role === "admin" && <UsersSettings />}{tab === "portefeuilles" && (viewer.role === "admin" ? <WalletSettings /> : <MemberWalletSettings viewer={viewer} />)}{tab === "cadeaux" && viewer.role === "admin" && <GiftSettings />}{tab === "securite" && <SecuritySettings />}{tab === "donnees" && viewer.role === "admin" && <DataSettings />}{tab === "compte" && <PersonalSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />}</section></div>;
 }
 
-function PersonalSettings({ viewer, onSignOut }: { viewer: Viewer; onSignOut: () => void }) {
+function PersonalSettings({ viewer, onSignOut, publishedVersion }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string }) {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   async function updatePassword() {
@@ -284,7 +285,7 @@ function PersonalSettings({ viewer, onSignOut }: { viewer: Viewer; onSignOut: ()
     setMessage(error ? error.message : "Mot de passe mis à jour.");
     if (!error) setPassword("");
   }
-  return <><PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" /><p className="section-intro">Ces informations correspondent à ton accès personnel Cap Family.</p><div className="form-grid"><label>Nom<input value={viewer.name} readOnly /></label><label>Adresse e-mail<input value={viewer.email} readOnly /></label><label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "child" ? "Jeune investisseur" : "Membre famille"} readOnly /></label><label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label></div><div className="settings-account-actions"><button onClick={updatePassword}>Mettre à jour le mot de passe</button><button className="logout-button" onClick={onSignOut}>Se déconnecter</button></div>{message && <div className="info-callout"><b>Compte</b><p>{message}</p></div>}</>;
+  return <><PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" /><p className="section-intro">Ces informations correspondent à ton accès personnel Cap Family.</p><div className="form-grid"><label>Nom<input value={viewer.name} readOnly /></label><label>Adresse e-mail<input value={viewer.email} readOnly /></label><label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "child" ? "Jeune investisseur" : "Membre famille"} readOnly /></label><label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label></div><div className="settings-account-actions"><button onClick={updatePassword}>Mettre à jour le mot de passe</button><button className="logout-button" onClick={onSignOut}>Se déconnecter</button></div>{<div className="account-version">Version publiée <strong>{publishedVersion}</strong></div>}{message && <div className="info-callout"><b>Compte</b><p>{message}</p></div>}</>;
 }
 
 function UsersSettings() {
