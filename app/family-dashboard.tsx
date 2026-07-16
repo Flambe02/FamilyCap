@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsView } from "./transactions";
-import { BackOffice, GiftRecord, TransferRequest } from "./back-office";
+import { GiftRecord, TransferRequest } from "./back-office";
+import { Administration } from "./administration";
 import { LedgerLive } from "./ledger-live";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
@@ -21,7 +22,7 @@ const navItems: { id: View; label: string; icon: string }[] = [
   { id: "famille", label: "Vue famille", icon: "⌂" },
   { id: "portefeuilles", label: "Portefeuilles", icon: "◫" },
   { id: "transactions", label: "Transactions", icon: "⇄" },
-  { id: "backoffice", label: "Back-office", icon: "▣" },
+  { id: "backoffice", label: "Administration", icon: "▣" },
   { id: "missions", label: "Missions", icon: "◎" },
   { id: "apprendre", label: "Apprendre", icon: "◇" },
   { id: "parametres", label: "Paramètres", icon: "⚙" },
@@ -172,7 +173,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         )}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={viewer} />}
         {view === "transactions" && <TransactionsView transactions={viewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === viewer.name)} onAdd={() => setModalOpen(true)} onTransferRequest={requestTransfer} />}
-        {view === "backoffice" && viewer.role === "admin" && <BackOffice requests={transferRequests} onGiftSaved={saveGift} onRequestStatus={updateRequestStatus} />}
+        {view === "backoffice" && viewer.role === "admin" && <Administration requests={transferRequests} onGiftSaved={saveGift} onRequestStatus={updateRequestStatus} />}
         {view === "missions" && <Missions openModal={() => setModalOpen(true)} />}
         {view === "apprendre" && <Learn />}
         {view === "parametres" && <Settings viewer={viewer} onSignOut={onSignOut} />}
@@ -350,5 +351,5 @@ function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow: string; tit
 }
 
 function titleFor(view: View) {
-  return { famille: "Vue famille", portefeuilles: "Portefeuilles", transactions: "Transactions", backoffice: "Back-office cadeaux BTC", missions: "Missions mensuelles", apprendre: "Apprendre", parametres: "Paramètres" }[view];
+  return { famille: "Vue famille", portefeuilles: "Portefeuilles", transactions: "Transactions", backoffice: "Administration", missions: "Missions mensuelles", apprendre: "Apprendre", parametres: "Paramètres" }[view];
 }
