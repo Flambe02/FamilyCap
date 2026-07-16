@@ -68,20 +68,21 @@ function LoginScreen() {
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage("");
+    const normalizedEmail = email.trim().toLowerCase();
     try {
       if (mode === "login") {
-        const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
+        const { error } = await supabaseBrowser.auth.signInWithPassword({ email: normalizedEmail, password });
         if (error) throw error;
       } else if (mode === "signup") {
-        const { error } = await supabaseBrowser.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
+        const { error } = await supabaseBrowser.auth.signUp({ email: normalizedEmail, password, options: { emailRedirectTo: window.location.origin } });
         if (error) throw error;
         setMessage("Vérifie ta boîte e-mail pour confirmer ton accès.");
       } else {
-        const { error } = await supabaseBrowser.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: window.location.origin } });
+        const { error } = await supabaseBrowser.auth.signInWithOtp({ email: normalizedEmail, options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/` } });
         if (error) throw error;
-        setMessage("Lien unique envoyé. Il sera valable pendant la durée configurée dans Supabase.");
+        setMessage("Lien unique envoyé. Vérifie ta boîte de réception et les courriers indésirables.");
       }
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Connexion impossible"); }
+    } catch (error) { setMessage(friendlyAuthError(error)); }
     finally { setBusy(false); }
   }
 
@@ -92,6 +93,15 @@ function LoginScreen() {
   }
 
   return <main className="auth-page"><section className="auth-brand"><span className="auth-logo">C</span><div><small>CAP FAMILY</small><h1>Grandir avec<br />son argent.</h1><p>Les cadeaux Bitcoin, l’épargne et les premiers investissements expliqués simplement, en famille.</p></div><blockquote>“Investir tôt, c’est surtout apprendre tôt.”</blockquote></section><section className="auth-panel"><div className="auth-card"><header><span>ESPACE FAMILLE PRIVÉ</span><h2>{mode === "login" ? "Heureux de te revoir" : mode === "signup" ? "Créer mon mot de passe" : "Recevoir un lien unique"}</h2><p>Seules les personnes préalablement invitées par Florent peuvent accéder à Cap Family.</p></header><button className="google-button" onClick={googleLogin} disabled><b>G</b> Connexion Google · bientôt</button><div className="auth-separator"><span />ou<span /></div><form onSubmit={submit}><label>Adresse e-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="prenom@exemple.com" autoComplete="email" required /></label>{mode !== "magic" && <label>Mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>}<button className="auth-submit" disabled={busy}>{busy ? "Un instant…" : mode === "login" ? "Se connecter" : mode === "signup" ? "Créer mon accès" : "Envoyer le lien unique"}</button></form>{message && <p className="auth-message">{message}</p>}<nav><button onClick={() => setMode(mode === "login" ? "magic" : "login")}>{mode === "login" ? "Recevoir un lien unique" : "Retour à la connexion"}</button><button onClick={() => setMode(mode === "signup" ? "login" : "signup")}>{mode === "signup" ? "J’ai déjà un compte" : "Première connexion"}</button></nav><footer>Accès sur invitation · Données privées · Aucune clé Ledger enregistrée</footer></div></section></main>;
+}
+
+function friendlyAuthError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Connexion impossible";
+  const normalized = message.toLowerCase();
+  if (normalized.includes("email not confirmed")) return "Adresse e-mail non confirmée. Utilise « Recevoir un lien unique » ou contacte Florent.";
+  if (normalized.includes("invalid login credentials")) return "Adresse e-mail ou mot de passe incorrect.";
+  if (normalized.includes("rate limit") || normalized.includes("security purposes")) return "Trop de demandes rapprochées. Attends une minute avant de réessayer.";
+  return message;
 }
 
 function AccessDenied({ message, onSignOut }: { message: string; onSignOut: () => void }) {
