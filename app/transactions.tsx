@@ -76,7 +76,7 @@ export function TransactionsView({ transactions, onAdd, onTransferRequest }: { t
         reference: record.txid ?? undefined,
         note: record.note ?? undefined,
       })));
-      setLedgerTransactions((ledgerResult.wallets ?? []).flatMap((wallet) => (wallet.transactions ?? []).filter((transaction) => !transaction.date || transaction.date.slice(0, 10) >= "2023-12-25").map((transaction) => ({
+      setLedgerTransactions((ledgerResult.wallets ?? []).flatMap((wallet) => (wallet.transactions ?? []).map((transaction) => ({
         id: "ledger-" + transaction.txid,
         date: transaction.date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
         member: wallet.member,
@@ -101,8 +101,7 @@ export function TransactionsView({ transactions, onAdd, onTransferRequest }: { t
     const giftsByEvent = new Map<string, TransactionRecord>();
     for (const transaction of [...transactions, ...giftTransactions]) giftsByEvent.set(`${transaction.member}|${transaction.kind}|${transaction.date}`, transaction);
     const giftRecords = [...giftsByEvent.values()];
-    const references = new Set(giftRecords.map((transaction) => transaction.reference).filter(Boolean));
-    return [...giftRecords, ...ledgerTransactions.filter((transaction) => !references.has(transaction.reference))]
+    return [...giftRecords, ...ledgerTransactions]
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [transactions, giftTransactions, ledgerTransactions]);
 

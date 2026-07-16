@@ -171,11 +171,11 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus }: { view
 
     {isAdmin && requests.length > 0 && <section className="panel gift-requests"><header><div><span>DEMANDES DES ENFANTS</span><h2>Transferts Binance vers Ledger</h2></div></header>{requests.map((item) => <article key={item.id}><div><strong>{item.member}</strong><small>{item.btcAmount?.toFixed(8) ?? "Montant à confirmer"} BTC · {item.requestedAt}</small></div><select value={item.status} onChange={(event) => onRequestStatus?.(item.id, event.target.value as TransferRequest["status"])}><option>Nouvelle</option><option>En traitement</option><option>Transférée</option></select></article>)}</section>}
 
-    {editor && <GiftEditor record={editor} wallets={ledger?.wallets ?? []} onClose={() => setEditor(null)} onSaved={async (text) => { setEditor(null); setMessage(text); await load(); }} />}
+    {editor && <GiftEditor record={editor} wallets={ledger?.wallets ?? []} giftRecords={databaseRecords} onClose={() => setEditor(null)} onSaved={async (text) => { setEditor(null); setMessage(text); await load(); }} />}
   </div>;
 }
 
-function GiftEditor({ record, wallets, onClose, onSaved }: { record: GiftRecord; wallets: LedgerWallet[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record: GiftRecord; wallets: LedgerWallet[]; giftRecords: GiftRecord[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
   const [draft, setDraft] = useState({ member: record.member_name, occasion: record.occasion, giftDate: record.gift_date, purchaseDate: record.purchase_date || new Date().toISOString().slice(0, 10), amountEur: String(record.amount_eur || 55), btcAmount: record.btc_amount ? String(record.btc_amount) : "", custody: record.custody, transferDate: record.transfer_date ?? "", ledgerAmount: record.ledger_amount ? String(record.ledger_amount) : "", publicAddress: record.public_address ?? addresses[record.member_name] ?? "", txid: record.txid ?? "", blockchainStatus: record.blockchain_status ?? "", confirmations: record.confirmations ?? 0, note: record.note ?? "" });
   const [busy, setBusy] = useState(false);
   const [verification, setVerification] = useState("");
@@ -183,19 +183,22 @@ function GiftEditor({ record, wallets, onClose, onSaved }: { record: GiftRecord;
   function changeMember(member: string) { setDraft((current) => ({ ...current, member, publicAddress: addresses[member] ?? "", txid: "", confirmations: 0, blockchainStatus: "" })); }
 
   const candidateWallet = wallets.find((wallet) => wallet.member === draft.member);
-  const candidates = useMemo(() => {
-    const expected = Number(draft.btcAmount || 0);
-    const referenceDate = new Date((draft.transferDate || draft.giftDate || draft.purchaseDate) + "T00:00:00Z").getTime();
-    return (candidateWallet?.transactions ?? []).filter((transaction) => transaction.direction === "Reçu").map((transaction) => {
-      const differenceBtc = expected ? Math.abs(transaction.amountBtc - expected) : transaction.amountBtc;
-      const relativeDifference = expected ? differenceBtc / expected : 1;
-      const transactionTime = transaction.date ? new Date(transaction.date).getTime() : referenceDate;
-      const daysDifference = Math.round(Math.abs(transactionTime - referenceDate) / 86_400_000);
-      const quality = differenceBtc <= Math.max(0.00000001, expected * 0.001) ? "exact" : relativeDifference <= 0.03 ? "probable" : "manual";
-      return { ...transaction, differenceBtc, daysDifference, quality, score: relativeDifference * 1000 + daysDifference / 365 };
-    }).sort((left, right) => left.score - right.score);
-  }, [candidateWallet?.transactions, draft.btcAmount, draft.giftDate, draft.purchaseDate, draft.transferDate]);
-
+  const allocatedByTxid = useMemo(() => {
+    const allocations = new Map<string, number>();
+    for (const gift of giftRecords) {
+      if (!gift.txid || gift.id === record.id) continue;
+      allocations.set(gift.txid, (allocations.get(gift.txid) ?? 0) + Number(gift.ledger_amount ?? gift.btc_amount ?? 0));
+    }
+    return allocations;
+  }, [giftRecords, record.id]);
+  const candidates = useMemo(() => (candidateWallet?.transactions ?? [])
+    .filter((transaction) => transaction.direction === "Reçu")
+    .map((transaction) => ({
+      ...transaction,
+      allocatedBtc: allocatedByTxid.get(transaction.txid) ?? 0,
+      remainingBtc: Math.max(0, transaction.amountBtc - (allocatedByTxid.get(transaction.txid) ?? 0)),
+    }))
+    .sort((left, right) => (right.date ?? "").localeCompare(left.date ?? "")), [allocatedByTxid, candidateWallet?.transactions]);
   function chooseCandidate(transaction: (typeof candidates)[number]) {
     const transferDate = transaction.date?.slice(0, 10) ?? draft.transferDate;
     setDraft((current) => ({
@@ -203,25 +206,20 @@ function GiftEditor({ record, wallets, onClose, onSaved }: { record: GiftRecord;
       publicAddress: candidateWallet?.address ?? current.publicAddress,
       txid: transaction.txid,
       transferDate,
-      ledgerAmount: String(transaction.amountBtc),
-      confirmations: transaction.confirmations,
-      blockchainStatus: transaction.quality === "manual" ? "Rapproché manuellement sur la blockchain" : "Validé sur la blockchain",
+      ledgerAmount: current.ledgerAmount || current.btcAmount,
+      confirmations: 0,
+      blockchainStatus: "Association manuelle à confirmer",
     }));
-    setVerification(transaction.quality === "exact"
-      ? `✓ Correspondance exacte trouvée : ${transaction.amountBtc.toFixed(8)} BTC · ${transaction.confirmations} confirmations.`
-      : transaction.quality === "probable"
-        ? `✓ Correspondance probable sélectionnée : écart de ${transaction.differenceBtc.toFixed(8)} BTC. Vérifiez avant d’enregistrer.`
-        : "Transaction Ledger sélectionnée manuellement. Vérifiez le montant avant d’enregistrer.");
+    setVerification(`Virement sélectionné manuellement : ${transaction.amountBtc.toFixed(8)} BTC reçus. Indiquez la part correspondant à ce cadeau, puis confirmez.`);
   }
-
   async function verify() {
     if (!draft.publicAddress || !draft.txid) { setVerification("Sélectionnez une réception Ledger ou saisissez son TxID."); return; }
     setBusy(true);
     try {
-      const result = await request("/api/blockchain/verify", { method: "POST", body: JSON.stringify({ address: draft.publicAddress, txid: draft.txid, expectedBtc: Number(draft.ledgerAmount || draft.btcAmount) }) });
+      const result = await request("/api/blockchain/verify", { method: "POST", body: JSON.stringify({ address: draft.publicAddress, txid: draft.txid, expectedBtc: Number(draft.ledgerAmount || draft.btcAmount), allowGrouped: true }) });
       update("confirmations", result.confirmations ?? 0);
       update("blockchainStatus", result.verified ? "Validé sur la blockchain" : "À vérifier");
-      setVerification(result.verified ? `✓ Transaction confirmée · ${result.confirmations} confirmations` : "La transaction ne correspond pas encore au montant attendu.");
+      setVerification(result.verified ? (result.groupedTransfer ? `✓ Association confirmée dans un virement groupé · ${result.confirmations} confirmations` : `✓ Transaction confirmée · ${result.confirmations} confirmations`) : "La part indiquée dépasse le montant reçu ou la transaction n'est pas encore confirmée.");
     } catch (error) { setVerification(error instanceof Error ? error.message : "Vérification impossible"); }
     finally { setBusy(false); }
   }
@@ -239,10 +237,11 @@ function GiftEditor({ record, wallets, onClose, onSaved }: { record: GiftRecord;
     <div className="editor-section"><h3>2 · L’achat Bitcoin</h3><div className="form-grid"><label>Montant total, frais inclus (€)<input type="number" min="0" step="0.01" required value={draft.amountEur} onChange={(event) => update("amountEur", event.target.value)} /></label><label>BTC achetés<input type="number" min="0" step="any" required value={draft.btcAmount} onChange={(event) => update("btcAmount", event.target.value)} placeholder="0,00123456" /></label><label className="span-2">Commentaire<input value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Information utile pour la famille" /></label></div></div>
     <div className="editor-section"><h3>3 · Où sont les bitcoins ?</h3><div className="simple-custody"><button type="button" className={draft.custody === "Binance commun" ? "active" : ""} onClick={() => update("custody", "Binance commun")}><b>₿</b><span><strong>Binance commun</strong><small>Attribués à l’enfant, en attente de transfert</small></span></button><button type="button" className={draft.custody === "Ledger" ? "active" : ""} onClick={() => update("custody", "Ledger")}><b>L</b><span><strong>Ledger personnel</strong><small>Rechercher automatiquement sur la blockchain</small></span></button></div>
       {draft.custody === "Ledger" && <div className="form-grid ledger-editor">
-        <section className="ledger-matcher span-2"><header><div><span>RAPPROCHEMENT BLOCKCHAIN</span><h4>Quelle réception correspond à ce cadeau ?</h4><p>Nous comparons les {Number(draft.btcAmount || 0).toFixed(8)} BTC attendus avec les réceptions publiques du Ledger de {draft.member}.</p></div><b>{candidates.length} trouvée{candidates.length > 1 ? "s" : ""}</b></header>
-          {candidates.length > 0 ? <div className="ledger-candidates">{candidates.slice(0, 5).map((transaction, index) => <button type="button" key={transaction.txid} className={draft.txid === transaction.txid ? "selected" : ""} onClick={() => chooseCandidate(transaction)}><span><b>{index === 0 && transaction.quality !== "manual" ? "★ Proposition" : transaction.quality === "exact" ? "Montant exact" : transaction.quality === "probable" ? "Montant proche" : "Autre réception"}</b><small>{transaction.date ? fullDate.format(new Date(transaction.date)) : "En attente"} · {transaction.confirmations} confirmations</small></span><strong>{transaction.amountBtc.toFixed(8)} BTC</strong><em>{draft.txid === transaction.txid ? "Sélectionnée ✓" : "Associer"}</em></button>)}</div> : <p className="ledger-no-match">Aucune réception publique n’a été trouvée sur cette adresse. Vous pouvez saisir le TxID manuellement ci-dessous.</p>}
+        <section className="ledger-matcher span-2"><header><div><span>ASSOCIATION MANUELLE</span><h4>Sélectionnez le virement Ledger</h4><p>Un virement peut regrouper plusieurs cadeaux. Choisissez la réception, puis indiquez uniquement la part appartenant à ce cadeau.</p></div><b>{candidates.length} réception{candidates.length > 1 ? "s" : ""}</b></header>
+          {candidates.length > 0 ? <div className="ledger-candidates">{candidates.slice(0, 10).map((transaction) => <button type="button" key={transaction.txid} className={draft.txid === transaction.txid ? "selected" : ""} onClick={() => chooseCandidate(transaction)}><span><b>{transaction.date ? fullDate.format(new Date(transaction.date)) : "En attente"}</b><small>{transaction.confirmations} confirmations · TxID {transaction.txid.slice(0, 8)}…</small></span><strong>{transaction.amountBtc.toFixed(8)} BTC<small>{transaction.allocatedBtc.toFixed(8)} déjà associés · {transaction.remainingBtc.toFixed(8)} disponibles</small></strong><em>{draft.txid === transaction.txid ? "Sélectionnée ✓" : "Associer"}</em></button>)}</div> : <p className="ledger-no-match">Aucune réception publique n’a été trouvée sur cette adresse. Vous pouvez saisir le TxID manuellement ci-dessous.</p>}
+          {draft.txid && <p className="allocation-help"><b>Part à attribuer à ce cadeau :</b> renseignez le champ ci-dessous. Le solde du virement pourra être affecté à d’autres cadeaux.</p>}
         </section>
-        <label>Date du transfert<input type="date" value={draft.transferDate} onChange={(event) => update("transferDate", event.target.value)} /></label><label>BTC réellement reçus sur Ledger<input type="number" min="0" step="any" value={draft.ledgerAmount} onChange={(event) => update("ledgerAmount", event.target.value)} /></label><label className="span-2">Adresse Bitcoin publique<input value={draft.publicAddress} onChange={(event) => update("publicAddress", event.target.value)} /></label><details className="manual-txid span-2"><summary>Saisir ou vérifier le TxID manuellement</summary><label>TxID public<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} /></label></details><button type="button" onClick={() => void verify()} disabled={busy}>{draft.txid ? "Confirmer le rapprochement" : "Vérifier sur la blockchain"}</button>
+        <label>Date du transfert<input type="date" value={draft.transferDate} onChange={(event) => update("transferDate", event.target.value)} /></label><label>BTC attribués à ce cadeau<input type="number" min="0" step="any" value={draft.ledgerAmount} onChange={(event) => update("ledgerAmount", event.target.value)} /></label><label className="span-2">Adresse Bitcoin publique<input value={draft.publicAddress} onChange={(event) => update("publicAddress", event.target.value)} /></label><details className="manual-txid span-2"><summary>Saisir ou vérifier le TxID manuellement</summary><label>TxID public<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} /></label></details><button type="button" onClick={() => void verify()} disabled={busy}>{draft.txid ? "Confirmer le rapprochement" : "Vérifier sur la blockchain"}</button>
       </div>}
       {draft.custody === "Binance commun" && <p className="binance-note">Cette quantité restera comptabilisée pour {draft.member}, même si elle se trouve encore sur le compte Binance commun.</p>}
     </div>{verification && <p className="editor-feedback">{verification}</p>}<footer><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : record.origin === "database" ? "Enregistrer les modifications" : "Ajouter au registre"}</button></footer></form></section></div>;

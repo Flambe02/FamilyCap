@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
   }
   try {
-    const payload = await request.json() as { address?: string; txid?: string; expectedBtc?: number };
+    const payload = await request.json() as { address?: string; txid?: string; expectedBtc?: number; allowGrouped?: boolean };
     const address = payload.address?.trim() ?? "";
     const txid = payload.txid?.trim() ?? "";
     const expectedBtc = Number(payload.expectedBtc ?? 0);
@@ -36,12 +36,16 @@ export async function POST(request: Request) {
     const expectedSats = Math.round(expectedBtc * 100_000_000);
     const confirmations = transaction.status.confirmed && transaction.status.block_height ? Math.max(0, tipHeight - transaction.status.block_height + 1) : 0;
     const amountMatches = receivedSats === expectedSats;
+    const coversExpected = receivedSats >= expectedSats;
+    const verified = transaction.status.confirmed && (amountMatches || (payload.allowGrouped === true && coversExpected));
 
     return Response.json({
-      verified: transaction.status.confirmed && amountMatches,
+      verified,
       confirmed: transaction.status.confirmed,
       confirmations,
       amountMatches,
+      coversExpected,
+      groupedTransfer: verified && !amountMatches,
       expectedBtc,
       receivedBtc: receivedSats / 100_000_000,
       txid: transaction.txid,

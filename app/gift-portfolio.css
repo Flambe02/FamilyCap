@@ -112,6 +112,8 @@
 .ledger-candidates span b { color: #087568; font-size: .68rem; }
 .ledger-candidates span small { margin-top: 3px; color: #74838a; font-size: .65rem; }
 .ledger-candidates > button > strong { font-size: .78rem; font-variant-numeric: tabular-nums; }
+.ledger-candidates > button > strong small { display: block; margin-top: 4px; color: #74838a; font-size: .6rem; font-weight: 600; }
+.allocation-help { margin: 0 10px 10px; padding: 10px 12px; border-radius: 9px; color: #23594f; background: #dff3ed; font-size: .7rem; line-height: 1.45; }
 .ledger-candidates > button > em { color: #087568; font-size: .68rem; font-style: normal; font-weight: 900; text-align: right; }
 .ledger-no-match { margin: 10px; padding: 12px; border-radius: 10px; color: #765617; background: #fff7dc; font-size: .72rem; }
 .manual-txid { padding: 10px 12px; border: 1px dashed #c7d8d3; border-radius: 10px; }

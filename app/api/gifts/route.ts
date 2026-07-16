@@ -70,6 +70,24 @@ function payload(body: GiftInput, memberId: string | null) {
   };
 }
 
+async function validateLedgerAllocation(body: GiftInput, excludingId?: string) {
+  if (body.custody !== "Ledger" || !body.txid) return null;
+  if (!body.publicAddress) return "L'adresse publique Ledger est obligatoire.";
+  const allocationBtc = Number(body.ledgerAmount ?? body.btcAmount ?? 0);
+  if (!Number.isFinite(allocationBtc) || allocationBtc <= 0) return "La part BTC attribuée au cadeau est invalide.";
+  const existing = await supabaseRest<Array<{ id: string; ledger_amount: number | string | null; btc_amount: number | string }>>(
+    "gift_records?select=id,ledger_amount,btc_amount&txid=eq." + encodeURIComponent(body.txid),
+  );
+  const alreadyAllocatedBtc = existing.filter((gift) => gift.id !== excludingId).reduce((sum, gift) => sum + Number(gift.ledger_amount ?? gift.btc_amount ?? 0), 0);
+  const transactionResponse = await fetch("https://blockstream.info/api/tx/" + encodeURIComponent(body.txid), { headers: { accept: "application/json" } });
+  if (!transactionResponse.ok) return "Cette transaction Bitcoin est introuvable.";
+  const transaction = await transactionResponse.json() as { vout: Array<{ scriptpubkey_address?: string; value: number }> };
+  const receivedBtc = transaction.vout.filter((output) => output.scriptpubkey_address === body.publicAddress).reduce((sum, output) => sum + output.value, 0) / 100_000_000;
+  if (alreadyAllocatedBtc + allocationBtc > receivedBtc + 0.00000001) {
+    return `Allocation impossible : ${(alreadyAllocatedBtc + allocationBtc).toFixed(8)} BTC seraient associés, mais le virement n'a reçu que ${receivedBtc.toFixed(8)} BTC sur ce Ledger.`;
+  }
+  return null;
+}
 export async function GET(request: Request) {
   if (!isSupabaseConfigured()) return Response.json({ records: [], persistence: "unavailable" });
   try {
@@ -91,6 +109,8 @@ export async function POST(request: Request) {
     const body = await request.json() as GiftInput;
     const error = validate(body);
     if (error) return Response.json({ error }, { status: 400 });
+    const allocationError = await validateLedgerAllocation(body);
+    if (allocationError) return Response.json({ error: allocationError }, { status: 400 });
     const memberId = await memberIdFor(body.member!);
     const records = await supabaseRest<Array<{ id: string }>>("gift_records", {
       method: "POST",
@@ -116,6 +136,8 @@ export async function PATCH(request: Request) {
     if (isLedgerLocked(current[0])) return Response.json({ error: "Cette transaction est confirmée sur le Ledger et ne peut plus être modifiée." }, { status: 409 });
     const error = validate(body);
     if (error) return Response.json({ error }, { status: 400 });
+    const allocationError = await validateLedgerAllocation(body, body.id);
+    if (allocationError) return Response.json({ error: allocationError }, { status: 400 });
     const memberId = await memberIdFor(body.member!);
     await supabaseRest("gift_records?id=eq." + encodeURIComponent(body.id), {
       method: "PATCH",
