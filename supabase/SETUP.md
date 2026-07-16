@@ -3,6 +3,7 @@
 1. Ouvrir le projet **Cap Family** dans Supabase.
 2. Aller dans **SQL Editor** → **New query**.
 3. Copier tout le contenu de `migrations/20260716_cap_family.sql`, puis cliquer sur **Run**.
+4. Puis exécuter `migrations/20260716_gift_reconciliation.sql` : cette mise à jour permet de désassocier un cadeau d’un virement Ledger sans toucher à la transaction blockchain.
 4. Aller dans **Authentication** → **Hooks**.
 5. Activer **Before User Created** avec la fonction Postgres `public.hook_allow_cap_family_member`.
 6. Dans **Authentication** → **URL Configuration** :

@@ -163,7 +163,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         {view === "famille" && (
           <Dashboard totalDue={totalDue} missing={missing} activity={activity} openModal={() => setModalOpen(true)} navigate={setView} />
         )}
-        {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={viewer} />}
+        {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={viewer} requests={transferRequests} />}
         {view === "transactions" && <TransactionsView transactions={viewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === viewer.name)} onAdd={() => setModalOpen(true)} onTransferRequest={requestTransfer} />}
         {view === "backoffice" && viewer.role === "admin" && <Administration viewer={viewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "missions" && <Missions openModal={() => setModalOpen(true)} />}
@@ -245,8 +245,8 @@ function Dashboard({ totalDue, missing, activity, openModal, navigate }: {
   );
 }
 
-function Portfolios({ viewer }: { openModal: () => void; viewer: Viewer }) {
-  return <GiftPortfolio viewer={viewer} />;
+function Portfolios({ viewer, requests }: { openModal: () => void; viewer: Viewer; requests: TransferRequest[] }) {
+  return <GiftPortfolio viewer={viewer} requests={requests} />;
 }
 
 function Missions({ openModal }: { openModal: () => void }) {

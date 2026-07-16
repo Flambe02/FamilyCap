@@ -3,6 +3,7 @@ import { authErrorResponse, requireAdmin, requireFamilyMember } from "../../../l
 
 type GiftInput = {
   id?: string;
+  action?: "unlinkLedger";
   member?: string;
   occasion?: string;
   giftDate?: string;
@@ -96,7 +97,8 @@ export async function GET(request: Request) {
     const records = await supabaseRest<Record<string, unknown>[]>(
       "gift_records?select=*&order=gift_date.desc,created_at.desc" + filter,
     );
-    return Response.json({ records, persistence: "supabase" });
+    const visibleRecords = viewer.role === "admin" ? records : records.map(({ public_address, txid, blockchain_status, confirmations, ledger_amount, transfer_date, ...gift }) => gift);
+    return Response.json({ records: visibleRecords, persistence: "supabase" });
   } catch (error) {
     return authErrorResponse(error);
   }
@@ -133,6 +135,25 @@ export async function PATCH(request: Request) {
       "gift_records?select=id,member_name,custody,txid,blockchain_status,confirmations&id=eq." + encodeURIComponent(body.id) + "&limit=1",
     );
     if (!current[0]) return Response.json({ error: "Cadeau introuvable." }, { status: 404 });
+    if (body.action === "unlinkLedger") {
+      if (current[0].custody !== "Ledger" || !current[0].txid) {
+        return Response.json({ error: "Ce cadeau n’est associé à aucun virement Ledger." }, { status: 400 });
+      }
+      await supabaseRest("gift_records?id=eq." + encodeURIComponent(body.id), {
+        method: "PATCH",
+        headers: { prefer: "return=minimal" },
+        body: JSON.stringify({
+          custody: "À rapprocher",
+          transfer_date: null,
+          ledger_amount: null,
+          public_address: null,
+          txid: null,
+          blockchain_status: "À rapprocher manuellement",
+          confirmations: 0,
+        }),
+      });
+      return Response.json({ unlinked: true });
+    }
     if (isLedgerLocked(current[0])) return Response.json({ error: "Cette transaction est confirmée sur le Ledger et ne peut plus être modifiée." }, { status: 409 });
     const error = validate(body);
     if (error) return Response.json({ error }, { status: 400 });

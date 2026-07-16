@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabaseRest } from "../../../lib/supabase-rest";
-import { authErrorResponse, requireAdmin, requireFamilyMember } from "../../../lib/auth-server";
+import { authErrorResponse, requireAdmin, requireFamilyMember, type AuthenticatedMember } from "../../../lib/auth-server";
 
 type RuntimeEnv = {
   RESEND_API_KEY?: string;
@@ -14,11 +14,13 @@ const runtime: RuntimeEnv = {
 };
 
 export async function GET(request: Request) {
+  let viewer: AuthenticatedMember | null = null;
   if (isSupabaseConfigured()) {
-    try { await requireFamilyMember(request); } catch (error) { return authErrorResponse(error); }
+    try { viewer = await requireFamilyMember(request); } catch (error) { return authErrorResponse(error); }
   }
   if (isSupabaseConfigured()) {
-    const rows = await supabaseRest<Array<{ id: string; member_name: string; transaction_id: string; btc_amount: number | null; requested_at: string; status: string }>>("transfer_requests?select=id,member_name,transaction_id,btc_amount,requested_at,status&order=requested_at.desc&limit=100");
+    const ownRequests = viewer && viewer.role !== "admin" ? "&member_id=eq." + encodeURIComponent(viewer.id) : "";
+    const rows = await supabaseRest<Array<{ id: string; member_name: string; transaction_id: string; btc_amount: number | null; requested_at: string; status: string }>>("transfer_requests?select=id,member_name,transaction_id,btc_amount,requested_at,status&order=requested_at.desc&limit=100" + ownRequests);
     return Response.json({
       requests: rows.map((row) => ({
         id: row.id,
@@ -36,14 +38,17 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    if (isSupabaseConfigured()) await requireFamilyMember(request);
+    const viewer = isSupabaseConfigured() ? await requireFamilyMember(request) : null;
     const payload = await request.json() as { id?: string; member?: string; transactionId?: string; btcAmount?: number; requestedAt?: string };
     const id = payload.id?.trim() || crypto.randomUUID();
-    const member = payload.member?.trim() ?? "";
+    const member = viewer?.name ?? payload.member?.trim() ?? "";
     const transactionId = payload.transactionId?.trim() ?? "";
     const btcAmount = payload.btcAmount === undefined ? null : Number(payload.btcAmount);
     const requestedAt = payload.requestedAt ?? new Date().toISOString();
     if (!member || !transactionId) return Response.json({ error: "Membre et transaction obligatoires." }, { status: 400 });
+    if (viewer && payload.member?.trim() && payload.member.trim() !== viewer.name) {
+      return Response.json({ error: "Une demande ne peut concerner que votre propre portefeuille." }, { status: 403 });
+    }
 
     let persisted = false;
     let persistence = "unavailable";
@@ -53,6 +58,7 @@ export async function POST(request: Request) {
         headers: { prefer: "resolution=ignore-duplicates,return=minimal" },
         body: JSON.stringify({
           id,
+          member_id: viewer?.id ?? null,
           member_name: member,
           transaction_id: transactionId,
           btc_amount: btcAmount,

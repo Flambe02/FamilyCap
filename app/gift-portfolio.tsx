@@ -97,12 +97,14 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus }: { view
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [editor, setEditor] = useState<GiftRecord | null>(null);
+  const [requestedGiftIds, setRequestedGiftIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
-    const [giftResult, ledgerResult] = await Promise.all([request("/api/gifts"), request("/api/ledger")]);
+    const giftResult = await request("/api/gifts");
+    const ledgerResult = isAdmin ? await request("/api/ledger") : null;
     setDatabaseRecords((giftResult.records ?? []).map((record: GiftRecord) => ({ ...record, amount_eur: Number(record.amount_eur), btc_amount: Number(record.btc_amount), ledger_amount: record.ledger_amount ? Number(record.ledger_amount) : null, origin: "database" })));
     setLedger(ledgerResult);
-  }, []);
+  }, [isAdmin]);
   useEffect(() => {
     const timer = window.setTimeout(() => { void load().catch((error) => setMessage(error.message)).finally(() => setLoading(false)); }, 0);
     return () => window.clearTimeout(timer);
@@ -143,6 +145,37 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus }: { view
     catch (error) { setMessage(error instanceof Error ? error.message : "Suppression impossible"); }
   }
 
+  function giftRequestId(record: GiftRecord) {
+    return `gift-${record.id ?? keyOf(record)}`;
+  }
+  function hasPendingTransfer(record: GiftRecord) {
+    const id = giftRequestId(record);
+    return requestedGiftIds.includes(id) || requests.some((item) => item.transactionId === id && item.status !== "Transférée");
+  }
+  async function requestGiftTransfer(record: GiftRecord) {
+    const transactionId = giftRequestId(record);
+    if (!record.btc_amount || hasPendingTransfer(record)) return;
+    try {
+      await request("/api/transfer-requests", {
+        method: "POST",
+        body: JSON.stringify({ id: `request-${transactionId}`, member: viewer.name, transactionId, btcAmount: record.btc_amount, requestedAt: new Date().toISOString() }),
+      });
+      setRequestedGiftIds((current) => [...current, transactionId]);
+      setMessage("Demande de transfert envoyée à Florent.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Demande de transfert impossible.");
+    }
+  }
+  async function unlinkLedger(record: GiftRecord) {
+    if (!record.id || !window.confirm("Désassocier ce cadeau du virement Ledger ? Le mouvement blockchain ne sera pas modifié.")) return;
+    try {
+      await request("/api/gifts", { method: "PATCH", body: JSON.stringify({ id: record.id, action: "unlinkLedger" }) });
+      setMessage("Association Ledger retirée. Le cadeau est de nouveau à rapprocher.");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Désassociation impossible.");
+    }
+  }
   return <div className="gift-portfolio">
     <section className="gift-person-picker panel">
       <div><span>LES CADEAUX BITCOIN D’AMATXI</span><h2>À qui appartient ce portefeuille ?</h2><p>Sélectionne une personne pour comprendre ce qu’elle a reçu et où se trouvent ses bitcoins.</p></div>
@@ -155,28 +188,28 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus }: { view
     </section>
 
     {message && <p className="gift-message">{message}</p>}
-    <section className="gift-explainer panel">
+    <section className={`gift-explainer panel ${isAdmin ? "" : "member-gift-explainer"}`}>
       <div className="gift-total"><small>CADEAUX D’AMATXI ENREGISTRÉS</small><strong>{totalBtc.toFixed(8)} BTC</strong><b>{euro.format(totalEur)} investis à l’époque</b><p>Valeur indicative aujourd’hui : {ledger?.bitcoinEur ? euro.format(totalBtc * ledger.bitcoinEur) : "cours indisponible"}</p></div>
-      <div className="custody-explanation"><h3>Où sont les bitcoins ?</h3><div className="custody-bars"><div><span><b>Ledger personnel</b><em>{ledgerGiftBtc.toFixed(8)} BTC attribués</em></span><i><b style={{ width: totalBtc ? `${ledgerGiftBtc / totalBtc * 100}%` : "0%" }} /></i><small>Conservés sur l’adresse publique de {selected}. Les données blockchain sont en lecture seule.</small></div><div><span><b>Binance commun</b><em>{binanceBtc.toFixed(8)} BTC attribués</em></span><i className="binance"><b style={{ width: totalBtc ? `${binanceBtc / totalBtc * 100}%` : "0%" }} /></i><small>Achetés pour {selected}, mais encore conservés sur le compte commun de Florent.</small></div><div><span><b>À rapprocher</b><em>{unassignedBtc.toFixed(8)} BTC à classer</em></span><i className="unassigned"><b style={{ width: totalBtc ? `${unassignedBtc / totalBtc * 100}%` : "0%" }} /></i><small>Florent doit choisir manuellement : Ledger ou Binance commun.</small></div></div></div>
-      <div className="ledger-fact"><span>₿</span><small>SOLDE PUBLIC DU LEDGER</small><strong>{wallet?.confirmedBalanceBtc?.toFixed(8) ?? "—"} BTC</strong><b>{wallet?.confirmedBalanceBtc !== undefined && ledger?.bitcoinEur ? euro.format(wallet.confirmedBalanceBtc * ledger.bitcoinEur) : "Blockchain en lecture"}</b><p>Ce solde peut inclure d’autres bitcoins que les cadeaux d’Amatxi.</p>{wallet?.explorerUrl && <a href={wallet.explorerUrl} target="_blank" rel="noreferrer">Voir sur Blockstream ↗</a>}</div>
+      <div className="custody-explanation"><h3>Où sont les bitcoins ?</h3><div className="custody-bars"><div><span><b>Ledger personnel</b><em>{ledgerGiftBtc.toFixed(8)} BTC attribués</em></span><i><b style={{ width: totalBtc ? `${ledgerGiftBtc / totalBtc * 100}%` : "0%" }} /></i><small>Conservés sur l’adresse publique de {selected}. Les données blockchain sont en lecture seule.</small></div><div><span><b>Binance commun</b><em>{binanceBtc.toFixed(8)} BTC attribués</em></span><i className="binance"><b style={{ width: totalBtc ? `${binanceBtc / totalBtc * 100}%` : "0%" }} /></i><small>Achetés pour {selected}, mais encore conservés sur le compte commun de Florent.</small></div>{isAdmin && <div><span><b>À rapprocher</b><em>{unassignedBtc.toFixed(8)} BTC à classer</em></span><i className="unassigned"><b style={{ width: totalBtc ? `${unassignedBtc / totalBtc * 100}%` : "0%" }} /></i><small>Florent doit choisir manuellement : Ledger ou Binance commun.</small></div>}</div></div>
+      {isAdmin && <div className="ledger-fact"><span>₿</span><small>SOLDE PUBLIC DU LEDGER</small><strong>{wallet?.confirmedBalanceBtc?.toFixed(8) ?? "—"} BTC</strong><b>{wallet?.confirmedBalanceBtc !== undefined && ledger?.bitcoinEur ? euro.format(wallet.confirmedBalanceBtc * ledger.bitcoinEur) : "Blockchain en lecture"}</b><p>Ce solde peut inclure d’autres bitcoins que les cadeaux d’Amatxi.</p>{wallet?.explorerUrl && <a href={wallet.explorerUrl} target="_blank" rel="noreferrer">Voir sur Blockstream ↗</a>}</div>}
     </section>
 
-    <section className="gift-stats"><article><span>✓</span><div><strong>{recorded.length}</strong><small>cadeaux documentés</small></div></article><article><span>!</span><div><strong>{missing}</strong><small>cadeaux passés à compléter</small></div></article><article><span>↗</span><div><strong>{wallet?.transactions?.length ?? 0}</strong><small>transactions Ledger publiques</small></div></article></section>
+    <section className="gift-stats"><article><span>✓</span><div><strong>{recorded.length}</strong><small>cadeaux documentés</small></div></article><article><span>!</span><div><strong>{missing}</strong><small>cadeaux passés à compléter</small></div></article>{isAdmin ? <article><span>↗</span><div><strong>{wallet?.transactions?.length ?? 0}</strong><small>transactions Ledger publiques</small></div></article> : <article><span>→</span><div><strong>{binanceBtc.toFixed(8)} BTC</strong><small>encore sur Binance commun</small></div></article>}</section>
 
-    <section className="panel gift-timeline-panel"><header><div><span>HISTOIRE DES CADEAUX</span><h2>Anniversaires et Noëls, année après année</h2><p>Cet historique reprend uniquement les valeurs confirmées du tableau familial. La date d’achat est toujours celle de l’anniversaire ou de Noël.</p></div><div className="timeline-legend"><span className="ledger">Ledger</span><span className="binance">Binance commun</span><span className="missing">À rapprocher</span></div></header>
+    <section className="panel gift-timeline-panel"><header><div><span>HISTOIRE DES CADEAUX</span><h2>Anniversaires et Noëls, année après année</h2><p>Cet historique reprend uniquement les valeurs confirmées du tableau familial. La date d’achat est toujours celle de l’anniversaire ou de Noël.</p></div><div className="timeline-legend"><span className="ledger">Ledger</span><span className="binance">Binance commun</span>{isAdmin && <span className="missing">À rapprocher</span>}</div></header>
       <div className="gift-years">{years.map((year) => <section key={year} className="gift-year"><h3>{year}</h3><div>{records.filter((record) => record.gift_date.startsWith(year)).map((record) => {
         const isMissing = record.origin === "expected";
         const isFuture = isMissing && new Date(record.gift_date + "T23:59:59Z") >= new Date();
         const isLocked = locked(record);
         const custodyClass = isMissing || record.custody === "À rapprocher" ? "missing" : record.custody === "Ledger" ? "ledger" : "binance";
         const custodyIcon = isMissing || record.custody === "À rapprocher" ? "?" : record.custody === "Ledger" ? "L" : "₿";
-        const custodyTitle = isMissing ? (isFuture ? "À venir" : "À compléter") : record.custody;
-        const custodyDetail = isLocked ? `${record.confirmations} confirmations` : record.custody === "À rapprocher" ? "Choisir Ledger ou Binance" : record.custody === "Ledger" ? "Déclaré sur Ledger" : "Sur le compte commun";
-        return <article key={keyOf(record)} className={isMissing ? "missing" : ""}><div className={`occasion-icon ${record.occasion === "Noël" ? "christmas" : "birthday"}`}>{record.occasion === "Noël" ? "✦" : "♕"}</div><div className="gift-story"><span>{record.occasion.toUpperCase()} · {monthYear.format(new Date(record.gift_date + "T00:00:00Z"))}</span><strong>{record.occasion === "Noël" ? "Le cadeau de Noël d’Amatxi" : `Le cadeau d’anniversaire de ${selected}`}</strong><small>{isMissing ? (isFuture ? `Prévu le ${fullDate.format(new Date(record.gift_date + "T00:00:00Z"))}` : "Achat ou quantité BTC à renseigner") : `Acheté le ${fullDate.format(new Date(record.purchase_date + "T00:00:00Z"))}`}</small>{record.note && !isMissing && <em>{record.note}</em>}</div><div className="gift-amount">{isMissing ? <><strong>55,00 €</strong><small>BTC à saisir</small></> : <><strong>{record.btc_amount.toFixed(8)} BTC</strong><small>{euro.format(record.amount_eur)} · frais inclus</small></>}</div><div className={`custody-chip ${custodyClass}`}><b>{custodyIcon}</b><span><strong>{custodyTitle}</strong><small>{custodyDetail}</small></span></div>{isAdmin && <div className="gift-actions">{isLocked ? <span title="Donnée confirmée par la blockchain">🔒 Lecture seule</span> : <><button onClick={() => startEntry(record)}>{record.origin === "database" ? "Modifier" : "Renseigner"}</button>{record.origin === "database" && <button className="delete" onClick={() => void remove(record)}>Supprimer</button>}</>}</div>}</article>;
+        const custodyTitle = isMissing ? (isFuture ? "À venir" : "À compléter") : record.custody === "À rapprocher" && !isAdmin ? "En attente de confirmation" : record.custody;
+        const custodyDetail = !isAdmin ? (record.custody === "Ledger" ? "Transfert déjà réalisé" : record.custody === "Binance commun" ? (hasPendingTransfer(record) ? "Transfert demandé" : "Disponible sur demande") : "Florent vérifiera l’emplacement") : isLocked ? `${record.confirmations} confirmations` : record.custody === "À rapprocher" ? "Choisir Ledger ou Binance" : record.custody === "Ledger" ? "Déclaré sur Ledger" : "Sur le compte commun";
+        return <article key={keyOf(record)} className={isMissing ? "missing" : ""}><div className={`occasion-icon ${record.occasion === "Noël" ? "christmas" : "birthday"}`}>{record.occasion === "Noël" ? "✦" : "♕"}</div><div className="gift-story"><span>{record.occasion.toUpperCase()} · {monthYear.format(new Date(record.gift_date + "T00:00:00Z"))}</span><strong>{record.occasion === "Noël" ? "Le cadeau de Noël d’Amatxi" : `Le cadeau d’anniversaire de ${selected}`}</strong><small>{isMissing ? (isFuture ? `Prévu le ${fullDate.format(new Date(record.gift_date + "T00:00:00Z"))}` : "Achat ou quantité BTC à renseigner") : `Acheté le ${fullDate.format(new Date(record.purchase_date + "T00:00:00Z"))}`}</small>{record.note && !isMissing && <em>{record.note}</em>}</div><div className="gift-amount">{isMissing ? <><strong>55,00 €</strong><small>BTC à saisir</small></> : <><strong>{record.btc_amount.toFixed(8)} BTC</strong><small>{euro.format(record.amount_eur)} · frais inclus</small></>}</div><div className={`custody-chip ${custodyClass}`}><b>{custodyIcon}</b><span><strong>{custodyTitle}</strong><small>{custodyDetail}</small></span></div>{isAdmin && <div className="gift-actions">{isLocked ? <button className="unlink" onClick={() => void unlinkLedger(record)}>Désassocier Ledger</button> : <><button onClick={() => startEntry(record)}>{record.origin === "database" ? "Modifier" : "Renseigner"}</button>{record.origin === "database" && <button className="delete" onClick={() => void remove(record)}>Supprimer</button>}</>}</div>}{!isAdmin && !isMissing && record.custody === "Binance commun" && <div className="gift-actions"><button onClick={() => void requestGiftTransfer(record)} disabled={hasPendingTransfer(record)}>{hasPendingTransfer(record) ? "Transfert demandé" : "Demander le transfert"}</button></div>}</article>;
       })}</div></section>)}</div>
     </section>
 
-    <section className="panel chain-readonly"><header><div><span>LEDGER · DONNÉES NON MODIFIABLES</span><h2>Transactions visibles sur la blockchain</h2></div><b>🔒 Lecture seule</b></header>{wallet?.transactions?.length ? <div className="chain-list">{wallet.transactions.map((transaction) => <a key={transaction.txid} href={transaction.explorerUrl} target="_blank" rel="noreferrer"><span className={transaction.direction === "Reçu" ? "received" : "sent"}>{transaction.direction === "Reçu" ? "↓" : "↑"}</span><div><strong>{transaction.direction} · {transaction.amountBtc.toFixed(8)} BTC</strong><small>{transaction.date ? fullDate.format(new Date(transaction.date)) : "En attente"} · {transaction.confirmations} confirmations</small></div><code>{transaction.txid.slice(0, 10)}…{transaction.txid.slice(-8)}</code><b>↗</b></a>)}</div> : <div className="chain-empty">{loading ? "Lecture de la blockchain…" : "Aucune transaction publique trouvée pour ce Ledger."}</div>}</section>
+    {isAdmin && <section className="panel chain-readonly"><header><div><span>LEDGER · DONNÉES NON MODIFIABLES</span><h2>Transactions visibles sur la blockchain</h2></div><b>🔒 Lecture seule</b></header>{wallet?.transactions?.length ? <div className="chain-list">{wallet.transactions.map((transaction) => <a key={transaction.txid} href={transaction.explorerUrl} target="_blank" rel="noreferrer"><span className={transaction.direction === "Reçu" ? "received" : "sent"}>{transaction.direction === "Reçu" ? "↓" : "↑"}</span><div><strong>{transaction.direction} · {transaction.amountBtc.toFixed(8)} BTC</strong><small>{transaction.date ? fullDate.format(new Date(transaction.date)) : "En attente"} · {transaction.confirmations} confirmations</small></div><code>{transaction.txid.slice(0, 10)}…{transaction.txid.slice(-8)}</code><b>↗</b></a>)}</div> : <div className="chain-empty">{loading ? "Lecture de la blockchain…" : "Aucune transaction publique trouvée pour ce Ledger."}</div>}</section>}
 
     {isAdmin && requests.length > 0 && <section className="panel gift-requests"><header><div><span>DEMANDES DES ENFANTS</span><h2>Transferts Binance vers Ledger</h2></div></header>{requests.map((item) => <article key={item.id}><div><strong>{item.member}</strong><small>{item.btcAmount?.toFixed(8) ?? "Montant à confirmer"} BTC · {item.requestedAt}</small></div><select value={item.status} onChange={(event) => onRequestStatus?.(item.id, event.target.value as TransferRequest["status"])}><option>Nouvelle</option><option>En traitement</option><option>Transférée</option></select></article>)}</section>}
 

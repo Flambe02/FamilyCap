@@ -155,3 +155,8 @@
   .ledger-candidates > button > em { text-align: left; }
   .simple-gift-editor .span-2 { grid-column: auto; }
 }
+
+.member-gift-explainer { grid-template-columns: 1fr 1.3fr; }
+.gift-actions button.unlink { color: #a56414; border-color: #efd7b2; background: #fffaf1; }
+.gift-actions button:disabled { cursor: default; opacity: .58; }
+@media (max-width: 980px) { .member-gift-explainer { grid-template-columns: 1fr; } }

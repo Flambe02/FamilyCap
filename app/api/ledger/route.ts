@@ -1,4 +1,4 @@
-import { authErrorResponse, requireFamilyMember, type AuthenticatedMember } from "../../../lib/auth-server";
+import { authErrorResponse, requireAdmin } from "../../../lib/auth-server";
 import { isSupabaseConfigured } from "../../../lib/supabase-rest";
 const wallets = [
   { member: "Thibault", address: "bc1qcy4jt8fh5dhj9fq9d4lu2hq6klvvdmlkeqcgks" },
@@ -88,9 +88,8 @@ async function getBitcoinEurPrice() {
 }
 
 export async function GET(request: Request) {
-  let viewer: AuthenticatedMember | null = null;
   if (isSupabaseConfigured()) {
-    try { viewer = await requireFamilyMember(request); } catch (error) { return authErrorResponse(error); }
+    try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
   }
   try {
     const [tipResponse, bitcoinEur] = await Promise.all([
@@ -104,10 +103,8 @@ export async function GET(request: Request) {
       ? result.value
       : { member: wallets[index].member, address: wallets[index].address, error: result.reason instanceof Error ? result.reason.message : "Lecture indisponible" });
 
-    const visibleWallets = viewer && viewer.role !== "admin" ? ledgerWallets.filter((wallet) => wallet.member === viewer.name) : ledgerWallets;
-
     return Response.json(
-      { wallets: visibleWallets, bitcoinEur, updatedAt: new Date().toISOString(), source: "Blockstream" },
+      { wallets: ledgerWallets, bitcoinEur, updatedAt: new Date().toISOString(), source: "Blockstream" },
       { headers: { "cache-control": "public, max-age=30, s-maxage=60" } },
     );
   } catch (error) {
