@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
+import { GIFT_HISTORY } from "../lib/gift-history";
 import "./transactions.css";
 
 export type TransactionRecord = {
@@ -20,23 +21,21 @@ export type TransactionRecord = {
   note?: string;
 };
 
-export const initialTransactions: TransactionRecord[] = [
-  ...["Thibault", "Uhaina", "Paul", "Aurore", "Thomas"].map((member) => ({
-    id: `tx-2023-noel-${member.toLowerCase()}`,
-    date: "2023-12-25",
-    member,
-    kind: "Noël",
-    asset: "Bitcoin",
-    account: "Binance commun",
-    amount: 55,
-    quantity: 0.001362,
-    author: "Administrateur",
-    authorRole: "Administrateur" as const,
-    status: "À transférer" as const,
-    reference: "Achat groupé du 25/12/2023",
-    note: "Achat réalisé pour les cinq enfants le même jour. Valeurs historiques par enfant : 55 € et 0,001362 BTC.",
-  })),
-];
+export const initialTransactions: TransactionRecord[] = GIFT_HISTORY.map((gift) => ({
+  id: `history-${gift.member.toLowerCase()}-${gift.occasion}-${gift.giftDate}`,
+  date: gift.giftDate,
+  member: gift.member,
+  kind: gift.occasion,
+  asset: "Bitcoin",
+  account: "À rapprocher : Ledger ou Binance commun",
+  amount: gift.amountEur,
+  quantity: gift.btcAmount,
+  author: "Administrateur",
+  authorRole: "Administrateur",
+  status: "À compléter",
+  reference: "Tableau familial",
+  note: gift.note,
+}));
 
 const memberNames = ["Thibault", "Uhaina", "Paul", "Aurore", "Thomas"];
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -61,7 +60,7 @@ export function TransactionsView({ transactions, onAdd, onTransferRequest }: { t
       if (!giftResponse.ok || !ledgerResponse.ok) throw new Error("Historique financier indisponible");
       const giftResult = await giftResponse.json() as { records?: Array<{ id: string; member_name: string; occasion: string; gift_date: string; amount_eur: number | string; btc_amount: number | string; custody: string; confirmations?: number; txid?: string | null; note?: string | null }> };
       const ledgerResult = await ledgerResponse.json() as { wallets?: Array<{ member: string; transactions?: Array<{ txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number }> }> };
-      setGiftTransactions((giftResult.records ?? []).filter((record) => record.gift_date >= "2023-12-25").map((record) => ({
+      setGiftTransactions((giftResult.records ?? []).filter((record) => record.gift_date > "2025-12-31" || GIFT_HISTORY.some((gift) => gift.member === record.member_name && gift.occasion === record.occasion && gift.giftDate.slice(0, 4) === record.gift_date.slice(0, 4))).map((record) => ({
         id: "gift-" + record.id,
         date: record.gift_date,
         member: record.member_name,
@@ -99,7 +98,12 @@ export function TransactionsView({ transactions, onAdd, onTransferRequest }: { t
 
   const detailedTransactions = useMemo(() => {
     const giftsByEvent = new Map<string, TransactionRecord>();
-    for (const transaction of [...transactions, ...giftTransactions]) giftsByEvent.set(`${transaction.member}|${transaction.kind}|${transaction.date}`, transaction);
+    for (const transaction of transactions) giftsByEvent.set(`${transaction.member}|${transaction.kind}|${transaction.date.slice(0, 4)}`, transaction);
+    for (const transaction of giftTransactions) {
+      const key = `${transaction.member}|${transaction.kind}|${transaction.date.slice(0, 4)}`;
+      const truth = giftsByEvent.get(key);
+      giftsByEvent.set(key, truth ? { ...transaction, date: truth.date, amount: truth.amount, quantity: truth.quantity, note: truth.note } : transaction);
+    }
     const giftRecords = [...giftsByEvent.values()];
     return [...giftRecords, ...ledgerTransactions]
       .sort((a, b) => b.date.localeCompare(a.date));

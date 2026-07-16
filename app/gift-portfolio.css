@@ -26,7 +26,8 @@
 .custody-bars > div > span { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-size: .78rem; }
 .custody-bars i { display: block; height: 8px; overflow: hidden; border-radius: 99px; background: #e8eeeb; }
 .custody-bars i b { display: block; height: 100%; border-radius: inherit; background: #159486; }
-.custody-bars > div:last-child i b { background: #f4b943; }
+.custody-bars i.binance b { background: #f4b943; }
+.custody-bars i.unassigned b { background: #a9b5b5; }
 .ledger-fact > span { display: grid; place-items: center; width: 34px; height: 34px; margin-bottom: 12px; border-radius: 50%; color: #765000; background: #ffd45c; font-weight: 900; }
 .ledger-fact strong { color: #15384d; margin-top: 12px; }
 .ledger-fact a { display: inline-block; margin-top: 10px; color: #087b6e; font-size: .8rem; font-weight: 800; }
@@ -90,6 +91,7 @@
 .simple-gift-editor .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
 .simple-gift-editor label { display: grid; gap: 6px; color: #586b74; font-size: .75rem; font-weight: 800; }
 .simple-gift-editor input, .simple-gift-editor select { width: 100%; min-height: 43px; padding: 9px 11px; border: 1px solid #cfdbd7; border-radius: 10px; color: #17384b; background: #fff; }
+.simple-gift-editor input[readonly] { color: #66777e; background: #f1f4f2; cursor: not-allowed; }
 .simple-gift-editor .span-2 { grid-column: span 2; }
 .simple-custody { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .simple-custody > button { display: flex; align-items: center; gap: 12px; padding: 15px; border: 1px solid #cfdbd7; border-radius: 14px; color: #17384b; background: #fff; text-align: left; cursor: pointer; }
