@@ -5,6 +5,7 @@ import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsVi
 import { TransferRequest } from "./back-office";
 import { Administration } from "./administration";
 import { GiftPortfolio } from "./gift-portfolio";
+import { AdminUsers } from "./admin-users";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
 
@@ -52,7 +53,13 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   ]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>(initialTransactions);
   const [transferRequests, setTransferRequests] = useState<TransferRequest[]>([]);
-  const visibleNavItems = useMemo(() => navItems.filter((item) => item.id !== "backoffice" || viewer.role === "admin"), [viewer.role]);
+  const [familyMember, setFamilyMember] = useState("Thibault");
+  const [previewMember, setPreviewMember] = useState<string | null>(null);
+  const isPreview = previewMember !== null;
+  const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
+  const memberNavItems = navItems.filter((item) => item.id !== "backoffice" && item.id !== "parametres");
+  const adminNavItems = navItems.filter((item) => item.id === "backoffice" || item.id === "parametres");
+  const visibleNavItems = useMemo(() => [...memberNavItems, ...(effectiveViewer.role === "admin" ? adminNavItems : [])], [effectiveViewer.role]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -124,14 +131,24 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         </button>
 
         <nav aria-label="Navigation principale">
-          <p className="nav-kicker">ESPACE FAMILLE</p>
-          {visibleNavItems.map((item) => (
-            <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}>
-              <span aria-hidden="true">{item.icon}</span>{item.label}
-              {item.id === "missions" && <em>4</em>}
-              {item.id === "backoffice" && transferRequests.length > 0 && <em>{transferRequests.length}</em>}
-            </button>
-          ))}
+          <div className="nav-group">
+            <p className="nav-kicker">ESPACE MEMBRE</p>
+            {memberNavItems.map((item) => (
+              <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}>
+                <span aria-hidden="true">{item.icon}</span>{item.label}
+                {item.id === "missions" && <em>4</em>}
+              </button>
+            ))}
+          </div>
+          {effectiveViewer.role === "admin" && <div className="nav-group nav-group-admin">
+            <p className="nav-kicker">ADMINISTRATION</p>
+            {adminNavItems.map((item) => (
+              <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}>
+                <span aria-hidden="true">{item.icon}</span>{item.label}
+                {item.id === "backoffice" && transferRequests.length > 0 && <em>{transferRequests.length}</em>}
+              </button>
+            ))}
+          </div>}
         </nav>
 
         <div className="learning-card">
@@ -143,8 +160,9 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
 
         <div className="profile-mini">
           <span className="avatar admin">FM</span>
-          <span><strong>{viewer.name}</strong><small>{viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
-          <button onClick={() => setView("parametres")} aria-label="Ouvrir les paramètres">•••</button>
+          <span><strong>{isPreview ? previewMember : viewer.name}</strong><small>{isPreview ? "Apercu lecture seule" : viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
+          {!isPreview && <button onClick={() => setView("parametres")} aria-label="Ouvrir les parametres">...</button>}
+          {viewer.role === "admin" && <label className="profile-switcher"><span>Voir comme</span><select value={previewMember ?? "admin"} onChange={(event) => { const next = event.target.value === "admin" ? null : event.target.value; setPreviewMember(next); setFamilyMember(next ?? familyMember); setView("famille"); }}><option value="admin">Moi, administrateur</option>{members.map((member) => <option key={member.name} value={member.name}>{member.name}</option>)}</select></label>}
         </div>
       </aside>
 
@@ -156,19 +174,19 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
           </div>
           <div className="top-actions">
             <button className="icon-button" aria-label="Notifications">♢<span /></button>
-            <button className="primary-button" onClick={() => setModalOpen(true)}><b>＋</b> Ajouter une opération</button>
+            {isPreview ? <div className="preview-pill">Apercu membre - lecture seule</div> : <button className="primary-button" onClick={() => setModalOpen(true)}><b>+</b> Ajouter une operation</button>}
           </div>
         </header>
 
         {view === "famille" && (
-          <Dashboard totalDue={totalDue} missing={missing} activity={activity} openModal={() => setModalOpen(true)} navigate={setView} />
+          <Dashboard totalDue={totalDue} missing={missing} activity={activity} openModal={() => setModalOpen(true)} navigate={setView} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />
         )}
-        {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={viewer} requests={transferRequests} />}
-        {view === "transactions" && <TransactionsView transactions={viewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === viewer.name)} onAdd={() => setModalOpen(true)} onTransferRequest={requestTransfer} />}
-        {view === "backoffice" && viewer.role === "admin" && <Administration viewer={viewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
+        {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} previewReadOnly={isPreview} />}
+        {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} onAdd={() => isPreview ? setToast("Apercu : aucune modification n est autorisee.") : setModalOpen(true)} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} />}
+        {view === "backoffice" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "missions" && <Missions openModal={() => setModalOpen(true)} />}
         {view === "apprendre" && <Learn />}
-        {view === "parametres" && <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />}
+        {view === "parametres" && (isPreview ? <PreviewSettings member={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />)}
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
@@ -185,12 +203,13 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   );
 }
 
-function Dashboard({ totalDue, missing, activity, openModal, navigate }: {
+function Dashboard({ totalDue, missing, activity, openModal, navigate, onOpenMember }: {
   totalDue: number;
   missing: number;
   activity: { member: string; label: string; detail: string; time: string }[];
   openModal: () => void;
   navigate: (view: View) => void;
+  onOpenMember: (member: string) => void;
 }) {
   return (
     <div className="content-grid">
@@ -213,13 +232,13 @@ function Dashboard({ totalDue, missing, activity, openModal, navigate }: {
         <PanelTitle eyebrow="LES MEMBRES" title="Vue d’ensemble" action="Gérer la famille" onAction={() => navigate("parametres")} />
         <div className="member-grid">
           {members.map((member) => (
-            <article className="member-card" key={member.name}>
+            <button className="member-card member-card-button" key={member.name} onClick={() => onOpenMember(member.name)} aria-label={`Voir le portefeuille et les transactions de ${member.name}`}>
               <div className="member-top"><span className={`avatar ${member.color}`}>{member.initials}</span><span className="status-dot">À vérifier</span></div>
               <h3>{member.name}</h3><p>Anniversaire · {member.birthday}</p>
               <div className="member-value"><strong>{euro.format(member.due)}</strong><small>cadeaux cumulés</small></div>
               <div className="progress"><span style={{ width: `${Math.max(18, 100 - member.missing * 12)}%` }} /></div>
               <footer><span>{member.btc.toFixed(8)} BTC connus</span><b>{member.missing} à saisir</b></footer>
-            </article>
+            </button>
           ))}
         </div>
       </section>
@@ -245,8 +264,8 @@ function Dashboard({ totalDue, missing, activity, openModal, navigate }: {
   );
 }
 
-function Portfolios({ viewer, requests }: { openModal: () => void; viewer: Viewer; requests: TransferRequest[] }) {
-  return <GiftPortfolio viewer={viewer} requests={requests} />;
+function Portfolios({ viewer, requests, selectedMember, previewReadOnly }: { openModal: () => void; viewer: Viewer; requests: TransferRequest[]; selectedMember: string; previewReadOnly: boolean }) {
+  return <GiftPortfolio viewer={viewer} requests={requests} selectedMember={selectedMember} previewReadOnly={previewReadOnly} />;
 }
 
 function Missions({ openModal }: { openModal: () => void }) {
@@ -268,6 +287,9 @@ function Learn() {
   return <div className="page-stack"><section className="learn-head"><span className="soft-pill">BIBLIOTHÈQUE FAMILIALE</span><h2>Apprendre juste ce qu’il faut,<br />au bon moment.</h2><p>Des explications courtes, reliées à une vraie action dans le portefeuille.</p></section><section className="lesson-grid">{lessons.map((lesson, i) => <article className="lesson-card" key={lesson.title}><div className={`lesson-icon ${lesson.color}`}>{lesson.icon}</div><span>{lesson.level} · {i + 4} MIN</span><h3>{lesson.title}</h3><p>{lesson.text}</p><button>Commencer la leçon →</button></article>)}</section></div>;
 }
 
+function PreviewSettings({ member, onExit }: { member: string; onExit: () => void }) {
+  return <div className="panel preview-settings"><span>MODE APERCU</span><h2>Vue de {member}</h2><p>Tu regardes l interface comme ce membre, sans modifier son compte, ses donnees ou ses droits reels.</p><button className="primary-button" onClick={onExit}>Quitter l apercu</button></div>;
+}
 function Settings({ viewer, onSignOut, publishedVersion }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string }) {
   const adminTabs = [["utilisateurs", "Utilisateurs & accès"], ["portefeuilles", "Comptes & wallets"], ["cadeaux", "Règles des cadeaux"], ["securite", "Sécurité"], ["donnees", "Données & exports"], ["compte", "Mon compte"]];
   const memberTabs = [["compte", "Mon compte"], ["portefeuilles", "Mes portefeuilles"], ["securite", "Sécurité"]];
@@ -289,7 +311,7 @@ function PersonalSettings({ viewer, onSignOut, publishedVersion }: { viewer: Vie
 }
 
 function UsersSettings() {
-  return <><PanelTitle eyebrow="PARAMÈTRES" title="Utilisateurs & accès" action="＋ Ajouter un membre" /><p className="section-intro">Chaque personne aura son propre accès et ne verra que ce qui correspond à son rôle.</p><div className="settings-table">{members.map((m, i) => <div key={m.name}><span className={`avatar ${m.color}`}>{m.initials}</span><div><strong>{m.name}</strong><small>{m.birthday} · {i === 0 ? "Jeune investisseur" : "Membre famille"}</small></div><span className={i === 0 ? "access pending" : "access"}>{i === 0 ? "Invitation à envoyer" : "Accès à configurer"}</span><button aria-label={`Modifier ${m.name}`}>•••</button></div>)}</div><div className="info-callout"><b>Accès des parents et adultes</b><p>Les sœurs intéressées pourront recevoir un rôle “Adulte” : leur propre portefeuille, les contenus pédagogiques et, si tu le souhaites, une vue sur ceux de leurs enfants.</p></div></>;
+  return <AdminUsers />;
 }
 
 function WalletSettings() {

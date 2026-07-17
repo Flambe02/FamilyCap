@@ -13,6 +13,7 @@ type GiftInput = {
   custody?: string;
   transferDate?: string | null;
   ledgerAmount?: number | null;
+  forceLedgerAmount?: boolean;
   publicAddress?: string | null;
   txid?: string | null;
   blockchainStatus?: string;
@@ -41,6 +42,7 @@ function validate(body: GiftInput) {
   if (!Number.isFinite(body.amountEur) || !Number.isFinite(body.btcAmount) || Number(body.btcAmount) <= 0) return "Montants invalides.";
   if (!["Anniversaire", "Noël", "Autre cadeau"].includes(body.occasion)) return "Occasion invalide.";
   if (!["Binance commun", "Ledger"].includes(body.custody)) return "Lieu de conservation invalide.";
+  if (body.forceLedgerAmount === true && body.custody !== "Ledger") return "La correction forc\u00e9e exige un Ledger.";
   return null;
 }
 
@@ -63,6 +65,7 @@ function payload(body: GiftInput, memberId: string | null) {
     custody: body.custody,
     transfer_date: body.transferDate || null,
     ledger_amount: body.ledgerAmount ?? null,
+    ledger_value_forced: body.forceLedgerAmount === true,
     public_address: body.publicAddress || null,
     txid: body.txid || null,
     blockchain_status: body.blockchainStatus || (body.custody === "Ledger" ? "À vérifier" : "Stocké sur Binance commun"),

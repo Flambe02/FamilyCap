@@ -8,3 +8,10 @@
 @media(max-width:780px){.mobile-nav{grid-template-columns:repeat(7,1fr)}.transactions-guide{padding:23px 20px;display:block}.transactions-guide h2{font-size:27px}.entry-steps{margin:19px 0;overflow-x:auto}.transactions-guide>.primary-button{width:100%}.transactions-panel{padding:17px}.transactions-toolbar{display:block}.transaction-filters{margin-top:15px;display:grid;grid-template-columns:1fr 1fr}.transaction-filters select{width:100%;min-width:0}.transactions-table{min-width:870px}.transaction-detail{padding:22px}.detail-list>div{grid-template-columns:90px 1fr}}
 
 .transaction-actions{display:flex;gap:6px;align-items:center}.request-transfer-button{border:0;border-radius:8px;padding:7px 9px;background:var(--amber);color:var(--ink);font-size:8px;font-weight:900;cursor:pointer;white-space:nowrap}.request-transfer-button:hover{background:#e9a92f}
+body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.transactions-panel { font-size: 12px; }
+.transactions-table { font-size: 12px; }
+.transactions-table th { font-size: 9px; }
+.transactions-table td:nth-child(3) small, .author-chip, .transaction-status, .detail-button { font-size: 9px; }
+.transaction-filters label { font-size: 8px; }
+.transaction-filters select { font-size: 10px; }
