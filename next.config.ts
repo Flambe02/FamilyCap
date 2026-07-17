@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { NextConfig } from "next";
 
 function readGitHead(dir: string): string | null {
@@ -33,6 +33,7 @@ function getCommitVersion() {
 }
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["10.5.0.2"],
   env: {
     NEXT_PUBLIC_APP_VERSION: getCommitVersion(),
   },

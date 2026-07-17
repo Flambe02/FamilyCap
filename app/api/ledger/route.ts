@@ -70,7 +70,7 @@ async function getBitcoinEurPrice() {
     const response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur", { headers: { accept: "application/json" } });
     if (response.ok) {
       const result = await response.json() as { bitcoin?: { eur?: number } };
-      if (result.bitcoin?.eur) return result.bitcoin.eur;
+      if (result.bitcoin?.eur) return { value: result.bitcoin.eur, source: "CoinGecko" };
     }
   } catch {
     // Une seconde source publique est utilisée ci-dessous.
@@ -78,12 +78,12 @@ async function getBitcoinEurPrice() {
 
   try {
     const response = await fetch("https://api.kraken.com/0/public/Ticker?pair=XBTEUR", { headers: { accept: "application/json" } });
-    if (!response.ok) return null;
+    if (!response.ok) return { value: null, source: null };
     const result = await response.json() as { result?: { XXBTZEUR?: { c?: string[] } } };
     const price = Number(result.result?.XXBTZEUR?.c?.[0]);
-    return Number.isFinite(price) ? price : null;
+    return Number.isFinite(price) ? { value: price, source: "Kraken" } : { value: null, source: null };
   } catch {
-    return null;
+    return { value: null, source: null };
   }
 }
 
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
     try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
   }
   try {
-    const [tipResponse, bitcoinEur] = await Promise.all([
+    const [tipResponse, bitcoinPrice] = await Promise.all([
       fetch("https://blockstream.info/api/blocks/tip/height"),
       getBitcoinEurPrice(),
     ]);
@@ -104,7 +104,7 @@ export async function GET(request: Request) {
       : { member: wallets[index].member, address: wallets[index].address, error: result.reason instanceof Error ? result.reason.message : "Lecture indisponible" });
 
     return Response.json(
-      { wallets: ledgerWallets, bitcoinEur, updatedAt: new Date().toISOString(), source: "Blockstream" },
+      { wallets: ledgerWallets, bitcoinEur: bitcoinPrice.value, bitcoinEurSource: bitcoinPrice.source, updatedAt: new Date().toISOString(), source: "Blockstream" },
       { headers: { "cache-control": "public, max-age=30, s-maxage=60" } },
     );
   } catch (error) {

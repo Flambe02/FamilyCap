@@ -8,6 +8,7 @@ import { GiftPortfolio } from "./gift-portfolio";
 import { AdminUsers } from "./admin-users";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
+import { MemberOnboarding } from "./member-onboarding";
 
 type View = "famille" | "portefeuilles" | "transactions" | "backoffice" | "missions" | "apprendre" | "parametres";
 
@@ -19,14 +20,14 @@ const members = [
   { name: "Thomas", initials: "TO", birthday: "29 déc.", due: 330, btc: 0.003094, missing: 5, color: "purple" },
 ];
 
-const navItems: { id: View; label: string; icon: string }[] = [
-  { id: "famille", label: "Vue famille", icon: "⌂" },
-  { id: "portefeuilles", label: "Portefeuilles", icon: "◫" },
-  { id: "transactions", label: "Transactions", icon: "⇄" },
-  { id: "backoffice", label: "Administration", icon: "▣" },
-  { id: "missions", label: "Missions", icon: "◎" },
-  { id: "apprendre", label: "Apprendre", icon: "◇" },
-  { id: "parametres", label: "Paramètres", icon: "⚙" },
+const navItems: { id: View; label: string; icon: string; iconLabel: string }[] = [
+  { id: "famille", label: "Vue famille", icon: "⌂", iconLabel: "Accueil" },
+  { id: "portefeuilles", label: "Portefeuilles", icon: "◫", iconLabel: "Portefeuilles" },
+  { id: "transactions", label: "Transactions", icon: "⇄", iconLabel: "Transactions" },
+  { id: "backoffice", label: "Administration", icon: "▣", iconLabel: "Administration" },
+  { id: "missions", label: "Missions", icon: "◎", iconLabel: "Missions" },
+  { id: "apprendre", label: "Apprendre", icon: "◇", iconLabel: "Apprendre" },
+  { id: "parametres", label: "Paramètres", icon: "⚙", iconLabel: "Paramètres" },
 ];
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -56,10 +57,10 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [familyMember, setFamilyMember] = useState("Thibault");
   const [previewMember, setPreviewMember] = useState<string | null>(null);
   const isPreview = previewMember !== null;
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
   const memberNavItems = navItems.filter((item) => item.id !== "backoffice" && item.id !== "parametres");
   const adminNavItems = navItems.filter((item) => item.id === "backoffice" || item.id === "parametres");
-  const visibleNavItems = useMemo(() => [...memberNavItems, ...(effectiveViewer.role === "admin" ? adminNavItems : [])], [effectiveViewer.role]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -72,8 +73,20 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (viewer.role === "admin" || isPreview) return;
+    const timer = window.setTimeout(() => setOnboardingOpen(window.localStorage.getItem(`cap-family-onboarding-v1:${viewer.id}`) !== "done"), 0);
+    return () => window.clearTimeout(timer);
+  }, [isPreview, viewer.id, viewer.role]);
+
   const totalDue = useMemo(() => members.reduce((sum, member) => sum + member.due, 0), []);
   const missing = useMemo(() => members.reduce((sum, member) => sum + member.missing, 0), []);
+
+  function completeOnboarding() {
+    window.localStorage.setItem(`cap-family-onboarding-v1:${viewer.id}`, "done");
+    setOnboardingOpen(false);
+  }
+  function replayOnboarding() { setOnboardingOpen(true); }
 
   function saveInvestment(transaction: TransactionRecord) {
     setTransactions((current) => [transaction, ...current]);
@@ -132,49 +145,65 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
 
         <nav aria-label="Navigation principale">
           <div className="nav-group">
-            <p className="nav-kicker">ESPACE MEMBRE</p>
+            <p className="nav-kicker" id="nav-membre-label">ESPACE MEMBRE</p>
             {memberNavItems.map((item) => (
-              <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}>
-                <span aria-hidden="true">{item.icon}</span>{item.label}
-                {item.id === "missions" && <em>4</em>}
+              <button
+                key={item.id}
+                className={view === item.id ? "nav-item active" : "nav-item"}
+                onClick={() => setView(item.id)}
+                aria-current={view === item.id ? "page" : undefined}
+              >
+                <span aria-hidden="true">{item.icon}</span>
+                <span className="sr-only">{item.iconLabel} :</span>{item.label}
+                {item.id === "missions" && <em aria-label="4 missions en attente">4</em>}
               </button>
             ))}
           </div>
           {effectiveViewer.role === "admin" && <div className="nav-group nav-group-admin">
-            <p className="nav-kicker">ADMINISTRATION</p>
+            <p className="nav-kicker" id="nav-admin-label">ADMINISTRATION</p>
             {adminNavItems.map((item) => (
-              <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}>
-                <span aria-hidden="true">{item.icon}</span>{item.label}
-                {item.id === "backoffice" && transferRequests.length > 0 && <em>{transferRequests.length}</em>}
+              <button
+                key={item.id}
+                className={view === item.id ? "nav-item active" : "nav-item"}
+                onClick={() => setView(item.id)}
+                aria-current={view === item.id ? "page" : undefined}
+              >
+                <span aria-hidden="true">{item.icon}</span>
+                <span className="sr-only">{item.iconLabel} :</span>{item.label}
+                {item.id === "backoffice" && transferRequests.length > 0 && <em aria-label={`${transferRequests.length} demandes en attente`}>{transferRequests.length}</em>}
               </button>
             ))}
           </div>}
         </nav>
 
-        <div className="learning-card">
-          <span className="learning-icon">✦</span>
-          <strong>Conseil du mois</strong>
+        <div className="learning-card" role="complementary" aria-labelledby="learning-title">
+          <span className="learning-icon" aria-hidden="true">✦</span>
+          <strong id="learning-title">Conseil du mois</strong>
           <p>Investir régulièrement compte souvent plus que choisir le “moment parfait”.</p>
           <button onClick={() => setView("apprendre")}>Comprendre pourquoi →</button>
         </div>
 
         <div className="profile-mini">
-          <span className="avatar admin">FM</span>
+          <span className="avatar admin" aria-hidden="true">FM</span>
           <span><strong>{isPreview ? previewMember : viewer.name}</strong><small>{isPreview ? "Apercu lecture seule" : viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
           {!isPreview && <button onClick={() => setView("parametres")} aria-label="Ouvrir les parametres">...</button>}
           {viewer.role === "admin" && <label className="profile-switcher"><span>Voir comme</span><select value={previewMember ?? "admin"} onChange={(event) => { const next = event.target.value === "admin" ? null : event.target.value; setPreviewMember(next); setFamilyMember(next ?? familyMember); setView("famille"); }}><option value="admin">Moi, administrateur</option>{members.map((member) => <option key={member.name} value={member.name}>{member.name}</option>)}</select></label>}
         </div>
       </aside>
 
-      <section className="workspace">
+      <section className="workspace" id="main-content" tabIndex={-1}>
         <header className="topbar">
           <div>
-            <p className="eyebrow">JEUDI 16 JUILLET 2026</p>
+            <p className="eyebrow" aria-label="Date du jour">JEUDI 16 JUILLET 2026</p>
             <h1>{titleFor(view)}</h1>
           </div>
           <div className="top-actions">
-            <button className="icon-button" aria-label="Notifications">♢<span /></button>
-            {isPreview ? <div className="preview-pill">Apercu membre - lecture seule</div> : <button className="primary-button" onClick={() => setModalOpen(true)}><b>+</b> Ajouter une operation</button>}
+            <button className="icon-button" aria-label="Notifications - aucune nouvelle notification">
+              <span aria-hidden="true">♢</span>
+              <span className="sr-only">Notifications</span>
+              <span className="notification-dot" aria-hidden="true" />
+            </button>
+            {isPreview ? <div className="preview-pill" role="status" aria-live="polite">Aperçu membre - lecture seule</div> : <button className="primary-button" aria-label="Ajouter une opération" onClick={() => setModalOpen(true)}><span aria-hidden="true"><b>+</b></span><span>Ajouter une opération</span></button>}
           </div>
         </header>
 
@@ -186,17 +215,18 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         {view === "backoffice" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "missions" && <Missions openModal={() => setModalOpen(true)} />}
         {view === "apprendre" && <Learn />}
-        {view === "parametres" && (isPreview ? <PreviewSettings member={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />)}
+        {view === "parametres" && (isPreview ? <PreviewSettings member={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={viewer.role === "admin" ? undefined : replayOnboarding} />)}
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
-        {visibleNavItems.map((item) => (
+        {memberNavItems.map((item) => (
           <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}>
-            <span>{item.icon}</span><small>{item.label.split(" ")[0]}</small>
+            <span aria-hidden="true">{item.icon}</span><small>{item.label.split(" ")[0]}</small>
           </button>
         ))}
       </nav>
 
+      {onboardingOpen && !isPreview && effectiveViewer.role !== "admin" && <MemberOnboarding viewer={effectiveViewer} onComplete={completeOnboarding} onOpenPortfolio={() => setView("portefeuilles")} />}
       {modalOpen && <InvestmentModal onClose={() => setModalOpen(false)} onSave={saveInvestment} />}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
@@ -231,15 +261,15 @@ function Dashboard({ totalDue, missing, activity, openModal, navigate, onOpenMem
       <section className="panel family-panel">
         <PanelTitle eyebrow="LES MEMBRES" title="Vue d’ensemble" action="Gérer la famille" onAction={() => navigate("parametres")} />
         <div className="member-grid">
-          {members.map((member) => (
+          {members.map((member) => { const documentedProgress = Math.max(18, 100 - member.missing * 12); return (
             <button className="member-card member-card-button" key={member.name} onClick={() => onOpenMember(member.name)} aria-label={`Voir le portefeuille et les transactions de ${member.name}`}>
               <div className="member-top"><span className={`avatar ${member.color}`}>{member.initials}</span><span className="status-dot">À vérifier</span></div>
               <h3>{member.name}</h3><p>Anniversaire · {member.birthday}</p>
               <div className="member-value"><strong>{euro.format(member.due)}</strong><small>cadeaux cumulés</small></div>
-              <div className="progress"><span style={{ width: `${Math.max(18, 100 - member.missing * 12)}%` }} /></div>
+              <div className="progress" role="progressbar" aria-label={`Cadeaux documentés pour ${member.name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={documentedProgress} aria-valuetext={`${member.missing} cadeau${member.missing > 1 ? "x" : ""} à saisir`}><span style={{ width: `${documentedProgress}%` }} /></div>
               <footer><span>{member.btc.toFixed(8)} BTC connus</span><b>{member.missing} à saisir</b></footer>
             </button>
-          ))}
+          ); })}
         </div>
       </section>
 
@@ -274,7 +304,7 @@ function Missions({ openModal }: { openModal: () => void }) {
     { month: "JUIN", title: "Comprendre un ETF", desc: "Indice, diversification, frais et horizon de placement.", progress: 100, status: "Terminée" },
     { month: "MAI", title: "Risque et volatilité", desc: "Distinguer perte temporaire et perte définitive.", progress: 80, status: "4 sur 5" },
   ];
-  return <div className="page-stack"><section className="mission-banner"><div><span>MISSION FAMILIALE · JUILLET 2026</span><h2>Un petit investissement.<br />Une grande habitude.</h2><p>Chaque membre lit le conseil, réalise son opération puis la saisit lui-même.</p><button onClick={openModal}>J’ai investi ce mois-ci →</button></div><div className="steps"><b>1</b><span>Je comprends</span><b>2</b><span>Je choisis</span><b>3</b><span>Je saisis</span></div></section><section className="panel"><PanelTitle eyebrow="PARCOURS MENSUEL" title="Les dernières missions" action="Créer une mission" /><div className="mission-list">{missions.map(m => <article key={m.month}><span className="month-badge">{m.month}</span><div><h3>{m.title}</h3><p>{m.desc}</p><div className="progress wide"><span style={{ width: `${m.progress}%` }} /></div></div><strong>{m.status}</strong></article>)}</div></section></div>;
+  return <div className="page-stack"><section className="mission-banner"><div><span>MISSION FAMILIALE · JUILLET 2026</span><h2>Un petit investissement.<br />Une grande habitude.</h2><p>Chaque membre lit le conseil, réalise son opération puis la saisit lui-même.</p><button onClick={openModal}>J’ai investi ce mois-ci →</button></div><div className="steps"><b>1</b><span>Je comprends</span><b>2</b><span>Je choisis</span><b>3</b><span>Je saisis</span></div></section><section className="panel"><PanelTitle eyebrow="PARCOURS MENSUEL" title="Les dernières missions" action="Créer une mission" /><div className="mission-list">{missions.map(m => <article key={m.month}><span className="month-badge">{m.month}</span><div><h3>{m.title}</h3><p>{m.desc}</p><div className="progress wide" role="progressbar" aria-label={`Mission ${m.title}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={m.progress} aria-valuetext={`${m.progress}% terminé`}><span style={{ width: `${m.progress}%` }} /></div></div><strong>{m.status}</strong></article>)}</div></section></div>;
 }
 
 function Learn() {
@@ -290,15 +320,15 @@ function Learn() {
 function PreviewSettings({ member, onExit }: { member: string; onExit: () => void }) {
   return <div className="panel preview-settings"><span>MODE APERCU</span><h2>Vue de {member}</h2><p>Tu regardes l interface comme ce membre, sans modifier son compte, ses donnees ou ses droits reels.</p><button className="primary-button" onClick={onExit}>Quitter l apercu</button></div>;
 }
-function Settings({ viewer, onSignOut, publishedVersion }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string }) {
+function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void }) {
   const adminTabs = [["utilisateurs", "Utilisateurs & accès"], ["portefeuilles", "Comptes & wallets"], ["cadeaux", "Règles des cadeaux"], ["securite", "Sécurité"], ["donnees", "Données & exports"], ["compte", "Mon compte"]];
   const memberTabs = [["compte", "Mon compte"], ["portefeuilles", "Mes portefeuilles"], ["securite", "Sécurité"]];
   const tabs = viewer.role === "admin" ? adminTabs : memberTabs;
   const [tab, setTab] = useState(viewer.role === "admin" ? "utilisateurs" : "compte");
-  return <div className="settings-layout"><aside className="settings-nav"><p>RÉGLAGES</p>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}<span>›</span></button>)}</aside><section className="settings-content panel">{tab === "utilisateurs" && viewer.role === "admin" && <UsersSettings />}{tab === "portefeuilles" && (viewer.role === "admin" ? <WalletSettings /> : <MemberWalletSettings viewer={viewer} />)}{tab === "cadeaux" && viewer.role === "admin" && <GiftSettings />}{tab === "securite" && <SecuritySettings />}{tab === "donnees" && viewer.role === "admin" && <DataSettings />}{tab === "compte" && <PersonalSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />}</section></div>;
+  return <div className="settings-layout"><aside className="settings-nav"><p>RÉGLAGES</p>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}<span>›</span></button>)}</aside><section className="settings-content panel">{tab === "utilisateurs" && viewer.role === "admin" && <UsersSettings />}{tab === "portefeuilles" && (viewer.role === "admin" ? <WalletSettings /> : <MemberWalletSettings viewer={viewer} />)}{tab === "cadeaux" && viewer.role === "admin" && <GiftSettings />}{tab === "securite" && <SecuritySettings />}{tab === "donnees" && viewer.role === "admin" && <DataSettings />}{tab === "compte" && <PersonalSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={onReplayOnboarding} />}</section></div>;
 }
 
-function PersonalSettings({ viewer, onSignOut, publishedVersion }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string }) {
+function PersonalSettings({ viewer, onSignOut, publishedVersion, onReplayOnboarding }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void }) {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   async function updatePassword() {
@@ -307,7 +337,7 @@ function PersonalSettings({ viewer, onSignOut, publishedVersion }: { viewer: Vie
     setMessage(error ? error.message : "Mot de passe mis à jour.");
     if (!error) setPassword("");
   }
-  return <><PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" /><p className="section-intro">Ces informations correspondent à ton accès personnel Cap Family.</p><div className="form-grid"><label>Nom<input value={viewer.name} readOnly /></label><label>Adresse e-mail<input value={viewer.email} readOnly /></label><label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "child" ? "Jeune investisseur" : "Membre famille"} readOnly /></label><label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label></div><div className="settings-account-actions"><button onClick={updatePassword}>Mettre à jour le mot de passe</button><button className="logout-button" onClick={onSignOut}>Se déconnecter</button></div>{<div className="account-version">Version publiée <strong>{publishedVersion}</strong></div>}{message && <div className="info-callout"><b>Compte</b><p>{message}</p></div>}</>;
+  return <><PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" /><p className="section-intro">Ces informations correspondent à ton accès personnel Cap Family.</p><div className="form-grid"><label>Nom<input value={viewer.name} readOnly /></label><label>Adresse e-mail<input value={viewer.email} readOnly /></label><label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "child" ? "Jeune investisseur" : "Membre famille"} readOnly /></label><label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label></div><div className="settings-account-actions"><button onClick={updatePassword}>Mettre à jour le mot de passe</button><button className="logout-button" onClick={onSignOut}>Se déconnecter</button></div>{viewer.role !== "admin" && onReplayOnboarding && <div className="onboarding-settings"><div><b>Revoir les premiers pas</b><p>Une visite courte pour comprendre Binance, Ledger et ton portefeuille.</p></div><button type="button" onClick={onReplayOnboarding}>Revoir la visite</button></div>}{<div className="account-version">Version publiée <strong>{publishedVersion}</strong></div>}{message && <div className="info-callout"><b>Compte</b><p>{message}</p></div>}</>;
 }
 
 function UsersSettings() {

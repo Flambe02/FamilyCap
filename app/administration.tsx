@@ -1,13 +1,14 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { TransferRequest } from "./back-office";
 import type { Viewer } from "../lib/auth-types";
 import { GiftPortfolio } from "./gift-portfolio";
+import { GIFT_HISTORY } from "../lib/gift-history";
 import "./administration.css";
 
-type Tab = "gifts" | "members" | "accounts" | "settings";
+type Tab = "summary" | "gifts" | "members" | "accounts" | "settings";
 type Member = { id:string; name:string; email?:string|null; role:string; access_status:string; is_active:boolean; auth_user_id?:string|null; auth?:{emailConfirmedAt?:string|null;lastSignInAt?:string|null;createdAt?:string;providers?:string[]}|null };
 type Account = { id:string; member_id:string; name:string; account_type:string; institution?:string|null; currency:string; account_number_last4?:string|null; wallet_address?:string|null; network?:string|null };
 type Holding = { id:string; account_id:string; asset_type:string; symbol?:string|null; isin?:string|null; name:string; quantity:number; average_cost?:number|null; currency:string; exchange?:string|null; last_price?:number|null; last_price_at?:string|null };
@@ -20,21 +21,22 @@ async function headers() {
 async function api(url:string, init:RequestInit = {}) {
   const response = await fetch(url, { ...init, headers: { ...(await headers()), ...init.headers } });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Op?ration impossible");
+  if (!response.ok) throw new Error(result.error || "Opération impossible");
   return result;
 }
 const formatDate = (value?:string|null) => value ? new Intl.DateTimeFormat("fr-FR", { dateStyle:"medium", timeStyle:"short" }).format(new Date(value)) : "Jamais";
 const euro = new Intl.NumberFormat("fr-FR", { style:"currency", currency:"EUR" });
 
 export function Administration({ viewer, requests, onRequestStatus }:{ viewer:Viewer; requests:TransferRequest[]; onRequestStatus:(id:string,status:TransferRequest["status"])=>void }) {
-  const [tab,setTab] = useState<Tab>("gifts");
+  const [tab,setTab] = useState<Tab>("summary");
   const tabs:{id:Tab;label:string;icon:string}[] = [
-    {id:"gifts",label:"Cadeaux BTC",icon:"₿"},{id:"members",label:"Membres & accès",icon:"◎"},
+    {id:"summary",label:"Synthèse BTC",icon:"▦"},{id:"gifts",label:"Cadeaux BTC",icon:"₿"},{id:"members",label:"Membres & accès",icon:"◎"},
     {id:"accounts",label:"Comptes & positions",icon:"▥"},{id:"settings",label:"Réglages admin",icon:"⚙"}
   ];
   return <div className="admin-root">
     <section className="admin-command"><div><span>ZONE PRIVÉE · FLORENT UNIQUEMENT</span><h2>Administration familiale</h2><p>Gérer les accès, les comptes et les données financières sans stocker de mot de passe, clé privée ou phrase Ledger.</p></div><b>Administrateur vérifié</b></section>
     <nav className="admin-tabs">{tabs.map(item=><button key={item.id} className={tab===item.id?"active":""} onClick={()=>setTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
+    {tab==="summary"&&<GiftSynthesis />}
     {tab==="gifts"&&<GiftPortfolio viewer={viewer} requests={requests} onRequestStatus={onRequestStatus} />}
     {tab==="members"&&<Members />}
     {tab==="accounts"&&<Accounts />}
@@ -42,6 +44,244 @@ export function Administration({ viewer, requests, onRequestStatus }:{ viewer:Vi
   </div>;
 }
 
+type GiftSummaryRecord = {
+  id?: string;
+  member_name: string;
+  occasion: string;
+  gift_date: string;
+  purchase_date?: string;
+  amount_eur: number | string;
+  btc_amount: number | string;
+  custody: "Ledger" | "Binance commun" | "À rapprocher";
+  ledger_amount?: number | string | null;
+  ledger_value_forced?: boolean;
+  ledger_force_reason?: string | null;
+  txid?: string | null;
+  note?: string | null;
+  is_deleted?: boolean;
+};
+type LedgerSummary = { wallets?: Array<{ member: string; confirmedBalanceBtc?: number }>; bitcoinEur?: number | null; bitcoinEurSource?: string | null; updatedAt?: string };
+type GiftPeriod = { date: string; occasion: "Anniversaire" | "Noël"; member?: string };
+type SummaryDraft = {
+  key: string;
+  id?: string;
+  member: string;
+  occasion: "Anniversaire" | "Noël";
+  giftDate: string;
+  amountEur: string;
+  btcAmount: string;
+  note: string;
+};
+type DeliveryState = { date: string; tone: "ledger" | "binance" | "missing"; label: string; detail: string; offered: boolean };
+
+const giftSummaryMembers = [
+  { name: "Thibault", initials: "TH", birthday: "15 mars" },
+  { name: "Uhaina", initials: "UH", birthday: "16 août" },
+  { name: "Paul", initials: "PA", birthday: "18 novembre" },
+  { name: "Aurore", initials: "AU", birthday: "27 août" },
+  { name: "Thomas", initials: "TO", birthday: "29 décembre" },
+] as const;
+const birthdayDates: Record<(typeof giftSummaryMembers)[number]["name"], string> = {
+  Thibault: "03-15", Uhaina: "08-16", Paul: "11-18", Aurore: "08-27", Thomas: "12-29",
+};
+const btc = (value: number) => `${value.toFixed(8)} BTC`;
+const summaryDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
+const summaryKey = (member: string, occasion: string, date: string) => `${member}:${occasion}:${date}`;
+const isLedgerAssociated = (gift: GiftSummaryRecord) => gift.custody === "Ledger" || Boolean(gift.txid && Number(gift.ledger_amount ?? 0) > 0);
+
+function GiftSynthesis() {
+  const [stored,setStored] = useState<GiftSummaryRecord[]>([]);
+  const [ledger,setLedger] = useState<LedgerSummary | null>(null);
+  const [message,setMessage] = useState("");
+  const [draft,setDraft] = useState<SummaryDraft | null>(null);
+  const [busy,setBusy] = useState(false);
+  const [selectedYear,setSelectedYear] = useState(() => new Date().getFullYear());
+  const matrixRef = useRef<HTMLDivElement>(null);
+  const today = new Date().toISOString().slice(0,10);
+  const currentYear = new Date().getFullYear();
+
+  const load = useCallback(async () => {
+    const [gifts, wallets] = await Promise.all([api("/api/gifts"), api("/api/ledger")]);
+    setStored((gifts.records ?? []).map((gift: GiftSummaryRecord) => ({ ...gift, amount_eur: Number(gift.amount_eur), btc_amount: Number(gift.btc_amount), ledger_amount: gift.ledger_amount === null || gift.ledger_amount === undefined ? null : Number(gift.ledger_amount), is_deleted: Boolean(gift.is_deleted) })));
+    setLedger(wallets);
+  }, []);
+  useEffect(() => { const timer = window.setTimeout(() => { void load().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Synthèse indisponible.")); }, 0); return () => window.clearTimeout(timer); }, [load]);
+
+  const records = useMemo(() => {
+    const storedByKey = new Map<string, GiftSummaryRecord>();
+    for (const gift of stored) {
+      const key = summaryKey(gift.member_name, gift.occasion, gift.gift_date);
+      const current = storedByKey.get(key);
+      if (!current || (current.is_deleted && !gift.is_deleted)) storedByKey.set(key, gift);
+    }
+    const history = GIFT_HISTORY.flatMap((gift) => {
+      const saved = storedByKey.get(summaryKey(gift.member, gift.occasion, gift.giftDate));
+      if (saved?.is_deleted) return [];
+      return [saved ? { ...saved, member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate, purchase_date: saved.purchase_date || gift.purchaseDate, amount_eur: saved.amount_eur, btc_amount: saved.btc_amount, note: saved.note ?? gift.note } : {
+        member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate, purchase_date: gift.purchaseDate, amount_eur: gift.amountEur, btc_amount: gift.btcAmount, custody: "Binance commun" as const, note: gift.note,
+      }];
+    });
+    const historicalKeys = new Set(GIFT_HISTORY.map((gift) => summaryKey(gift.member, gift.occasion, gift.giftDate)));
+    return [...history, ...stored.filter((gift) => !historicalKeys.has(summaryKey(gift.member_name, gift.occasion, gift.gift_date)) && !gift.is_deleted)];
+  }, [stored]);
+
+  const periods = useMemo(() => {
+    const unique = new Map<string, GiftPeriod>();
+    for (const gift of GIFT_HISTORY) unique.set(`${gift.occasion}:${gift.giftDate}:${gift.occasion === "Anniversaire" ? gift.member : "all"}`, { date: gift.giftDate, occasion: gift.occasion, member: gift.occasion === "Anniversaire" ? gift.member : undefined });
+    for (const member of giftSummaryMembers) {
+      const date = `${currentYear}-${birthdayDates[member.name]}`;
+      unique.set(`Anniversaire:${date}:${member.name}`, { date, occasion: "Anniversaire", member: member.name });
+    }
+    unique.set(`Noël:${currentYear}-12-25:all`, { date: `${currentYear}-12-25`, occasion: "Noël" });
+    return [...unique.values()].sort((left,right) => left.date.localeCompare(right.date));
+  }, [currentYear]);
+  const availableYears = useMemo(() => [...new Set(periods.map((period) => Number(period.date.slice(0, 4))))].filter(Number.isFinite).sort((left, right) => right - left), [periods]);
+  const activeYear = availableYears.includes(selectedYear) ? selectedYear : (availableYears[0] ?? currentYear);
+  const yearPeriods = useMemo(() => periods.filter((period) => Number(period.date.slice(0, 4)) === activeYear), [activeYear, periods]);
+  const yearRecords = useMemo(() => records.filter((gift) => Number(gift.gift_date.slice(0, 4)) === activeYear), [activeYear, records]);
+  const yearRows = useMemo(() => giftSummaryMembers.map((member) => { const gifts = yearRecords.filter((gift) => gift.member_name === member.name); const ledgerGifts = gifts.filter(isLedgerAssociated); const binanceGifts = gifts.filter((gift) => !isLedgerAssociated(gift) && gift.custody === "Binance commun"); const pendingGifts = gifts.filter((gift) => !isLedgerAssociated(gift) && gift.custody === "À rapprocher"); const actual = (gift: GiftSummaryRecord) => Number(isLedgerAssociated(gift) ? gift.ledger_amount ?? gift.btc_amount : gift.btc_amount); return { ...member, gifts: gifts.length, ledger: ledgerGifts.length, binance: binanceGifts.length, pending: pendingGifts.length, btc: gifts.reduce((sum, gift) => sum + actual(gift), 0), eur: gifts.reduce((sum, gift) => sum + Number(gift.amount_eur), 0) }; }), [yearRecords]);
+  const yearTotal = useMemo(() => yearRows.reduce((totalRow, row) => ({ gifts: totalRow.gifts + row.gifts, ledger: totalRow.ledger + row.ledger, binance: totalRow.binance + row.binance, pending: totalRow.pending + row.pending, btc: totalRow.btc + row.btc, eur: totalRow.eur + row.eur }), { gifts: 0, ledger: 0, binance: 0, pending: 0, btc: 0, eur: 0 }), [yearRows]);
+
+  const rows = useMemo(() => giftSummaryMembers.map((member) => {
+    const gifts = records.filter((gift) => gift.member_name === member.name);
+    const ledgerGifts = gifts.filter(isLedgerAssociated);
+    const binanceGifts = gifts.filter((gift) => !isLedgerAssociated(gift) && gift.custody === "Binance commun");
+    const pendingGifts = gifts.filter((gift) => !isLedgerAssociated(gift) && gift.custody === "À rapprocher");
+    const actual = (gift: GiftSummaryRecord) => Number(isLedgerAssociated(gift) ? gift.ledger_amount ?? gift.btc_amount : gift.btc_amount);
+    const attributedEur = (gift: GiftSummaryRecord) => Number(gift.amount_eur) * (actual(gift) / Number(gift.btc_amount || 1));
+    const ledgerBtc = ledgerGifts.reduce((sum,gift) => sum + actual(gift),0);
+    const binanceBtc = binanceGifts.reduce((sum,gift) => sum + Number(gift.btc_amount),0);
+    const pendingBtc = pendingGifts.reduce((sum,gift) => sum + Number(gift.btc_amount),0);
+    const actualWallet = Number(ledger?.wallets?.find((wallet) => wallet.member === member.name)?.confirmedBalanceBtc ?? 0);
+    return { ...member, ledgerBtc, binanceBtc, pendingBtc, ledgerEur: ledgerGifts.reduce((sum,gift) => sum + attributedEur(gift),0), binanceEur: binanceGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), pendingEur: pendingGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), actualWallet, variance: actualWallet - ledgerBtc };
+  }), [ledger?.wallets, records]);
+  const total = rows.reduce((acc,row) => ({ ledgerBtc: acc.ledgerBtc + row.ledgerBtc, binanceBtc: acc.binanceBtc + row.binanceBtc, pendingBtc: acc.pendingBtc + row.pendingBtc, ledgerEur: acc.ledgerEur + row.ledgerEur, binanceEur: acc.binanceEur + row.binanceEur, pendingEur: acc.pendingEur + row.pendingEur, wallet: acc.wallet + row.actualWallet, variance: acc.variance + row.variance }), { ledgerBtc:0,binanceBtc:0,pendingBtc:0,ledgerEur:0,binanceEur:0,pendingEur:0,wallet:0,variance:0 });
+  const documented = records.filter((gift) => gift.id).length;
+  const pendingCount = records.filter((gift) => gift.custody === "À rapprocher").length;
+  const onLedgerPercent = total.ledgerBtc + total.binanceBtc + total.pendingBtc ? total.ledgerBtc / (total.ledgerBtc + total.binanceBtc + total.pendingBtc) * 100 : 0;
+
+  const bitcoinEur = Number(ledger?.bitcoinEur ?? 0);
+  const bitcoinEurSource = ledger?.bitcoinEurSource ?? "Source publique";
+  const quoteUpdatedAt = ledger?.updatedAt ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(ledger.updatedAt)) : null;
+  const valuations = rows.map((row) => {
+    const attributedBtc = row.ledgerBtc + row.binanceBtc + row.pendingBtc;
+    const investedEur = row.ledgerEur + row.binanceEur + row.pendingEur;
+    const currentValue = bitcoinEur > 0 ? attributedBtc * bitcoinEur : null;
+    const gainEur = currentValue === null ? null : currentValue - investedEur;
+    const gainPercent = gainEur === null || investedEur <= 0 ? null : gainEur / investedEur * 100;
+    return { ...row, attributedBtc, investedEur, currentValue, gainEur, gainPercent };
+  });
+  const totalAttributedBtc = total.ledgerBtc + total.binanceBtc + total.pendingBtc;
+  const totalInvestedEur = total.ledgerEur + total.binanceEur + total.pendingEur;
+  const totalMarketValue = bitcoinEur > 0 ? totalAttributedBtc * bitcoinEur : null;
+  const totalGainEur = totalMarketValue === null ? null : totalMarketValue - totalInvestedEur;
+  function delivery(member: (typeof giftSummaryMembers)[number], occasion: "Anniversaire" | "Noël"): DeliveryState {
+    const date = occasion === "Noël"
+      ? `${today >= `${currentYear}-12-25` ? currentYear : currentYear - 1}-12-25`
+      : `${today >= `${currentYear}-${birthdayDates[member.name]}` ? currentYear : currentYear - 1}-${birthdayDates[member.name]}`;
+    const gift = records.find((item) => item.member_name === member.name && item.occasion === occasion && item.gift_date === date);
+    const dateLabel = summaryDate.format(new Date(date + "T00:00:00Z"));
+    if (!gift) return { date, tone: "missing", label: "Non offert", detail: `${occasion} du ${dateLabel} · achat Binance non visible`, offered: false };
+    if (isLedgerAssociated(gift)) return { date, tone: "ledger", label: "Offert · Ledger", detail: `${euro.format(Number(gift.amount_eur))} · acheté puis transféré`, offered: true };
+    if (gift.custody === "Binance commun") return { date, tone: "binance", label: "Offert · Binance", detail: `${euro.format(Number(gift.amount_eur))} · achat enregistré, transfert à faire`, offered: true };
+    return { date, tone: "missing", label: "Non offert", detail: `${occasion} du ${dateLabel} · achat Binance à confirmer`, offered: false };
+  }
+
+  function startEdit(member: (typeof giftSummaryMembers)[number], period: GiftPeriod, gift?: GiftSummaryRecord) {
+    if (gift && isLedgerAssociated(gift)) return;
+    const tombstone = stored.find((record) => record.is_deleted && summaryKey(record.member_name, record.occasion, record.gift_date) === summaryKey(member.name, period.occasion, period.date));
+    setDraft({ key: `${member.name}-${period.occasion}-${period.date}`, id: gift?.id ?? tombstone?.id, member: member.name, occasion: period.occasion, giftDate: period.date, amountEur: String(Number(gift?.amount_eur ?? tombstone?.amount_eur ?? 55)), btcAmount: gift?.btc_amount ? String(gift.btc_amount) : tombstone?.btc_amount ? String(tombstone.btc_amount) : "", note: gift?.note ?? tombstone?.note ?? "" });
+    setMessage("");
+  }
+  function updateDraft(field: "amountEur" | "btcAmount" | "note", value: string) { setDraft((current) => current ? { ...current, [field]: value } : current); }
+  async function saveDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft) return;
+    const amountEur = Number(draft.amountEur);
+    const btcAmount = Number(draft.btcAmount);
+    if (!Number.isFinite(amountEur) || amountEur <= 0 || !Number.isFinite(btcAmount) || btcAmount <= 0) { setMessage("Renseignez un montant en euros et une quantité BTC supérieurs à zéro."); return; }
+    setBusy(true);
+    try {
+      const body = { id: draft.id, member: draft.member, occasion: draft.occasion, giftDate: draft.giftDate, purchaseDate: draft.giftDate, amountEur, btcAmount, custody: "Binance commun", note: draft.note };
+      await api("/api/gifts", { method: draft.id ? "PATCH" : "POST", body: JSON.stringify(body) });
+      setMessage(draft.id ? "Cadeau mis à jour dans le registre." : "Cadeau ajouté au registre Binance." );
+      setDraft(null);
+      await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Enregistrement impossible."); }
+    finally { setBusy(false); }
+  }
+  async function deleteDraft() {
+    if (!draft?.id || !window.confirm("Supprimer ce cadeau du registre ? Les cadeaux Ledger restent protégés.")) return;
+    setBusy(true);
+    try {
+      await api("/api/gifts?id=" + encodeURIComponent(draft.id), { method: "DELETE" });
+      setMessage("Cadeau supprimé du suivi.");
+      setDraft(null);
+      await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Suppression impossible."); }
+    finally { setBusy(false); }
+  }
+
+  function changeYear(direction: number) {
+    const index = availableYears.indexOf(activeYear);
+    const next = availableYears[Math.min(Math.max(index + direction, 0), availableYears.length - 1)];
+    if (next) setSelectedYear(next);
+  }
+  function scrollMatrix(direction: number) {
+    matrixRef.current?.scrollBy({ left: direction * 520, behavior: "smooth" });
+  }
+
+  function cell(member: (typeof giftSummaryMembers)[number], period: GiftPeriod) {
+    const cellKey = `${member.name}-${period.occasion}-${period.date}`;
+    if (period.occasion === "Anniversaire" && period.member !== member.name) return <td key={cellKey} className="summary-matrix-empty" aria-label="Non concerné">—</td>;
+    const gift = records.find((item) => item.member_name === member.name && item.occasion === period.occasion && item.gift_date === period.date);
+    const isEditing = draft?.key === cellKey;
+    if (isEditing && draft) return <td key={cellKey} className="summary-cell summary-cell-editing"><form className="summary-inline-editor" onSubmit={(event) => void saveDraft(event)}><label><span>€</span><input aria-label="Montant en euros" type="number" min="0" step="0.01" value={draft.amountEur} onChange={(event) => updateDraft("amountEur", event.target.value)} /></label><label><span>BTC</span><input aria-label="Quantité BTC" type="number" min="0" step="any" value={draft.btcAmount} onChange={(event) => updateDraft("btcAmount", event.target.value)} /></label><input aria-label="Note" value={draft.note} onChange={(event) => updateDraft("note", event.target.value)} placeholder="Note facultative" /><div><button type="submit" disabled={busy}>{busy ? "…" : "Enregistrer"}</button><button type="button" className="quiet" onClick={() => setDraft(null)} disabled={busy}>Annuler</button>{draft.id && <button type="button" className="delete" onClick={() => void deleteDraft()} disabled={busy}>Supprimer</button>}</div></form></td>;
+    if (!gift) {
+      const future = period.date > today;
+      return <td key={cellKey} className={`summary-cell ${future ? "future" : "missing"} editable`}><button type="button" className="summary-cell-trigger" onClick={() => startEdit(member, period)}><b>{future ? "À venir" : "Non offert"}</b><small>{future ? summaryDate.format(new Date(period.date + "T00:00:00Z")) : "À enregistrer"}</small><em>{future ? "Préparer" : "Ajouter"}</em></button></td>;
+    }
+    const ledgerAssociated = isLedgerAssociated(gift);
+    const receivedBtc = Number(ledgerAssociated ? gift.ledger_amount ?? gift.btc_amount : gift.btc_amount);
+    const hasGap = ledgerAssociated && receivedBtc < Number(gift.btc_amount) - 0.00000001;
+    const shownEur = hasGap ? Number(gift.amount_eur) * receivedBtc / Number(gift.btc_amount) : Number(gift.amount_eur);
+    const tone = ledgerAssociated ? "ledger" : gift.custody === "Binance commun" ? "binance" : "missing";
+    const status = gift.custody === "Binance commun" ? "⌛ Sur Binance" : "! À classer";
+    const explanation = gift.ledger_force_reason || gift.note || "Écart entre la quantité achetée et la quantité reçue.";
+    if (ledgerAssociated) return <td key={cellKey} className={`summary-cell ${tone}`}><b>{euro.format(shownEur)} · {btc(receivedBtc)}{hasGap && <span className="summary-gap" title={explanation}>*</span>}</b><small className="ledger-association"><span aria-hidden="true">⚑</span> Ledger associé · verrouillé</small></td>;
+    return <td key={cellKey} className={`summary-cell ${tone} editable`}><button type="button" className="summary-cell-trigger" onClick={() => startEdit(member, period, gift)}><b>{euro.format(shownEur)} · {btc(receivedBtc)}</b><small>{status}</small><em>Modifier</em></button></td>;
+  }
+
+  return <div className="gift-synthesis">
+    <section className="panel synthesis-head"><div><span>SUIVI OPÉRATIONNEL · VUE ADMIN</span><h2>Anniversaires & Noël, enfant par enfant</h2><p>Un cadeau est offert uniquement lorsqu’un achat est identifié sur Binance, qu’il y soit encore ou qu’il ait déjà été transféré sur Ledger. « À classer » ne compte pas comme offert.</p></div><button className="secondary-button" onClick={() => void load()}>↻ Actualiser</button></section>
+    {message && <p className="admin-feedback">{message}</p>}
+    <section className="synthesis-kpis" aria-label="Indicateurs de suivi"><article><span>✓</span><div><small>CADEAUX DOCUMENTÉS</small><strong>{documented}</strong></div></article><article><span>⌛</span><div><small>À TRANSFÉRER VERS LEDGER</small><strong>{btc(total.binanceBtc)}</strong><em>{euro.format(total.binanceEur)}</em></div></article><article><span>!</span><div><small>À CLASSER</small><strong>{pendingCount}</strong><em>{btc(total.pendingBtc)}</em></div></article><article><span>↗</span><div><small>PART DÉJÀ SUR LEDGER</small><strong>{onLedgerPercent.toFixed(0)} %</strong><em>{btc(total.ledgerBtc)}</em></div></article></section>
+    <section className="panel transfer-plan">
+      <header><div><span>PLAN DE TRANSFERT</span><h2>Ce qu’il reste à envoyer sur chaque Ledger</h2><p>Ces montants sont déjà achetés et attribués à chaque enfant, mais restent sur le Binance commun.</p></div><div className="transfer-plan-total"><small>TOTAL À TRANSFÉRER</small><strong>{btc(total.binanceBtc)}</strong><span>{euro.format(total.binanceEur)}</span></div></header>
+      <div className="transfer-plan-grid">{rows.map((row) => { const toTransfer = row.binanceBtc > 0.00000001; return <article key={row.name} className={toTransfer ? "ready" : "complete"}><span className="transfer-plan-avatar">{row.initials}</span><div><strong>{row.name}</strong><small>{toTransfer ? "Part attribuée, en attente de transfert" : "Aucun bitcoin à transférer"}</small></div><div className="transfer-plan-amount"><b>{btc(row.binanceBtc)}</b><small>{euro.format(row.binanceEur)} investis</small></div><em>{toTransfer ? "À transférer" : "À jour"}</em></article>; })}</div>
+      <footer><span>Les montants « À classer » ne sont pas inclus : leur localisation doit d’abord être confirmée.</span><span>Un même virement Ledger peut regrouper plusieurs cadeaux d’un enfant.</span></footer>
+    </section>    <section className="panel valuation-panel">
+      <header>
+        <div><span>VALORISATION INDICATIVE</span><h2>Valeur actuelle et plus-value théorique</h2><p>Le calcul rassemble les bitcoins attribués à chaque enfant, qu’ils soient sur Ledger, encore sur Binance commun ou à classer. Il compare leur valeur actuelle au coût d’achat historique, frais inclus.</p></div>
+        <div className="valuation-quote" aria-live="polite"><small>COURS BTC / EUR</small><strong>{bitcoinEur > 0 ? euro.format(bitcoinEur) : "Cours indisponible"}</strong><span>{bitcoinEur > 0 ? `Mis à jour ${quoteUpdatedAt ?? "maintenant"} · ${bitcoinEurSource}` : "La valorisation reprendra dès que le cours sera disponible."}</span><button type="button" className="valuation-refresh" onClick={() => void load()}>↻ Actualiser le cours</button></div>
+      </header>
+      {bitcoinEur > 0 ? <><div className="valuation-grid">{valuations.map((row) => <article key={row.name}><div className="valuation-person"><span>{row.initials}</span><div><strong>{row.name}</strong><small>{btc(row.attributedBtc)} attribués</small></div></div><div className="valuation-amount"><small>VALEUR ACTUELLE</small><strong>{euro.format(row.currentValue ?? 0)}</strong><em className={(row.gainEur ?? 0) >= 0 ? "positive" : "negative"}>{(row.gainEur ?? 0) >= 0 ? "+" : ""}{euro.format(row.gainEur ?? 0)}{row.gainPercent !== null ? ` · ${row.gainPercent >= 0 ? "+" : ""}${row.gainPercent.toFixed(1)} %` : ""}</em></div></article>)}</div><footer><div><small>BTC ATTRIBUÉS</small><strong>{btc(totalAttributedBtc)}</strong></div><div><small>INVESTI HISTORIQUE</small><strong>{euro.format(totalInvestedEur)}</strong></div><div><small>VALEUR ACTUELLE</small><strong>{euro.format(totalMarketValue ?? 0)}</strong></div><div className={(totalGainEur ?? 0) >= 0 ? "positive" : "negative"}><small>PLUS-VALUE THÉORIQUE</small><strong>{(totalGainEur ?? 0) >= 0 ? "+" : ""}{euro.format(totalGainEur ?? 0)}</strong></div></footer></> : <p className="valuation-unavailable" role="status">Le cours BTC/EUR est momentanément indisponible. Les coûts historiques et les quantités restent consultables ci-dessous.</p>}
+    </section>    <section className="panel delivery-summary"><header><div><span>RÉCAPITULATIF SIMPLE</span><h2>Les derniers cadeaux dus ont-ils bien été achetés ?</h2><p>Offert signifie « achat Binance visible » ou « achat déjà transféré sur Ledger ». Sans achat identifié, le cadeau reste non offert dans ce contrôle.</p></div></header><div className="synthesis-scroll"><table className="delivery-table"><thead><tr><th>Enfant</th><th>Dernier anniversaire dû</th><th>Dernier Noël dû</th><th>Suivi</th></tr></thead><tbody>{giftSummaryMembers.map((member) => { const birthday = delivery(member, "Anniversaire"); const christmas = delivery(member, "Noël"); const offered = Number(birthday.offered) + Number(christmas.offered); return <tr key={member.name}><th scope="row"><b>{member.initials}</b>{member.name}</th><td><span className={`delivery-state ${birthday.tone}`}>{birthday.label}</span><small>{birthday.detail}</small></td><td><span className={`delivery-state ${christmas.tone}`}>{christmas.label}</span><small>{christmas.detail}</small></td><td><strong className={offered === 2 ? "delivery-complete" : "delivery-incomplete"}>{offered}/2 offerts</strong><small>{offered === 2 ? "Achats enregistrés" : "Achat à enregistrer"}</small></td></tr>; })}</tbody></table></div></section>
+    <section className="panel synthesis-panel matrix-panel">
+      <header><div><span>MATRICE DES CADEAUX</span><h2>Où en est chaque cadeau ?</h2></div><div className="synthesis-legend"><span className="ledger">⚑ Ledger associé · verrouillé</span><span className="binance">⌛ Binance · modifiable</span><span className="missing">! À compléter · modifiable</span><span className="future">À venir</span></div></header>
+      <div className="matrix-toolbar">
+        <div className="matrix-years" role="group" aria-label="Choisir l’année affichée"><button type="button" className="matrix-arrow" onClick={() => changeYear(1)} disabled={activeYear === availableYears[availableYears.length - 1]} aria-label="Voir l’année précédente">←</button>{availableYears.map((year) => <button type="button" key={year} className={year === activeYear ? "active" : ""} onClick={() => setSelectedYear(year)} aria-pressed={year === activeYear}>{year}</button>)}<button type="button" className="matrix-arrow" onClick={() => changeYear(-1)} disabled={activeYear === availableYears[0]} aria-label="Voir l’année plus récente">→</button></div>
+        <div className="matrix-scroll-actions"><span>Tableau large</span><button type="button" onClick={() => scrollMatrix(-1)} aria-label="Faire défiler le tableau vers la gauche">←</button><button type="button" onClick={() => scrollMatrix(1)} aria-label="Faire défiler le tableau vers la droite">→</button></div>
+      </div>
+      <div className="matrix-year-summary" aria-label={`Bilan de l’année ${activeYear}`}><span><b>{yearTotal.gifts}</b> cadeau{yearTotal.gifts > 1 ? "x" : ""}</span><span><b>{btc(yearTotal.btc)}</b> attribués</span><span><b>{euro.format(yearTotal.eur)}</b> investis</span><span className="matrix-summary-ledger"><b>{yearTotal.ledger}</b> sur Ledger</span><span className="matrix-summary-binance"><b>{yearTotal.binance}</b> sur Binance</span>{yearTotal.pending > 0 && <span className="matrix-summary-pending"><b>{yearTotal.pending}</b> à compléter</span>}</div>
+      <p className="synthesis-hint">Cliquez sur une cellule Binance, à classer ou manquante pour modifier directement son montant, ses BTC ou la supprimer. Les cellules Ledger restent en lecture seule après confirmation blockchain. Utilisez les flèches ou faites défiler horizontalement pour consulter toutes les échéances.</p>
+      <div ref={matrixRef} className="synthesis-scroll matrix-scroll" tabIndex={0} aria-label={`Matrice des cadeaux de ${activeYear}. Utilisez les flèches gauche et droite pour faire défiler.`} onKeyDown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); scrollMatrix(-1); } if (event.key === "ArrowRight") { event.preventDefault(); scrollMatrix(1); } }}>
+        <table className="summary-matrix"><thead><tr><th scope="col">Enfant</th>{yearPeriods.map((period) => <th key={`${period.occasion}-${period.date}-${period.member ?? "all"}`} scope="col"><small>{period.occasion === "Noël" ? "NOËL" : "ANNIVERSAIRE"}</small><strong>{period.member ?? "Famille"}</strong><span>{summaryDate.format(new Date(period.date + "T00:00:00Z"))}</span></th>)}<th scope="col" className="summary-year-total">Total {activeYear}</th></tr></thead><tbody>{giftSummaryMembers.map((member) => { const summary = yearRows.find((row) => row.name === member.name)!; return <tr key={member.name}><th scope="row"><b>{member.initials}</b><span>{member.name}</span></th>{yearPeriods.map((period) => cell(member, period))}<td className="summary-year-total"><strong>{summary.gifts} cadeau{summary.gifts > 1 ? "x" : ""}</strong><small>{btc(summary.btc)}</small><em>{summary.ledger} Ledger · {summary.binance} Binance{summary.pending ? ` · ${summary.pending} à classer` : ""}</em></td></tr>; })}</tbody><tfoot><tr><th scope="row">Famille</th><td colSpan={Math.max(1, yearPeriods.length)}><strong>{yearTotal.gifts} cadeaux · {btc(yearTotal.btc)} · {euro.format(yearTotal.eur)}</strong></td><td className="summary-year-total"><strong>{yearTotal.ledger} Ledger · {yearTotal.binance} Binance</strong>{yearTotal.pending > 0 && <small>{yearTotal.pending} à compléter</small>}</td></tr></tfoot></table>
+      </div>
+    </section>
+    <section className="panel synthesis-panel wallet-control"><header><div><span>VÉRIFICATION PAR PORTEFEUILLE</span><h2>Contrôle des montants attribués</h2><p>Les montants Ledger sont comparés au solde public de chaque adresse. Un écart positif peut correspondre à des bitcoins non liés aux cadeaux.</p></div></header><div className="synthesis-scroll"><table className="wallet-summary"><thead><tr><th>Enfant</th><th>BTC sur Ledger</th><th>EUR investis Ledger</th><th>BTC à transférer</th><th>EUR investis à transférer</th><th>À classer</th><th>Total BTC attribué</th><th>Solde Ledger réel</th><th>Écart</th></tr></thead><tbody>{rows.map((row) => <tr key={row.name}><th scope="row">{row.name}</th><td className="ledger-number">{btc(row.ledgerBtc)}</td><td className="ledger-number">{euro.format(row.ledgerEur)}</td><td className="binance-number">{btc(row.binanceBtc)}</td><td className="binance-number">{euro.format(row.binanceEur)}</td><td>{row.pendingBtc ? btc(row.pendingBtc) : "—"}</td><td className="total-number">{btc(row.ledgerBtc + row.binanceBtc + row.pendingBtc)}</td><td>{btc(row.actualWallet)}</td><td className={Math.abs(row.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(row.variance)}</td></tr>)}<tr className="wallet-total"><th scope="row">Total famille</th><td>{btc(total.ledgerBtc)}</td><td>{euro.format(total.ledgerEur)}</td><td>{btc(total.binanceBtc)}</td><td>{euro.format(total.binanceEur)}</td><td>{total.pendingBtc ? btc(total.pendingBtc) : "—"}</td><td>{btc(total.ledgerBtc + total.binanceBtc + total.pendingBtc)}</td><td>{btc(total.wallet)}</td><td className={Math.abs(total.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(total.variance)}</td></tr></tbody></table></div><footer><span>EUR investi = coût d’achat historique, frais inclus. Valeur de marché exclue.</span><span>Contrôle = solde Ledger réel − BTC attribués aux cadeaux.</span></footer></section>
+  </div>;
+}
 function Members() {
   const [users,setUsers]=useState<Member[]>([]),[open,setOpen]=useState(false),[busy,setBusy]=useState(""),[message,setMessage]=useState("");
   const [draft,setDraft]=useState({name:"",email:"",role:"child",birthdayDay:"",birthdayMonth:""});

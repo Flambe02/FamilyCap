@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { GIFT_HISTORY } from "../lib/gift-history";
+import { useDialogA11y } from "./use-dialog-a11y";
 import "./transactions.css";
 
 export type TransactionRecord = {
@@ -170,6 +171,7 @@ export function InvestmentModal({ onClose, onSave }: { onClose: () => void; onSa
   const [step, setStep] = useState(1);
   const [draft, setDraft] = useState({ member: "Thibault", author: "Administrateur", kind: "Investissement mensuel", account: "Binance commun", asset: "Bitcoin", amount: "55", quantity: "", date: "2026-07-16", reference: "", note: "" });
   const update = (key: keyof typeof draft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+  const dialogRef = useDialogA11y(true, onClose);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -193,7 +195,7 @@ export function InvestmentModal({ onClose, onSave }: { onClose: () => void; onSa
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal guided-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title">
+      <section ref={dialogRef} className="modal guided-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" tabIndex={-1}>
         <header><div><span>SAISIE GUIDÉE · ÉTAPE {step} SUR 3</span><h2 id="entry-title">{stepTitle(step)}</h2></div><button onClick={onClose} aria-label="Fermer">×</button></header>
         <div className="step-progress"><span className={step >= 1 ? "done" : ""} /><span className={step >= 2 ? "done" : ""} /><span className={step >= 3 ? "done" : ""} /></div>
         <p className="modal-help">{stepHelp(step)}</p>
@@ -209,7 +211,8 @@ export function InvestmentModal({ onClose, onSave }: { onClose: () => void; onSa
 }
 
 function TransactionDetail({ transaction, onClose }: { transaction: TransactionRecord; onClose: () => void }) {
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="transaction-detail" role="dialog" aria-modal="true" aria-labelledby="transaction-title"><header><div><span>DÉTAIL DE L’OPÉRATION</span><h2 id="transaction-title">{transaction.kind}</h2><p>{transaction.member} · {dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><div className="detail-amount"><small>{transaction.authorRole === "Blockchain" ? "Valeur publique" : "Montant investi"}</small><strong>{transaction.authorRole === "Blockchain" ? "Transaction Ledger" : euro.format(transaction.amount)}</strong><span className={`transaction-status ${statusClass(transaction.status)}`}>{transaction.status}</span></div><dl className="detail-list"><div><dt>Actif</dt><dd>{transaction.asset}</dd></div><div><dt>Quantité</dt><dd>{transaction.quantity ? transaction.quantity.toFixed(8) : "Non renseignée"}</dd></div><div><dt>Compte</dt><dd>{transaction.account}</dd></div><div><dt>Saisie par</dt><dd>{transaction.author} · {transaction.authorRole}</dd></div><div><dt>Référence</dt><dd>{transaction.reference ?? "Aucune"}</dd></div><div><dt>Commentaire</dt><dd>{transaction.note ?? "Aucun commentaire"}</dd></div></dl><div className="detail-safety">Cette fiche contient uniquement des informations de suivi. Elle ne contient aucune clé privée ni aucun mot Ledger.</div><button className="primary-button" onClick={onClose}>Fermer</button></section></div>;
+  const dialogRef = useDialogA11y(true, onClose);
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="transaction-detail" role="dialog" aria-modal="true" aria-labelledby="transaction-title" tabIndex={-1}><header><div><span>DÉTAIL DE L’OPÉRATION</span><h2 id="transaction-title">{transaction.kind}</h2><p>{transaction.member} · {dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><div className="detail-amount"><small>{transaction.authorRole === "Blockchain" ? "Valeur publique" : "Montant investi"}</small><strong>{transaction.authorRole === "Blockchain" ? "Transaction Ledger" : euro.format(transaction.amount)}</strong><span className={`transaction-status ${statusClass(transaction.status)}`}>{transaction.status}</span></div><dl className="detail-list"><div><dt>Actif</dt><dd>{transaction.asset}</dd></div><div><dt>Quantité</dt><dd>{transaction.quantity ? transaction.quantity.toFixed(8) : "Non renseignée"}</dd></div><div><dt>Compte</dt><dd>{transaction.account}</dd></div><div><dt>Saisie par</dt><dd>{transaction.author} · {transaction.authorRole}</dd></div><div><dt>Référence</dt><dd>{transaction.reference ?? "Aucune"}</dd></div><div><dt>Commentaire</dt><dd>{transaction.note ?? "Aucun commentaire"}</dd></div></dl><div className="detail-safety">Cette fiche contient uniquement des informations de suivi. Elle ne contient aucune clé privée ni aucun mot Ledger.</div><button className="primary-button" onClick={onClose}>Fermer</button></section></div>;
 }
 
 function statusClass(status: TransactionRecord["status"]) { return status === "Confirmée" ? "confirmed" : status === "À transférer" ? "transfer" : "incomplete"; }

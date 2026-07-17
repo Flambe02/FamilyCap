@@ -14,6 +14,7 @@ type GiftInput = {
   transferDate?: string | null;
   ledgerAmount?: number | null;
   forceLedgerAmount?: boolean;
+  forceReason?: string | null;
   publicAddress?: string | null;
   txid?: string | null;
   blockchainStatus?: string;
@@ -28,14 +29,9 @@ type StoredGift = {
   txid: string | null;
   blockchain_status: string;
   confirmations: number;
+  is_deleted?: boolean;
 };
 
-function isLedgerLocked(record: StoredGift) {
-  return record.custody === "Ledger" && Boolean(
-    record.confirmations > 0 ||
-    (record.txid && /valid|confirm/i.test(record.blockchain_status)),
-  );
-}
 
 function validate(body: GiftInput) {
   if (!body.member || !body.occasion || !body.giftDate || !body.purchaseDate || !body.custody) return "Informations obligatoires manquantes.";
@@ -43,6 +39,8 @@ function validate(body: GiftInput) {
   if (!["Anniversaire", "Noël", "Autre cadeau"].includes(body.occasion)) return "Occasion invalide.";
   if (!["Binance commun", "Ledger"].includes(body.custody)) return "Lieu de conservation invalide.";
   if (body.forceLedgerAmount === true && body.custody !== "Ledger") return "La correction forc\u00e9e exige un Ledger.";
+  if (body.forceLedgerAmount === true && !body.forceReason?.trim()) return "Une explication est obligatoire pour forcer la valeur BTC achetée.";
+  if (body.forceLedgerAmount === true && (!body.ledgerAmount || Number(body.btcAmount) <= Number(body.ledgerAmount))) return "La correction forcée doit concerner une valeur achetée supérieure au montant reçu sur le Ledger.";
   return null;
 }
 
@@ -66,14 +64,43 @@ function payload(body: GiftInput, memberId: string | null) {
     transfer_date: body.transferDate || null,
     ledger_amount: body.ledgerAmount ?? null,
     ledger_value_forced: body.forceLedgerAmount === true,
+    ledger_force_reason: body.forceLedgerAmount === true ? body.forceReason?.trim() || null : null,
     public_address: body.publicAddress || null,
     txid: body.txid || null,
     blockchain_status: body.blockchainStatus || (body.custody === "Ledger" ? "À vérifier" : "Stocké sur Binance commun"),
     confirmations: body.confirmations ?? 0,
     note: body.note || null,
+    is_deleted: false,
   };
 }
 
+function hasMissingLedgerAuditColumn(error: unknown) {
+  return error instanceof Error && error.message.includes("PGRST204") && /ledger_(force_reason|value_forced)/i.test(error.message);
+}
+
+function hasMissingSoftDeleteColumn(error: unknown) {
+  return error instanceof Error && error.message.includes("PGRST204") && /is_deleted/i.test(error.message);
+}
+
+function withoutUnavailableLedgerAuditColumns(record: Record<string, unknown>, forceReason?: string | null) {
+  const fallback = { ...record };
+  delete fallback.ledger_force_reason;
+  delete fallback.ledger_value_forced;
+  if (forceReason?.trim()) {
+    const auditNote = `Écart Ledger documenté : ${forceReason.trim()}`;
+    fallback.note = [typeof fallback.note === "string" ? fallback.note.trim() : "", auditNote].filter(Boolean).join(" — ");
+  }
+  return fallback;
+}
+
+async function writeGiftRecord<T>(path: string, init: RequestInit, record: Record<string, unknown>, forceReason?: string | null) {
+  try {
+    return await supabaseRest<T>(path, { ...init, body: JSON.stringify(record) });
+  } catch (caught) {
+    if (!hasMissingLedgerAuditColumn(caught)) throw caught;
+    return supabaseRest<T>(path, { ...init, body: JSON.stringify(withoutUnavailableLedgerAuditColumns(record, forceReason)) });
+  }
+}
 async function validateLedgerAllocation(body: GiftInput, excludingId?: string) {
   if (body.custody !== "Ledger" || !body.txid) return null;
   if (!body.publicAddress) return "L'adresse publique Ledger est obligatoire.";
@@ -100,7 +127,7 @@ export async function GET(request: Request) {
     const records = await supabaseRest<Record<string, unknown>[]>(
       "gift_records?select=*&order=gift_date.desc,created_at.desc" + filter,
     );
-    const visibleRecords = viewer.role === "admin" ? records : records.map(({ public_address, txid, blockchain_status, confirmations, ledger_amount, transfer_date, ...gift }) => gift);
+    const visibleRecords = viewer.role === "admin" ? records : records.map((record) => { const gift = { ...record }; for (const privateField of ["public_address", "txid", "blockchain_status", "confirmations", "transfer_date"]) delete gift[privateField]; return gift; });
     return Response.json({ records: visibleRecords, persistence: "supabase" });
   } catch (error) {
     return authErrorResponse(error);
@@ -117,11 +144,10 @@ export async function POST(request: Request) {
     const allocationError = await validateLedgerAllocation(body);
     if (allocationError) return Response.json({ error: allocationError }, { status: 400 });
     const memberId = await memberIdFor(body.member!);
-    const records = await supabaseRest<Array<{ id: string }>>("gift_records", {
+    const records = await writeGiftRecord<Array<{ id: string }>>("gift_records", {
       method: "POST",
       headers: { prefer: "return=representation" },
-      body: JSON.stringify(payload(body, memberId)),
-    });
+    }, payload(body, memberId), body.forceLedgerAmount ? body.forceReason : null);
     return Response.json({ saved: true, id: records[0]?.id, persistence: "supabase" }, { status: 201 });
   } catch (error) {
     return authErrorResponse(error);
@@ -157,17 +183,16 @@ export async function PATCH(request: Request) {
       });
       return Response.json({ unlinked: true });
     }
-    if (isLedgerLocked(current[0])) return Response.json({ error: "Cette transaction est confirmée sur le Ledger et ne peut plus être modifiée." }, { status: 409 });
+    if (current[0].custody === "Ledger") return Response.json({ error: "Un cadeau sur Ledger ne peut pas être modifié depuis le tableau. Utilisez d’abord l’action de désassociation dédiée si nécessaire." }, { status: 409 });
     const error = validate(body);
     if (error) return Response.json({ error }, { status: 400 });
     const allocationError = await validateLedgerAllocation(body, body.id);
     if (allocationError) return Response.json({ error: allocationError }, { status: 400 });
     const memberId = await memberIdFor(body.member!);
-    await supabaseRest("gift_records?id=eq." + encodeURIComponent(body.id), {
+    await writeGiftRecord("gift_records?id=eq." + encodeURIComponent(body.id), {
       method: "PATCH",
       headers: { prefer: "return=minimal" },
-      body: JSON.stringify(payload(body, memberId)),
-    });
+    }, payload(body, memberId), body.forceLedgerAmount ? body.forceReason : null);
     return Response.json({ updated: true });
   } catch (error) {
     return authErrorResponse(error);
@@ -184,8 +209,15 @@ export async function DELETE(request: Request) {
       "gift_records?select=id,member_name,custody,txid,blockchain_status,confirmations&id=eq." + encodeURIComponent(id) + "&limit=1",
     );
     if (!current[0]) return Response.json({ error: "Cadeau introuvable." }, { status: 404 });
-    if (isLedgerLocked(current[0])) return Response.json({ error: "Une transaction Ledger confirmée ne peut pas être supprimée." }, { status: 409 });
-    await supabaseRest("gift_records?id=eq." + encodeURIComponent(id), { method: "DELETE", headers: { prefer: "return=minimal" } });
+    if (current[0].custody === "Ledger") return Response.json({ error: "Un cadeau sur Ledger ne peut pas être supprimé." }, { status: 409 });
+    try {
+      await supabaseRest("gift_records?id=eq." + encodeURIComponent(id), { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify({ is_deleted: true }) });
+    } catch (error) {
+      if (hasMissingSoftDeleteColumn(error)) {
+        return Response.json({ error: "La suppression sécurisée nécessite la migration Supabase 20260717_soft_delete_gift_records.sql. Exécutez-la dans le SQL Editor, puis réessayez." }, { status: 409 });
+      }
+      throw error;
+    }
     return Response.json({ deleted: true });
   } catch (error) {
     return authErrorResponse(error);
