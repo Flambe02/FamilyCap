@@ -24,15 +24,30 @@ function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
 }
 
+async function getWalletTransactions(address: string) {
+  const transactions: ChainTransaction[] = [];
+  let path = `https://blockstream.info/api/address/${address}/txs`;
+
+  for (let pageCount = 0; pageCount < 20; pageCount += 1) {
+    const response = await fetch(path, { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error("Lecture des transactions impossible.");
+    const page = await response.json() as ChainTransaction[];
+    transactions.push(...page);
+    if (page.length < 25 || !page[page.length - 1]?.txid) break;
+    path = `https://blockstream.info/api/address/${address}/txs/chain/${page[page.length - 1].txid}`;
+  }
+
+  return transactions;
+}
+
 async function getWallet(member: string, address: string, tipHeight: number) {
-  const [summaryResponse, transactionsResponse] = await Promise.all([
+  const [summaryResponse, transactions] = await Promise.all([
     fetch(`https://blockstream.info/api/address/${address}`, { headers: { accept: "application/json" } }),
-    fetch(`https://blockstream.info/api/address/${address}/txs`, { headers: { accept: "application/json" } }),
+    getWalletTransactions(address),
   ]);
 
-  if (!summaryResponse.ok || !transactionsResponse.ok) throw new Error(`Lecture impossible pour ${member}`);
+  if (!summaryResponse.ok) throw new Error(`Lecture impossible pour ${member}`);
   const summary = await summaryResponse.json() as AddressSummary;
-  const transactions = await transactionsResponse.json() as ChainTransaction[];
   const confirmedBalanceSats = summary.chain_stats.funded_txo_sum - summary.chain_stats.spent_txo_sum;
   const pendingBalanceSats = summary.mempool_stats.funded_txo_sum - summary.mempool_stats.spent_txo_sum;
 
@@ -56,6 +71,8 @@ async function getWallet(member: string, address: string, tipHeight: number) {
         txid: transaction.txid,
         date: transaction.status.block_time ? new Date(transaction.status.block_time * 1000).toISOString() : null,
         amountBtc: Math.abs(netSats) / 100_000_000,
+        receivedBtc: receivedSats / 100_000_000,
+        sentBtc: spentSats / 100_000_000,
         direction: netSats >= 0 ? "Reçu" : "Envoyé",
         confirmed: transaction.status.confirmed,
         confirmations,

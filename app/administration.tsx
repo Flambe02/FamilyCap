@@ -60,7 +60,9 @@ type GiftSummaryRecord = {
   note?: string | null;
   is_deleted?: boolean;
 };
-type LedgerSummary = { wallets?: Array<{ member: string; confirmedBalanceBtc?: number }>; bitcoinEur?: number | null; bitcoinEurSource?: string | null; updatedAt?: string };
+type LedgerTransaction = { txid: string; date?: string | null; amountBtc?: number; receivedBtc?: number; sentBtc?: number; direction?: string; confirmed?: boolean; confirmations?: number; explorerUrl?: string };
+type LedgerWallet = { member: string; address?: string; confirmedBalanceBtc?: number; explorerUrl?: string; transactions?: LedgerTransaction[]; error?: string };
+type LedgerSummary = { wallets?: LedgerWallet[]; bitcoinEur?: number | null; bitcoinEurSource?: string | null; updatedAt?: string };
 type GiftPeriod = { date: string; occasion: "Anniversaire" | "Noël"; member?: string };
 type SummaryDraft = {
   key: string;
@@ -175,6 +177,34 @@ function GiftSynthesis() {
   const totalInvestedEur = total.ledgerEur + total.binanceEur + total.pendingEur;
   const totalMarketValue = bitcoinEur > 0 ? totalAttributedBtc * bitcoinEur : null;
   const totalGainEur = totalMarketValue === null ? null : totalMarketValue - totalInvestedEur;
+  const ledgerActivity = giftSummaryMembers.map((member) => {
+    const row = rows.find((item) => item.name === member.name);
+    const wallet = ledger?.wallets?.find((item) => item.member === member.name);
+    const allocationsByTxid = new Map<string, number>();
+    for (const gift of records) {
+      if (gift.member_name !== member.name || !isLedgerAssociated(gift) || !gift.txid) continue;
+      const txid = gift.txid.toLowerCase();
+      allocationsByTxid.set(txid, (allocationsByTxid.get(txid) ?? 0) + Number(gift.ledger_amount ?? gift.btc_amount));
+    }
+    const transactions = (wallet?.transactions ?? []).map((transaction) => {
+      const isReceipt = transaction.direction === "Reçu";
+      const receivedBtc = isReceipt ? Number(transaction.receivedBtc ?? transaction.amountBtc ?? 0) : 0;
+      const allocatedBtc = isReceipt ? allocationsByTxid.get(transaction.txid.toLowerCase()) ?? 0 : 0;
+      const remainingBtc = isReceipt ? Math.max(0, receivedBtc - allocatedBtc) : 0;
+      const allocationState = !isReceipt ? "Sortie" : allocatedBtc <= 0.00000001 ? "À attribuer" : remainingBtc > 0.00000001 ? "Partiellement attribuée" : "Entièrement attribuée";
+      const allocationTone = !isReceipt ? "sent" : allocatedBtc <= 0.00000001 ? "unallocated" : remainingBtc > 0.00000001 ? "partial" : "allocated";
+      return { ...transaction, receivedBtc, allocatedBtc, remainingBtc, allocationState, allocationTone, shortTxid: `${transaction.txid.slice(0, 8)}…${transaction.txid.slice(-6)}`, explorerUrl: transaction.explorerUrl ?? `https://blockstream.info/tx/${transaction.txid}` };
+    });
+    const receivedBtc = transactions.reduce((sum, transaction) => sum + transaction.receivedBtc, 0);
+    const allocatedBtc = row?.ledgerBtc ?? 0;
+    return { ...member, wallet, transactions, receivedBtc, allocatedBtc, unallocatedBtc: Math.max(0, receivedBtc - allocatedBtc) };
+  });
+  const ledgerActivityTotal = ledgerActivity.reduce((summary, wallet) => ({
+    receivedBtc: summary.receivedBtc + wallet.receivedBtc,
+    allocatedBtc: summary.allocatedBtc + wallet.allocatedBtc,
+    unallocatedBtc: summary.unallocatedBtc + wallet.unallocatedBtc,
+    receipts: summary.receipts + wallet.transactions.filter((transaction) => transaction.receivedBtc > 0).length,
+  }), { receivedBtc: 0, allocatedBtc: 0, unallocatedBtc: 0, receipts: 0 });
   function delivery(member: (typeof giftSummaryMembers)[number], occasion: "Anniversaire" | "Noël"): DeliveryState {
     const date = occasion === "Noël"
       ? `${today >= `${currentYear}-12-25` ? currentYear : currentYear - 1}-12-25`
@@ -279,7 +309,16 @@ function GiftSynthesis() {
         <table className="summary-matrix"><thead><tr><th scope="col">Enfant</th>{yearPeriods.map((period) => <th key={`${period.occasion}-${period.date}-${period.member ?? "all"}`} scope="col"><small>{period.occasion === "Noël" ? "NOËL" : "ANNIVERSAIRE"}</small><strong>{period.member ?? "Famille"}</strong><span>{summaryDate.format(new Date(period.date + "T00:00:00Z"))}</span></th>)}<th scope="col" className="summary-year-total">Total {activeYear}</th></tr></thead><tbody>{giftSummaryMembers.map((member) => { const summary = yearRows.find((row) => row.name === member.name)!; return <tr key={member.name}><th scope="row"><b>{member.initials}</b><span>{member.name}</span></th>{yearPeriods.map((period) => cell(member, period))}<td className="summary-year-total"><strong>{summary.gifts} cadeau{summary.gifts > 1 ? "x" : ""}</strong><small>{btc(summary.btc)}</small><em>{summary.ledger} Ledger · {summary.binance} Binance{summary.pending ? ` · ${summary.pending} à classer` : ""}</em></td></tr>; })}</tbody><tfoot><tr><th scope="row">Famille</th><td colSpan={Math.max(1, yearPeriods.length)}><strong>{yearTotal.gifts} cadeaux · {btc(yearTotal.btc)} · {euro.format(yearTotal.eur)}</strong></td><td className="summary-year-total"><strong>{yearTotal.ledger} Ledger · {yearTotal.binance} Binance</strong>{yearTotal.pending > 0 && <small>{yearTotal.pending} à compléter</small>}</td></tr></tfoot></table>
       </div>
     </section>
-    <section className="panel synthesis-panel wallet-control"><header><div><span>VÉRIFICATION PAR PORTEFEUILLE</span><h2>Contrôle des montants attribués</h2><p>Les montants Ledger sont comparés au solde public de chaque adresse. Un écart positif peut correspondre à des bitcoins non liés aux cadeaux.</p></div></header><div className="synthesis-scroll"><table className="wallet-summary"><thead><tr><th>Enfant</th><th>BTC sur Ledger</th><th>EUR investis Ledger</th><th>BTC à transférer</th><th>EUR investis à transférer</th><th>À classer</th><th>Total BTC attribué</th><th>Solde Ledger réel</th><th>Écart</th></tr></thead><tbody>{rows.map((row) => <tr key={row.name}><th scope="row">{row.name}</th><td className="ledger-number">{btc(row.ledgerBtc)}</td><td className="ledger-number">{euro.format(row.ledgerEur)}</td><td className="binance-number">{btc(row.binanceBtc)}</td><td className="binance-number">{euro.format(row.binanceEur)}</td><td>{row.pendingBtc ? btc(row.pendingBtc) : "—"}</td><td className="total-number">{btc(row.ledgerBtc + row.binanceBtc + row.pendingBtc)}</td><td>{btc(row.actualWallet)}</td><td className={Math.abs(row.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(row.variance)}</td></tr>)}<tr className="wallet-total"><th scope="row">Total famille</th><td>{btc(total.ledgerBtc)}</td><td>{euro.format(total.ledgerEur)}</td><td>{btc(total.binanceBtc)}</td><td>{euro.format(total.binanceEur)}</td><td>{total.pendingBtc ? btc(total.pendingBtc) : "—"}</td><td>{btc(total.ledgerBtc + total.binanceBtc + total.pendingBtc)}</td><td>{btc(total.wallet)}</td><td className={Math.abs(total.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(total.variance)}</td></tr></tbody></table></div><footer><span>EUR investi = coût d’achat historique, frais inclus. Valeur de marché exclue.</span><span>Contrôle = solde Ledger réel − BTC attribués aux cadeaux.</span></footer></section>
+    <section className="panel synthesis-panel wallet-control">
+      <header><div><span>VÉRIFICATION PAR PORTEFEUILLE</span><h2>Contrôle des montants attribués</h2><p>La lecture sépare volontairement les réceptions Blockchain, leur attribution aux cadeaux et le solde public actuel. Cela évite de confondre un virement reçu avec un bitcoin encore à affecter.</p></div></header>
+      <div className="synthesis-scroll"><table className="wallet-summary"><thead><tr><th>Enfant</th><th>Reçu sur Ledger</th><th>Attribué Ledger</th><th>À attribuer</th><th>À transférer · Binance</th><th>EUR historique Binance</th><th>À classer</th><th>Total BTC attribué</th><th>Solde Ledger public</th><th>Écart</th></tr></thead><tbody>{rows.map((row) => { const activity = ledgerActivity.find((wallet) => wallet.name === row.name)!; return <tr key={row.name}><th scope="row">{row.name}</th><td className="ledger-number">{btc(activity.receivedBtc)}</td><td className="ledger-number">{btc(row.ledgerBtc)}</td><td className={activity.unallocatedBtc > 0.00000001 ? "ledger-remaining" : "variance-ok"}>{activity.unallocatedBtc > 0.00000001 ? btc(activity.unallocatedBtc) : "—"}</td><td className="binance-number">{btc(row.binanceBtc)}</td><td className="binance-number">{euro.format(row.binanceEur)}</td><td>{row.pendingBtc ? btc(row.pendingBtc) : "—"}</td><td className="total-number">{btc(row.ledgerBtc + row.binanceBtc + row.pendingBtc)}</td><td>{btc(row.actualWallet)}</td><td className={Math.abs(row.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(row.variance)}</td></tr>; })}<tr className="wallet-total"><th scope="row">Total famille</th><td>{btc(ledgerActivityTotal.receivedBtc)}</td><td>{btc(total.ledgerBtc)}</td><td>{ledgerActivityTotal.unallocatedBtc > 0.00000001 ? btc(ledgerActivityTotal.unallocatedBtc) : "—"}</td><td>{btc(total.binanceBtc)}</td><td>{euro.format(total.binanceEur)}</td><td>{total.pendingBtc ? btc(total.pendingBtc) : "—"}</td><td>{btc(totalAttributedBtc)}</td><td>{btc(total.wallet)}</td><td className={Math.abs(total.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(total.variance)}</td></tr></tbody></table></div>
+      <footer><span>Reçu Ledger = total des réceptions On-Chain ; attribué = BTC relié à un cadeau dans Supabase.</span><span>Écart = solde public actuel − BTC attribués aux cadeaux.</span></footer>
+    </section>
+    <section className="panel ledger-transaction-panel">
+      <header><div><span>RÉCEPTIONS LEDGER</span><h2>Transactions et allocations par portefeuille</h2><p>Chaque réception publique est rapprochée de son TxID dans Supabase. Une réception peut couvrir plusieurs cadeaux ; un reliquat reste visible jusqu’à son attribution.</p></div><div className="ledger-transaction-total"><small>RÉCEPTION À ATTRIBUER</small><strong>{btc(ledgerActivityTotal.unallocatedBtc)}</strong><span>{ledgerActivityTotal.receipts} réception{ledgerActivityTotal.receipts > 1 ? "s" : ""} Blockchain lue{ledgerActivityTotal.receipts > 1 ? "s" : ""}</span></div></header>
+      <div className="ledger-wallet-list">{ledgerActivity.map((wallet) => <article key={wallet.name} className="ledger-wallet-allocation"><header><div className="ledger-wallet-title"><span>{wallet.initials}</span><div><strong>{wallet.name}</strong><small>{wallet.wallet?.address ? `${wallet.wallet.address.slice(0, 12)}…${wallet.wallet.address.slice(-6)}` : "Adresse publique indisponible"}</small></div></div><div className="ledger-wallet-metrics"><span><small>REÇU</small><b>{btc(wallet.receivedBtc)}</b></span><span><small>ATTRIBUÉ</small><b>{btc(wallet.allocatedBtc)}</b></span><span className={wallet.unallocatedBtc > 0.00000001 ? "outstanding" : "settled"}><small>RELIQUAT</small><b>{wallet.unallocatedBtc > 0.00000001 ? btc(wallet.unallocatedBtc) : "À jour"}</b></span>{wallet.wallet?.explorerUrl && <a href={wallet.wallet.explorerUrl} target="_blank" rel="noreferrer">Adresse ↗</a>}</div></header>{wallet.wallet?.error ? <p className="ledger-transaction-error">{wallet.wallet.error}</p> : wallet.transactions.length === 0 ? <p className="ledger-transaction-empty">Aucune transaction Blockchain disponible pour ce portefeuille.</p> : <div className="ledger-transaction-scroll"><table><thead><tr><th>Date</th><th>Transaction</th><th>Réception</th><th>Attribué</th><th>Reste</th><th>État</th></tr></thead><tbody>{wallet.transactions.map((transaction) => <tr key={transaction.txid}><td>{transaction.date ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(transaction.date)) : "En attente"}<small>{transaction.confirmed ? `${transaction.confirmations?.toLocaleString("fr-FR") ?? 0} confirmations` : "Non confirmée"}</small></td><td><a href={transaction.explorerUrl} target="_blank" rel="noreferrer" title={transaction.txid}>{transaction.shortTxid} ↗</a><small>{transaction.direction}</small></td><td>{transaction.receivedBtc > 0 ? btc(transaction.receivedBtc) : "—"}</td><td>{transaction.receivedBtc > 0 ? btc(transaction.allocatedBtc) : "—"}</td><td>{transaction.receivedBtc > 0 ? (transaction.remainingBtc > 0.00000001 ? btc(transaction.remainingBtc) : "—") : "—"}</td><td><span className={`ledger-allocation-state ${transaction.allocationTone}`}>{transaction.allocationState}</span></td></tr>)}</tbody></table></div>}</article>)}</div>
+      <footer>Les sorties sont listées à titre de transparence et ne sont jamais attribuées à un cadeau. Source Blockchain : Blockstream · associations : Supabase.</footer>
+    </section>
   </div>;
 }
 function Members() {
