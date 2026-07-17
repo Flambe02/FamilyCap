@@ -15,4 +15,4 @@
 
 La clÃ© secrÃ¨te reste uniquement dans `.env.local`. Elle ne doit jamais Ãªtre ajoutÃ©e au SQL, au navigateur, Ã  Git ou Ã  un message.
 
-5. Exécuter `migrations/20260717_force_ledger_value.sql` : cette mise à jour mémorise explicitement toute correction manuelle où le montant d’un virement Ledger remplace la quantité BTC d’un cadeau.
+5. ExÃ©cuter `migrations/20260717_force_ledger_value.sql` : cette mise Ã  jour mÃ©morise explicitement toute correction manuelle oÃ¹ le montant dâ€™un virement Ledger remplace la quantitÃ© BTC dâ€™un cadeau.
