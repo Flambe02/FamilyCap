@@ -86,7 +86,12 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     window.localStorage.setItem(`cap-family-onboarding-v1:${viewer.id}`, "done");
     setOnboardingOpen(false);
   }
-  function replayOnboarding() { setOnboardingOpen(true); }
+function replayOnboarding() { setOnboardingOpen(true); }
+  function changePreview(next: string | null) {
+    setPreviewMember(next);
+    setFamilyMember(next ?? familyMember);
+    setView("famille");
+  }
 
   function saveInvestment(transaction: TransactionRecord) {
     setTransactions((current) => [transaction, ...current]);
@@ -187,7 +192,6 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
           <span className="avatar admin" aria-hidden="true">FM</span>
           <span><strong>{isPreview ? previewMember : viewer.name}</strong><small>{isPreview ? "Apercu lecture seule" : viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
           {!isPreview && <button onClick={() => setView("parametres")} aria-label="Ouvrir les parametres">...</button>}
-          {viewer.role === "admin" && <label className="profile-switcher"><span>Voir comme</span><select value={previewMember ?? "admin"} onChange={(event) => { const next = event.target.value === "admin" ? null : event.target.value; setPreviewMember(next); setFamilyMember(next ?? familyMember); setView("famille"); }}><option value="admin">Moi, administrateur</option>{members.map((member) => <option key={member.name} value={member.name}>{member.name}</option>)}</select></label>}
         </div>
       </aside>
 
@@ -195,9 +199,13 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         <header className="topbar">
           <div>
             <p className="eyebrow" aria-label="Date du jour">JEUDI 16 JUILLET 2026</p>
-            <h1>{titleFor(view)}</h1>
+            <h1 className="topbar-title">{titleFor(view)}</h1>
           </div>
           <div className="top-actions">
+            {viewer.role === "admin" && <div className="view-mode-switch" role="group" aria-label="Choisir la vue affichée">
+              <button type="button" className={!isPreview ? "active" : ""} onClick={() => changePreview(null)}>Vue admin</button>
+              <label><span className="sr-only">Voir comme un membre</span><select value={previewMember ?? "Thibault"} onChange={(event) => changePreview(event.target.value)}>{members.map((member) => <option key={member.name} value={member.name}>Vue {member.name}</option>)}</select></label>
+            </div>}
             <button className="icon-button" aria-label="Notifications - aucune nouvelle notification">
               <span aria-hidden="true">♢</span>
               <span className="sr-only">Notifications</span>
@@ -250,7 +258,7 @@ function Dashboard({ totalDue, missing, activity, openModal, navigate, onOpenMem
           <p>Le suivi Bitcoin est prêt. La prochaine étape est de compléter les achats manquants puis de rapprocher Binance et les Ledger.</p>
         </div>
         <div className="hero-orbit" aria-hidden="true"><span className="coin">₿</span><i /><b /></div>
-      </section>
+        <button className="primary-button welcome-action" onClick={openModal}>＋ Ajouter une opération</button>      </section>
 
       <section className="stats-row" aria-label="Indicateurs clés">
         <Stat label="Cadeaux cumulés" value={euro.format(totalDue)} note="31 cadeaux depuis 2022" tone="navy" icon="€" />

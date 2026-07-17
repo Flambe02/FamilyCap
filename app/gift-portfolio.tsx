@@ -145,7 +145,10 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus, selected
   const totalEur = recorded.reduce((sum, record) => sum + record.amount_eur, 0);
   const missing = records.filter((record) => record.origin === "expected" && new Date(record.gift_date + "T23:59:59Z") < new Date()).length;
   const years = [...new Set(records.map((record) => record.gift_date.slice(0, 4)))];
-  const person = people.find((item) => item.name === selected) ?? people[0];
+const person = people.find((item) => item.name === selected) ?? people[0];
+  const currentValueEur = ledger?.bitcoinEur ? totalBtc * ledger.bitcoinEur : null;
+  const theoreticalGainEur = currentValueEur === null ? null : currentValueEur - totalEur;
+  const theoreticalGainPct = theoreticalGainEur === null || totalEur <= 0 ? null : theoreticalGainEur / totalEur * 100;
 
   function startEntry(record?: GiftRecord) {
     const today = new Date().toISOString().slice(0, 10);
@@ -191,14 +194,13 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus, selected
   return <div className={`gift-portfolio ${isAdmin ? "admin-portfolio" : "member-portfolio"}`}>
     {isAdmin ? <>
       <section className="gift-person-picker panel">
-        <div><span>LES CADEAUX BITCOIN D’AMATXI</span><h2>À qui appartient ce portefeuille ?</h2><p>Sélectionne une personne pour comprendre ce qu’elle a reçu et où se trouvent ses bitcoins.</p></div>
+        <div className="gift-person-picker-heading"><span>À QUI APPARTIENT CE PORTEFEUILLE ?</span></div>
         <div className="person-tabs">{people.map((item) => <button key={item.name} className={selected === item.name ? "active" : ""} onClick={() => setSelected(item.name)}><b className={`avatar ${item.color}`}>{item.initials}</b><span><strong>{item.name}</strong><small>{item.birthday}</small></span></button>)}</div>
       </section>
-      <section className="gift-identity">
-        <div><span className={`avatar large ${person.color}`}>{person.initials}</span><div><small>PORTEFEUILLE DE</small><h2>{person.name}</h2><p>Anniversaire le {person.birthday} · cadeau de Noël le 25 décembre</p></div></div>
+      <section className="gift-identity portfolio-identity-hero">
+        <div className="portfolio-identity-copy"><span className="soft-pill">● PORTEFEUILLE DE {person.name.toUpperCase()}</span><p>Anniversaire le {person.birthday} · cadeau de Noël le 25 décembre</p><strong className="portfolio-current-value">{currentValueEur === null ? `${totalBtc.toFixed(8)} BTC` : euro.format(currentValueEur)}</strong><span className="portfolio-current-meta"><b>{totalBtc.toFixed(8)} BTC</b> · {euro.format(totalEur)} investis à l’époque</span>{theoreticalGainEur !== null && theoreticalGainPct !== null && <div className="portfolio-market-metrics"><span><small>Plus-value théorique</small><b className={theoreticalGainEur >= 0 ? "gain up" : "gain down"}>{theoreticalGainEur >= 0 ? "+" : ""}{euro.format(theoreticalGainEur)} · {theoreticalGainEur >= 0 ? "+" : ""}{theoreticalGainPct.toFixed(1)} %</b></span><span><small>Cours du Bitcoin</small><b>1 BTC = {euro.format(ledger!.bitcoinEur!)}</b></span></div>}<div className="portfolio-asset-tabs" aria-label="Patrimoine suivi"><span>Total</span><strong>Bitcoin</strong><span>PEA <em>Bientôt</em></span><span>Compte-titres <em>Bientôt</em></span></div></div>
         <button className="primary-button" onClick={() => startEntry()}>＋ Saisir un cadeau</button>
-      </section>
-    </> : <section className="member-portfolio-hero panel">
+      </section>    </> : <section className="member-portfolio-hero panel">
       <span className={`avatar large ${person.color}`}>{person.initials}</span>
       <div><span>MON PORTEFEUILLE BITCOIN</span><h2>Bonjour {person.name}</h2><p>Voici les cadeaux Bitcoin qui te sont attribués. Ils restent à toi, même lorsqu’ils sont encore conservés sur le compte familial.</p></div>
       <div className="member-portfolio-total"><small>TON TOTAL</small><strong>{totalBtc.toFixed(8)} BTC</strong><span>{recorded.length} cadeau{recorded.length > 1 ? "x" : ""} enregistré{recorded.length > 1 ? "s" : ""}</span>{binanceBtc > 0 && <em><b>{binanceBtc.toFixed(8)} BTC</b> encore sur Binance</em>}</div>
