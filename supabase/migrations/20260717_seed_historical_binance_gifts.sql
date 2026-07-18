@@ -4,7 +4,6 @@
 with historical_gifts (member_name, occasion, gift_date, purchase_date, amount_eur, btc_amount, note) as (
   values
     ('Paul', 'Anniversaire', date '2022-11-18', date '2022-11-18', 55.00::numeric, 0.00155968::numeric, 'Valeur confirmée par le tableau familial.'),
-    ('Thomas', 'Anniversaire', date '2022-12-29', date '2022-12-29', 55.00::numeric, 0.00137058::numeric, 'Valeur confirmée par le tableau familial.'),
     ('Thibault', 'Anniversaire', date '2023-03-15', date '2023-03-15', 55.00::numeric, 0.00217000::numeric, 'Valeur confirmée par le tableau familial.'),
     ('Uhaina', 'Anniversaire', date '2023-08-16', date '2023-08-16', 55.42::numeric, 0.00207000::numeric, 'Compensation du solde réduit reçu à Noël 2022, frais Binance inclus.'),
     ('Paul', 'Anniversaire', date '2023-11-18', date '2023-11-18', 55.00::numeric, 0.00155968::numeric, 'Valeur confirmée par le tableau familial.'),

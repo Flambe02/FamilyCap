@@ -10,7 +10,6 @@ export type HistoricalGift = {
 
 const birthdays: HistoricalGift[] = [
   { member: "Paul", occasion: "Anniversaire", giftDate: "2022-11-18", purchaseDate: "2022-11-18", amountEur: 55, btcAmount: 0.00155968, note: "Valeur confirmée par le tableau familial." },
-  { member: "Thomas", occasion: "Anniversaire", giftDate: "2022-12-29", purchaseDate: "2022-12-29", amountEur: 55, btcAmount: 0.00137058, note: "Valeur confirmée par le tableau familial." },
   { member: "Thibault", occasion: "Anniversaire", giftDate: "2023-03-15", purchaseDate: "2023-03-15", amountEur: 55, btcAmount: 0.00217, note: "Valeur confirmée par le tableau familial." },
   { member: "Uhaina", occasion: "Anniversaire", giftDate: "2023-08-16", purchaseDate: "2023-08-16", amountEur: 55.42, btcAmount: 0.00207, note: "Compensation du solde réduit reçu à Noël 2022, frais Binance inclus." },
   { member: "Paul", occasion: "Anniversaire", giftDate: "2023-11-18", purchaseDate: "2023-11-18", amountEur: 55, btcAmount: 0.00155968, note: "Valeur confirmée par le tableau familial." },

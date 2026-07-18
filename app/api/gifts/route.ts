@@ -203,22 +203,65 @@ export async function DELETE(request: Request) {
   if (!isSupabaseConfigured()) return Response.json({ error: "Supabase est requis sur Vercel." }, { status: 503 });
   try {
     await requireAdmin(request);
-    const id = new URL(request.url).searchParams.get("id");
-    if (!id) return Response.json({ error: "Cadeau manquant." }, { status: 400 });
-    const current = await supabaseRest<StoredGift[]>(
-      "gift_records?select=id,member_name,custody,txid,blockchain_status,confirmations&id=eq." + encodeURIComponent(id) + "&limit=1",
-    );
-    if (!current[0]) return Response.json({ error: "Cadeau introuvable." }, { status: 404 });
-    if (current[0].custody === "Ledger") return Response.json({ error: "Un cadeau sur Ledger ne peut pas être supprimé." }, { status: 409 });
+    const searchParams = new URL(request.url).searchParams;
+    const id = searchParams.get("id");
+    const member = searchParams.get("member")?.trim() ?? "";
+    const occasion = searchParams.get("occasion")?.trim() ?? "";
+    const giftDate = searchParams.get("giftDate")?.trim() ?? "";
+    if (!id && (!member || !occasion || !/^\d{4}-\d{2}-\d{2}$/.test(giftDate))) {
+      return Response.json({ error: "Cadeau manquant." }, { status: 400 });
+    }
+    if (!id && !["Anniversaire", "Noël", "Autre cadeau"].includes(occasion)) {
+      return Response.json({ error: "Occasion invalide." }, { status: 400 });
+    }
+    const current = await supabaseRest<StoredGift[]>(id
+      ? "gift_records?select=id,member_name,custody,txid,blockchain_status,confirmations&id=eq." + encodeURIComponent(id) + "&limit=1"
+      : "gift_records?select=id,member_name,custody,txid,blockchain_status,confirmations&member_name=eq." + encodeURIComponent(member) + "&occasion=eq." + encodeURIComponent(occasion) + "&gift_date=eq." + encodeURIComponent(giftDate) + "&order=created_at.desc");
+    if (id && !current[0]) return Response.json({ error: "Cadeau introuvable." }, { status: 404 });
+    if (current.some((gift) => gift.custody === "Ledger")) {
+      return Response.json({ error: "Un cadeau sur Ledger ne peut pas être supprimé." }, { status: 409 });
+    }
+    const target = current[0];
     try {
-      await supabaseRest("gift_records?id=eq." + encodeURIComponent(id), { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify({ is_deleted: true }) });
+      if (target) {
+        await supabaseRest("gift_records?id=eq." + encodeURIComponent(target.id), { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify({ is_deleted: true }) });
+      } else {
+        const amountEur = Number(searchParams.get("amountEur"));
+        const btcAmount = Number(searchParams.get("btcAmount"));
+        if (!Number.isFinite(amountEur) || amountEur < 0 || !Number.isFinite(btcAmount) || btcAmount <= 0) {
+          return Response.json({ error: "Les montants de la ligne historique sont invalides." }, { status: 400 });
+        }
+        const memberId = await memberIdFor(member);
+        await supabaseRest("gift_records", {
+          method: "POST",
+          headers: { prefer: "return=minimal" },
+          body: JSON.stringify({
+            member_id: memberId,
+            member_name: member,
+            occasion,
+            gift_date: giftDate,
+            purchase_date: giftDate,
+            amount_eur: amountEur,
+            btc_amount: btcAmount,
+            custody: "Binance commun",
+            transfer_date: null,
+            ledger_amount: null,
+            public_address: null,
+            txid: null,
+            blockchain_status: "Supprimé du suivi",
+            confirmations: 0,
+            note: "Ligne historique masquée depuis le registre Transactions.",
+            is_deleted: true,
+          }),
+        });
+      }
     } catch (error) {
       if (hasMissingSoftDeleteColumn(error)) {
         return Response.json({ error: "La suppression sécurisée nécessite la migration Supabase 20260717_soft_delete_gift_records.sql. Exécutez-la dans le SQL Editor, puis réessayez." }, { status: 409 });
       }
       throw error;
     }
-    return Response.json({ deleted: true });
+    return Response.json({ deleted: true, tombstoneCreated: !target });
   } catch (error) {
     return authErrorResponse(error);
   }

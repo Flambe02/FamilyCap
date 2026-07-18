@@ -105,10 +105,18 @@ async function getBitcoinEurPrice() {
 }
 
 export async function GET(request: Request) {
-  if (isSupabaseConfigured()) {
+  const priceOnly = new URL(request.url).searchParams.get("priceOnly") === "1";
+  if (!priceOnly && isSupabaseConfigured()) {
     try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
   }
   try {
+    if (priceOnly) {
+      const bitcoinPrice = await getBitcoinEurPrice();
+      return Response.json(
+        { bitcoinEur: bitcoinPrice.value, bitcoinEurSource: bitcoinPrice.source, updatedAt: new Date().toISOString() },
+        { headers: { "cache-control": "public, max-age=30, s-maxage=60" } },
+      );
+    }
     const [tipResponse, bitcoinPrice] = await Promise.all([
       fetch("https://blockstream.info/api/blocks/tip/height"),
       getBitcoinEurPrice(),

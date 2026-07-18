@@ -148,19 +148,44 @@ function GiftSynthesis() {
     const gifts = records.filter((gift) => gift.member_name === member.name);
     const ledgerGifts = gifts.filter(isLedgerAssociated);
     const binanceGifts = gifts.filter((gift) => !isLedgerAssociated(gift) && gift.custody === "Binance commun");
+    const binanceChristmasGifts = binanceGifts.filter((gift) => gift.occasion === "Noël");
+    const binanceBirthdayGifts = binanceGifts.filter((gift) => gift.occasion === "Anniversaire");
     const pendingGifts = gifts.filter((gift) => !isLedgerAssociated(gift) && gift.custody === "À rapprocher");
     const actual = (gift: GiftSummaryRecord) => Number(isLedgerAssociated(gift) ? gift.ledger_amount ?? gift.btc_amount : gift.btc_amount);
     const attributedEur = (gift: GiftSummaryRecord) => Number(gift.amount_eur) * (actual(gift) / Number(gift.btc_amount || 1));
     const ledgerBtc = ledgerGifts.reduce((sum,gift) => sum + actual(gift),0);
+    const ledgerExpectedBtc = ledgerGifts.reduce((sum,gift) => sum + Number(gift.btc_amount),0);
     const binanceBtc = binanceGifts.reduce((sum,gift) => sum + Number(gift.btc_amount),0);
     const pendingBtc = pendingGifts.reduce((sum,gift) => sum + Number(gift.btc_amount),0);
+    const offeredBtc = gifts.reduce((sum,gift) => sum + Number(gift.btc_amount),0);
+    const inCustodyBtc = ledgerBtc + binanceBtc + pendingBtc;
+    const ledgerGapBtc = ledgerExpectedBtc - ledgerBtc;
     const actualWallet = Number(ledger?.wallets?.find((wallet) => wallet.member === member.name)?.confirmedBalanceBtc ?? 0);
-    return { ...member, ledgerBtc, binanceBtc, pendingBtc, ledgerEur: ledgerGifts.reduce((sum,gift) => sum + attributedEur(gift),0), binanceEur: binanceGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), pendingEur: pendingGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), actualWallet, variance: actualWallet - ledgerBtc };
+    return { ...member, ledgerBtc, binanceBtc, pendingBtc, offeredBtc, inCustodyBtc, ledgerGapBtc, binanceChristmasGifts, binanceBirthdayGifts, ledgerEur: ledgerGifts.reduce((sum,gift) => sum + attributedEur(gift),0), binanceEur: binanceGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), pendingEur: pendingGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), actualWallet, variance: actualWallet - ledgerBtc };
   }), [ledger?.wallets, records]);
-  const total = rows.reduce((acc,row) => ({ ledgerBtc: acc.ledgerBtc + row.ledgerBtc, binanceBtc: acc.binanceBtc + row.binanceBtc, pendingBtc: acc.pendingBtc + row.pendingBtc, ledgerEur: acc.ledgerEur + row.ledgerEur, binanceEur: acc.binanceEur + row.binanceEur, pendingEur: acc.pendingEur + row.pendingEur, wallet: acc.wallet + row.actualWallet, variance: acc.variance + row.variance }), { ledgerBtc:0,binanceBtc:0,pendingBtc:0,ledgerEur:0,binanceEur:0,pendingEur:0,wallet:0,variance:0 });
+  const total = rows.reduce((acc,row) => ({
+    ledgerBtc: acc.ledgerBtc + row.ledgerBtc,
+    binanceBtc: acc.binanceBtc + row.binanceBtc,
+    pendingBtc: acc.pendingBtc + row.pendingBtc,
+    offeredBtc: acc.offeredBtc + row.offeredBtc,
+    inCustodyBtc: acc.inCustodyBtc + row.inCustodyBtc,
+    ledgerGapBtc: acc.ledgerGapBtc + row.ledgerGapBtc,
+    ledgerEur: acc.ledgerEur + row.ledgerEur,
+    binanceEur: acc.binanceEur + row.binanceEur,
+    pendingEur: acc.pendingEur + row.pendingEur,
+    wallet: acc.wallet + row.actualWallet,
+    variance: acc.variance + row.variance,
+  }), { ledgerBtc:0,binanceBtc:0,pendingBtc:0,offeredBtc:0,inCustodyBtc:0,ledgerGapBtc:0,ledgerEur:0,binanceEur:0,pendingEur:0,wallet:0,variance:0 });
   const documented = records.filter((gift) => gift.id).length;
   const pendingCount = records.filter((gift) => gift.custody === "À rapprocher").length;
   const onLedgerPercent = total.ledgerBtc + total.binanceBtc + total.pendingBtc ? total.ledgerBtc / (total.ledgerBtc + total.binanceBtc + total.pendingBtc) * 100 : 0;
+  const sharedChristmasYears = rows[0]?.binanceChristmasGifts.map((gift) => gift.gift_date.slice(0, 4)).sort() ?? [];
+  const sharedChristmasEur = rows[0]?.binanceChristmasGifts.reduce((sum, gift) => sum + Number(gift.amount_eur), 0) ?? 0;
+  const uniformChristmas = sharedChristmasYears.length > 0 && rows.every((row) => {
+    const years = row.binanceChristmasGifts.map((gift) => gift.gift_date.slice(0, 4)).sort();
+    const invested = row.binanceChristmasGifts.reduce((sum, gift) => sum + Number(gift.amount_eur), 0);
+    return years.join(",") === sharedChristmasYears.join(",") && Math.abs(invested - sharedChristmasEur) < 0.01;
+  });
 
   const bitcoinEur = Number(ledger?.bitcoinEur ?? 0);
   const bitcoinEurSource = ledger?.bitcoinEurSource ?? "Source publique";
@@ -173,7 +198,7 @@ function GiftSynthesis() {
     const gainPercent = gainEur === null || investedEur <= 0 ? null : gainEur / investedEur * 100;
     return { ...row, attributedBtc, investedEur, currentValue, gainEur, gainPercent };
   });
-  const totalAttributedBtc = total.ledgerBtc + total.binanceBtc + total.pendingBtc;
+  const totalAttributedBtc = total.inCustodyBtc;
   const totalInvestedEur = total.ledgerEur + total.binanceEur + total.pendingEur;
   const totalMarketValue = bitcoinEur > 0 ? totalAttributedBtc * bitcoinEur : null;
   const totalGainEur = totalMarketValue === null ? null : totalMarketValue - totalInvestedEur;
@@ -288,7 +313,25 @@ function GiftSynthesis() {
     <section className="synthesis-kpis" aria-label="Indicateurs de suivi"><article><span>✓</span><div><small>CADEAUX DOCUMENTÉS</small><strong>{documented}</strong></div></article><article><span>⌛</span><div><small>À TRANSFÉRER VERS LEDGER</small><strong>{btc(total.binanceBtc)}</strong><em>{euro.format(total.binanceEur)}</em></div></article><article><span>!</span><div><small>À CLASSER</small><strong>{pendingCount}</strong><em>{btc(total.pendingBtc)}</em></div></article><article><span>↗</span><div><small>PART DÉJÀ SUR LEDGER</small><strong>{onLedgerPercent.toFixed(0)} %</strong><em>{btc(total.ledgerBtc)}</em></div></article></section>
     <section className="panel transfer-plan">
       <header><div><span>PLAN DE TRANSFERT</span><h2>Ce qu’il reste à envoyer sur chaque Ledger</h2><p>Ces montants sont déjà achetés et attribués à chaque enfant, mais restent sur le Binance commun.</p></div><div className="transfer-plan-total"><small>TOTAL À TRANSFÉRER</small><strong>{btc(total.binanceBtc)}</strong><span>{euro.format(total.binanceEur)}</span></div></header>
-      <div className="transfer-plan-grid">{rows.map((row) => { const toTransfer = row.binanceBtc > 0.00000001; return <article key={row.name} className={toTransfer ? "ready" : "complete"}><span className="transfer-plan-avatar">{row.initials}</span><div><strong>{row.name}</strong><small>{toTransfer ? "Part attribuée, en attente de transfert" : "Aucun bitcoin à transférer"}</small></div><div className="transfer-plan-amount"><b>{btc(row.binanceBtc)}</b><small>{euro.format(row.binanceEur)} investis</small></div><em>{toTransfer ? "À transférer" : "À jour"}</em></article>; })}</div>
+      {uniformChristmas && <aside className="transfer-plan-explanation"><span aria-hidden="true">🎄</span><div><strong>La base Noël est identique pour tous</strong><p>{sharedChristmasYears.length} Noëls ({sharedChristmasYears.join(", ")}) représentent {euro.format(sharedChristmasEur)} par enfant. Les différences viennent donc des anniversaires encore conservés sur Binance.</p></div></aside>}
+      <div className="transfer-plan-grid">{rows.map((row) => {
+        const toTransfer = row.binanceBtc > 0.00000001;
+        const christmasEur = row.binanceChristmasGifts.reduce((sum, gift) => sum + Number(gift.amount_eur), 0);
+        const birthdayEur = row.binanceBirthdayGifts.reduce((sum, gift) => sum + Number(gift.amount_eur), 0);
+        const christmasYears = row.binanceChristmasGifts.map((gift) => gift.gift_date.slice(0, 4)).sort();
+        const birthdayYears = row.binanceBirthdayGifts.map((gift) => gift.gift_date.slice(0, 4)).sort();
+        const giftCount = row.binanceChristmasGifts.length + row.binanceBirthdayGifts.length;
+        return <article key={row.name} className={toTransfer ? "ready" : "complete"}>
+          <span className="transfer-plan-avatar">{row.initials}</span>
+          <div><strong>{row.name}</strong><small>{toTransfer ? `${giftCount} cadeau${giftCount > 1 ? "x" : ""} acheté${giftCount > 1 ? "s" : ""}, en attente de transfert` : "Aucun bitcoin à transférer"}</small></div>
+          <div className="transfer-plan-amount"><b>{btc(row.binanceBtc)}</b><small>{euro.format(row.binanceEur)} investis</small></div>
+          {toTransfer && <div className="transfer-plan-breakdown" aria-label={`Détail des cadeaux de ${row.name}`}>
+            <div><span aria-hidden="true">🎄</span><p><b>Noël</b><small>{christmasYears.length ? christmasYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(christmasEur)}</strong></div>
+            <div><span aria-hidden="true">🎂</span><p><b>Anniversaires</b><small>{birthdayYears.length ? birthdayYears.join(", ") : "Aucun en attente"}</small></p><strong>{euro.format(birthdayEur)}</strong></div>
+          </div>}
+          <em>{toTransfer ? "À transférer" : "À jour"}</em>
+        </article>;
+      })}</div>
       <footer><span>Les montants « À classer » ne sont pas inclus : leur localisation doit d’abord être confirmée.</span><span>Un même virement Ledger peut regrouper plusieurs cadeaux d’un enfant.</span></footer>
     </section>    <section className="panel valuation-panel">
       <header>
@@ -310,9 +353,9 @@ function GiftSynthesis() {
       </div>
     </section>
     <section className="panel synthesis-panel wallet-control">
-      <header><div><span>VÉRIFICATION PAR PORTEFEUILLE</span><h2>Contrôle des montants attribués</h2><p>La lecture sépare volontairement les réceptions Blockchain, leur attribution aux cadeaux et le solde public actuel. Cela évite de confondre un virement reçu avec un bitcoin encore à affecter.</p></div></header>
-      <div className="synthesis-scroll"><table className="wallet-summary"><thead><tr><th>Enfant</th><th>Reçu sur Ledger</th><th>Attribué Ledger</th><th>À attribuer</th><th>À transférer · Binance</th><th>EUR historique Binance</th><th>À classer</th><th>Total BTC attribué</th><th>Solde Ledger public</th><th>Écart</th></tr></thead><tbody>{rows.map((row) => { const activity = ledgerActivity.find((wallet) => wallet.name === row.name)!; return <tr key={row.name}><th scope="row">{row.name}</th><td className="ledger-number">{btc(activity.receivedBtc)}</td><td className="ledger-number">{btc(row.ledgerBtc)}</td><td className={activity.unallocatedBtc > 0.00000001 ? "ledger-remaining" : "variance-ok"}>{activity.unallocatedBtc > 0.00000001 ? btc(activity.unallocatedBtc) : "—"}</td><td className="binance-number">{btc(row.binanceBtc)}</td><td className="binance-number">{euro.format(row.binanceEur)}</td><td>{row.pendingBtc ? btc(row.pendingBtc) : "—"}</td><td className="total-number">{btc(row.ledgerBtc + row.binanceBtc + row.pendingBtc)}</td><td>{btc(row.actualWallet)}</td><td className={Math.abs(row.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(row.variance)}</td></tr>; })}<tr className="wallet-total"><th scope="row">Total famille</th><td>{btc(ledgerActivityTotal.receivedBtc)}</td><td>{btc(total.ledgerBtc)}</td><td>{ledgerActivityTotal.unallocatedBtc > 0.00000001 ? btc(ledgerActivityTotal.unallocatedBtc) : "—"}</td><td>{btc(total.binanceBtc)}</td><td>{euro.format(total.binanceEur)}</td><td>{total.pendingBtc ? btc(total.pendingBtc) : "—"}</td><td>{btc(totalAttributedBtc)}</td><td>{btc(total.wallet)}</td><td className={Math.abs(total.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(total.variance)}</td></tr></tbody></table></div>
-      <footer><span>Reçu Ledger = total des réceptions On-Chain ; attribué = BTC relié à un cadeau dans Supabase.</span><span>Écart = solde public actuel − BTC attribués aux cadeaux.</span></footer>
+      <header><div><span>VÉRIFICATION PAR PORTEFEUILLE</span><h2>Contrôle des montants attribués</h2><p>Le total offert reprend le BTC acheté pour les cadeaux. Le BTC en conservation additionne la part réellement attribuée sur Ledger, le solde encore sur Binance et les montants à classer. Leur différence est l’écart de transfert documenté.</p></div></header>
+      <div className="synthesis-scroll"><table className="wallet-summary"><thead><tr><th>Enfant</th><th>Reçu sur Ledger</th><th>Attribué Ledger</th><th>À attribuer</th><th>À transférer · Binance</th><th>À classer</th><th>BTC en conservation</th><th>Frais / écart Ledger</th><th>Total offert · achat</th><th>Solde Ledger public</th><th>Contrôle Ledger</th></tr></thead><tbody>{rows.map((row) => { const activity = ledgerActivity.find((wallet) => wallet.name === row.name)!; const hasLedgerGap = Math.abs(row.ledgerGapBtc) > 0.00000001; return <tr key={row.name}><th scope="row">{row.name}</th><td className="ledger-number">{btc(activity.receivedBtc)}</td><td className="ledger-number">{btc(row.ledgerBtc)}</td><td className={activity.unallocatedBtc > 0.00000001 ? "ledger-remaining" : "variance-ok"}>{activity.unallocatedBtc > 0.00000001 ? btc(activity.unallocatedBtc) : "—"}</td><td className="binance-number">{btc(row.binanceBtc)}</td><td>{row.pendingBtc ? btc(row.pendingBtc) : "—"}</td><td className="total-number">{btc(row.inCustodyBtc)}</td><td className={hasLedgerGap ? "fee-number" : "variance-ok"}>{hasLedgerGap ? btc(row.ledgerGapBtc) : "—"}</td><td className="offered-number">{btc(row.offeredBtc)}</td><td>{btc(row.actualWallet)}</td><td className={Math.abs(row.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(row.variance)}</td></tr>; })}<tr className="wallet-total"><th scope="row">Total famille</th><td>{btc(ledgerActivityTotal.receivedBtc)}</td><td>{btc(total.ledgerBtc)}</td><td>{ledgerActivityTotal.unallocatedBtc > 0.00000001 ? btc(ledgerActivityTotal.unallocatedBtc) : "—"}</td><td>{btc(total.binanceBtc)}</td><td>{total.pendingBtc ? btc(total.pendingBtc) : "—"}</td><td>{btc(total.inCustodyBtc)}</td><td>{Math.abs(total.ledgerGapBtc) > 0.00000001 ? btc(total.ledgerGapBtc) : "—"}</td><td>{btc(total.offeredBtc)}</td><td>{btc(total.wallet)}</td><td className={Math.abs(total.variance) < 0.00000001 ? "variance-ok" : "variance-warning"}>{btc(total.variance)}</td></tr></tbody></table></div>
+      <footer><span>Reçu Ledger = total des réceptions On-Chain ; attribué = BTC relié à un cadeau dans Supabase.</span><span>BTC en conservation + frais/écart Ledger = total offert (BTC acheté).</span><span>Contrôle Ledger = solde public actuel − BTC attribué aux cadeaux.</span></footer>
     </section>
     <section className="panel ledger-transaction-panel">
       <header><div><span>RÉCEPTIONS LEDGER</span><h2>Transactions et allocations par portefeuille</h2><p>Chaque réception publique est rapprochée de son TxID dans Supabase. Une réception peut couvrir plusieurs cadeaux ; un reliquat reste visible jusqu’à son attribution.</p></div><div className="ledger-transaction-total"><small>RÉCEPTION À ATTRIBUER</small><strong>{btc(ledgerActivityTotal.unallocatedBtc)}</strong><span>{ledgerActivityTotal.receipts} réception{ledgerActivityTotal.receipts > 1 ? "s" : ""} Blockchain lue{ledgerActivityTotal.receipts > 1 ? "s" : ""}</span></div></header>

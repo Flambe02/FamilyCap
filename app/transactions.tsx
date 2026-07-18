@@ -22,6 +22,36 @@ export type TransactionRecord = {
   note?: string;
 };
 
+export type TransactionShortcut = {
+  requestId: number;
+  member?: string;
+  location?: "Tous" | "Ledger" | "Binance" | "À classer";
+  scope?: "all" | "gifts" | "documented" | "needs-action" | "blockchain";
+  label: string;
+};
+
+type GiftApiRecord = {
+  id: string;
+  member_name: string;
+  occasion: string;
+  gift_date: string;
+  amount_eur: number | string;
+  btc_amount: number | string;
+  ledger_amount?: number | string | null;
+  custody: string;
+  confirmations?: number;
+  txid?: string | null;
+  note?: string | null;
+  is_deleted?: boolean;
+};
+
+type LedgerCostBasis = { costEur: number; quantityBtc: number };
+
+function addLedgerCostBasis(map: Map<string, LedgerCostBasis>, key: string, costEur: number, quantityBtc: number) {
+  const current = map.get(key) ?? { costEur: 0, quantityBtc: 0 };
+  map.set(key, { costEur: current.costEur + costEur, quantityBtc: current.quantityBtc + quantityBtc });
+}
+
 export const initialTransactions: TransactionRecord[] = GIFT_HISTORY.map((gift) => ({
   id: `history-${gift.member.toLowerCase()}-${gift.occasion}-${gift.giftDate}`,
   date: gift.giftDate,
@@ -39,15 +69,26 @@ export const initialTransactions: TransactionRecord[] = GIFT_HISTORY.map((gift) 
 }));
 
 const memberNames = ["Thibault", "Uhaina", "Paul", "Aurore", "Thomas"];
+const memberBirthdays = [
+  { member: "Thibault", monthDay: "03-15" },
+  { member: "Uhaina", monthDay: "08-16" },
+  { member: "Paul", monthDay: "11-18" },
+  { member: "Aurore", monthDay: "08-27" },
+  { member: "Thomas", monthDay: "12-29" },
+];
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 
-export function TransactionsView({ transactions, onAdd, onTransferRequest }: { transactions: TransactionRecord[]; onAdd: () => void; onTransferRequest: (transaction: TransactionRecord) => void }) {
-  const [memberFilter, setMemberFilter] = useState("Tous");
-  const [statusFilter, setStatusFilter] = useState("Tous");
-  const [selected, setSelected] = useState<TransactionRecord | null>(null);
+export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onTransferRequest, onOpenPortfolio, shortcut }: { transactions: TransactionRecord[]; isAdmin: boolean; viewerName: string; onAdd: () => void; onTransferRequest: (transaction: TransactionRecord) => void; onOpenPortfolio?: (member: string) => void; shortcut?: TransactionShortcut | null }) {
+  const [memberFilter, setMemberFilter] = useState(shortcut?.member ?? "Tous");
+  const [locationFilter, setLocationFilter] = useState<string>(shortcut?.location ?? "Tous");
+  const [scopeFilter, setScopeFilter] = useState<TransactionShortcut["scope"]>(shortcut?.scope ?? "all");
   const [giftTransactions, setGiftTransactions] = useState<TransactionRecord[]>([]);
+  const [deletedGiftKeys, setDeletedGiftKeys] = useState<string[]>([]);
   const [ledgerTransactions, setLedgerTransactions] = useState<TransactionRecord[]>([]);
+  const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
+  const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
+  const [mutationMessage, setMutationMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -56,12 +97,16 @@ export function TransactionsView({ transactions, onAdd, onTransferRequest }: { t
       const headers: Record<string, string> = data.session ? { authorization: "Bearer " + data.session.access_token } : {};
       const [giftResponse, ledgerResponse] = await Promise.all([
         fetch("/api/gifts", { signal: controller.signal, headers }),
-        fetch("/api/ledger", { signal: controller.signal, headers }),
+        fetch(isAdmin ? "/api/ledger" : "/api/ledger?priceOnly=1", { signal: controller.signal, headers }),
       ]);
       if (!giftResponse.ok || !ledgerResponse.ok) throw new Error("Historique financier indisponible");
-      const giftResult = await giftResponse.json() as { records?: Array<{ id: string; member_name: string; occasion: string; gift_date: string; amount_eur: number | string; btc_amount: number | string; custody: string; confirmations?: number; txid?: string | null; note?: string | null }> };
-      const ledgerResult = await ledgerResponse.json() as { wallets?: Array<{ member: string; transactions?: Array<{ txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number }> }> };
-      setGiftTransactions((giftResult.records ?? []).filter((record) => record.gift_date > "2025-12-31" || GIFT_HISTORY.some((gift) => gift.member === record.member_name && gift.occasion === record.occasion && gift.giftDate.slice(0, 4) === record.gift_date.slice(0, 4))).map((record) => ({
+      const giftResult = await giftResponse.json() as { records?: GiftApiRecord[] };
+      const ledgerResult = await ledgerResponse.json() as { bitcoinEur?: number | null; wallets?: Array<{ member: string; transactions?: Array<{ txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number }> }> };
+      const nextBitcoinEur = Number(ledgerResult.bitcoinEur);
+      setBitcoinEur(Number.isFinite(nextBitcoinEur) && nextBitcoinEur > 0 ? nextBitcoinEur : null);
+      const giftRecords = giftResult.records ?? [];
+      setDeletedGiftKeys(giftRecords.filter((record) => record.is_deleted).map((record) => record.member_name + "|" + record.occasion + "|" + record.gift_date.slice(0, 4)));
+      setGiftTransactions(giftRecords.filter((record) => !record.is_deleted).filter((record) => record.gift_date > "2025-12-31" || GIFT_HISTORY.some((gift) => gift.member === record.member_name && gift.occasion === record.occasion && gift.giftDate.slice(0, 4) === record.gift_date.slice(0, 4))).map((record) => ({
         id: "gift-" + record.id,
         date: record.gift_date,
         member: record.member_name,
@@ -76,93 +121,198 @@ export function TransactionsView({ transactions, onAdd, onTransferRequest }: { t
         reference: record.txid ?? undefined,
         note: record.note ?? undefined,
       })));
-      setLedgerTransactions((ledgerResult.wallets ?? []).flatMap((wallet) => (wallet.transactions ?? []).map((transaction) => ({
-        id: "ledger-" + transaction.txid,
-        date: transaction.date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-        member: wallet.member,
-        kind: "Transaction Ledger",
-        asset: "Bitcoin",
-        account: "Ledger personnel · blockchain",
-        amount: 0,
-        quantity: transaction.amountBtc,
-        author: "Blockchain",
-        authorRole: "Blockchain" as const,
-        status: transaction.confirmations > 0 ? "Confirmée" as const : "À compléter" as const,
-        reference: transaction.txid,
-        note: `${transaction.direction} sur l’adresse Ledger publique · ${transaction.confirmations} confirmations. Donnée en lecture seule.`,
-      }))));
+      const costBasisByTxid = new Map<string, LedgerCostBasis>();
+      const costBasisByMember = new Map<string, LedgerCostBasis>();
+      for (const record of giftRecords) {
+        if (record.is_deleted || record.custody !== "Ledger") continue;
+        const purchasedBtc = Number(record.btc_amount);
+        const amountEur = Number(record.amount_eur);
+        const receivedBtc = Number(record.ledger_amount ?? record.btc_amount);
+        if (!(purchasedBtc > 0) || !(amountEur > 0) || !(receivedBtc > 0)) continue;
+        const receivedCostEur = receivedBtc * amountEur / purchasedBtc;
+        addLedgerCostBasis(costBasisByMember, record.member_name, receivedCostEur, receivedBtc);
+        if (record.txid) addLedgerCostBasis(costBasisByTxid, `${record.member_name}|${record.txid}`, receivedCostEur, receivedBtc);
+      }
+      setLedgerTransactions((ledgerResult.wallets ?? []).flatMap((wallet) => (wallet.transactions ?? []).map((transaction) => {
+        const linkedBasis = costBasisByTxid.get(`${wallet.member}|${transaction.txid}`);
+        const recalculatedBasis = linkedBasis ?? costBasisByMember.get(wallet.member);
+        const purchasePrice = recalculatedBasis && recalculatedBasis.quantityBtc > 0 ? recalculatedBasis.costEur / recalculatedBasis.quantityBtc : null;
+        return {
+          id: "ledger-" + transaction.txid,
+          date: transaction.date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+          member: wallet.member,
+          kind: "Transaction Ledger",
+          asset: "Bitcoin",
+          account: "Ledger personnel · blockchain",
+          amount: purchasePrice === null ? 0 : purchasePrice * transaction.amountBtc,
+          quantity: transaction.amountBtc,
+          author: "Blockchain",
+          authorRole: "Blockchain" as const,
+          status: transaction.confirmations > 0 ? "Confirmée" as const : "À compléter" as const,
+          reference: transaction.txid,
+          note: `${transaction.direction} sur l’adresse Ledger publique · ${transaction.confirmations} confirmations. ${linkedBasis ? "PRU repris des achats Binance associés." : purchasePrice !== null ? "PRU recalculé sur les achats Ledger de ce portefeuille." : "PRU à rattacher à un achat Binance."}`,
+        };
+      })));
     })().catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) console.error(error);
     });
     return () => controller.abort();
-  }, []);
+  }, [isAdmin]);
 
   const detailedTransactions = useMemo(() => {
     const giftsByEvent = new Map<string, TransactionRecord>();
-    for (const transaction of transactions) giftsByEvent.set(`${transaction.member}|${transaction.kind}|${transaction.date.slice(0, 4)}`, transaction);
+    for (const transaction of transactions) {
+      const key = transaction.member + "|" + transaction.kind + "|" + transaction.date.slice(0, 4);
+      if (!deletedGiftKeys.includes(key)) giftsByEvent.set(key, transaction);
+    }
     for (const transaction of giftTransactions) {
       const key = `${transaction.member}|${transaction.kind}|${transaction.date.slice(0, 4)}`;
       const truth = giftsByEvent.get(key);
       giftsByEvent.set(key, truth ? { ...transaction, date: truth.date, amount: truth.amount, quantity: truth.quantity, note: truth.note } : transaction);
     }
+    const currentYear = new Date().getFullYear().toString();
+    const today = new Date().toISOString().slice(0, 10);
+    for (const birthday of memberBirthdays) {
+      const expected = [
+        { kind: "Anniversaire", date: currentYear + "-" + birthday.monthDay },
+        { kind: "Noël", date: currentYear + "-12-25" },
+      ];
+      for (const event of expected) {
+        const key = birthday.member + "|" + event.kind + "|" + currentYear;
+        if (event.date > today || giftsByEvent.has(key) || deletedGiftKeys.includes(key)) continue;
+        giftsByEvent.set(key, {
+          id: "expected-" + birthday.member.toLowerCase() + "-" + event.kind + "-" + currentYear,
+          date: event.date,
+          member: birthday.member,
+          kind: event.kind,
+          asset: "Bitcoin",
+          account: "À rapprocher : Ledger ou Binance commun",
+          amount: 55,
+          author: "Administrateur",
+          authorRole: "Administrateur",
+          status: "À compléter",
+          note: "Achat Binance non visible : action administrateur requise.",
+        });
+      }
+    }
     const giftRecords = [...giftsByEvent.values()];
     return [...giftRecords, ...ledgerTransactions]
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [transactions, giftTransactions, ledgerTransactions]);
+  }, [transactions, giftTransactions, ledgerTransactions, deletedGiftKeys]);
 
   const filtered = useMemo(() => detailedTransactions.filter((transaction) => {
-    const memberMatches = memberFilter === "Tous" || transaction.member === memberFilter;
-    const statusMatches = statusFilter === "Tous" || transaction.status === statusFilter;
-    return memberMatches && statusMatches;
-  }), [detailedTransactions, memberFilter, statusFilter]);
+    const memberMatches = isAdmin ? memberFilter === "Tous" || transaction.member === memberFilter : transaction.member === viewerName;
+    const location = transactionLocation(transaction);
+    const locationMatches = locationFilter === "Tous" || location === locationFilter;
+    const scopeMatches = scopeFilter === "all"
+      || (scopeFilter === "gifts" && transaction.authorRole !== "Blockchain")
+      || (scopeFilter === "documented" && transaction.authorRole !== "Blockchain" && Number(transaction.quantity ?? 0) > 0)
+      || (scopeFilter === "needs-action" && transaction.authorRole !== "Blockchain" && (transaction.status === "À compléter" || location === "À classer"))
+      || (scopeFilter === "blockchain" && transaction.authorRole === "Blockchain");
+    return memberMatches && locationMatches && scopeMatches;
+  }), [detailedTransactions, memberFilter, locationFilter, scopeFilter, isAdmin, viewerName]);
 
+  function clearShortcut() {
+    setMemberFilter("Tous");
+    setLocationFilter("Tous");
+    setScopeFilter("all");
+  }
+
+  async function deleteGiftTransaction(transaction: TransactionRecord) {
+    const location = transactionLocation(transaction);
+    if (!isAdmin || transaction.authorRole === "Blockchain" || location === "Ledger") return;
+    const formattedDate = dateFormat.format(new Date(`${transaction.date}T00:00:00Z`));
+    if (!window.confirm(`Supprimer définitivement du suivi le cadeau ${transaction.kind.toLowerCase()} de ${transaction.member} du ${formattedDate} ?`)) return;
+    setDeletingTransactionId(transaction.id);
+    setMutationMessage(null);
+    try {
+      const params = new URLSearchParams();
+      if (transaction.id.startsWith("gift-")) {
+        params.set("id", transaction.id.slice(5));
+      } else {
+        params.set("member", transaction.member);
+        params.set("occasion", transaction.kind);
+        params.set("giftDate", transaction.date);
+        params.set("amountEur", String(transaction.amount));
+        params.set("btcAmount", String(transaction.quantity ?? 0));
+      }
+      const { data } = await supabaseBrowser.auth.getSession();
+      const response = await fetch(`/api/gifts?${params.toString()}`, {
+        method: "DELETE",
+        headers: data.session ? { authorization: "Bearer " + data.session.access_token } : {},
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Suppression impossible.");
+      const eventKey = `${transaction.member}|${transaction.kind}|${transaction.date.slice(0, 4)}`;
+      setDeletedGiftKeys((current) => current.includes(eventKey) ? current : [...current, eventKey]);
+      setGiftTransactions((current) => current.filter((gift) => `${gift.member}|${gift.kind}|${gift.date.slice(0, 4)}` !== eventKey));
+      setMutationMessage({ tone: "success", text: `${transaction.kind} ${transaction.date.slice(0, 4)} de ${transaction.member} supprimé du registre.` });
+    } catch (error) {
+      setMutationMessage({ tone: "error", text: error instanceof Error ? error.message : "Suppression impossible." });
+    } finally {
+      setDeletingTransactionId(null);
+    }
+  }
   return (
-    <div className="page-stack">
+    <div className={`page-stack transactions-page ${isAdmin ? "admin-transactions" : "member-transactions"}`}>
       <section className="transactions-guide panel">
         <div>
           <span className="soft-pill">REGISTRE PARTAGÉ</span>
-          <h2>Toutes les opérations,<br />expliquées simplement.</h2>
-          <p>Chaque ligne indique qui a investi, pour quel enfant, où se trouve l’actif et qui a saisi l’information.</p>
+          <h2>{isAdmin ? <>Toutes les opérations,<br />expliquées simplement.</> : <>Tes cadeaux Bitcoin,<br />tout simplement.</>}</h2>
+          <p>{isAdmin ? "Chaque ligne indique qui a investi, pour quel enfant, où se trouve l’actif et qui a saisi l’information." : "Retrouve les cadeaux qui te sont attribués et suis leur évolution, sans jargon administratif."}</p>
         </div>
-        <div className="entry-steps" aria-label="Étapes de saisie">
+        {isAdmin && <div className="entry-steps" aria-label="Étapes de saisie">
           <span><b>1</b><small>Cliquer sur<br />« Ajouter »</small></span>
           <i>→</i>
           <span><b>2</b><small>Recopier<br />l’opération</small></span>
           <i>→</i>
           <span><b>3</b><small>Vérifier puis<br />enregistrer</small></span>
-        </div>
-        <button className="primary-button" onClick={onAdd}>＋ Saisir une opération</button>
+        </div>}
+        {isAdmin && <button className="primary-button" onClick={onAdd}>＋ Saisir une opération</button>}
       </section>
 
       <section className="panel transactions-panel">
         <header className="transactions-toolbar">
-          <div><span>HISTORIQUE</span><h2>{filtered.length} transactions affichées</h2></div>
-          <div className="transaction-filters">
+          <div><span>HISTORIQUE</span><h2>{filtered.length} transactions affichées</h2>{shortcut && (memberFilter !== "Tous" || locationFilter !== "Tous" || scopeFilter !== "all") && <button type="button" className="active-transaction-shortcut" onClick={clearShortcut}><b>{shortcut.label}</b><span>Effacer le filtre ×</span></button>}</div>
+          {isAdmin && <div className="transaction-filters">
             <label>Enfant<select value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)}><option>Tous</option>{memberNames.map((name) => <option key={name}>{name}</option>)}</select></label>
-            <label>État<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Tous</option><option>Confirmée</option><option>À transférer</option><option>À compléter</option></select></label>
-          </div>
+            <label>Localisation<select value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}><option>Tous</option><option>Ledger</option><option>Binance</option><option>À classer</option></select></label>
+          </div>}
         </header>
+        {mutationMessage && <p className={`transactions-feedback ${mutationMessage.tone}`} role={mutationMessage.tone === "error" ? "alert" : "status"}>{mutationMessage.text}</p>}
         <div className="responsive-table">
           <table className="transactions-table">
-            <thead><tr><th>Date</th><th>Bénéficiaire</th><th>Opération</th><th>Montant</th><th>Quantité</th><th>Saisie par</th><th>État</th><th /></tr></thead>
-            <tbody>{filtered.map((transaction) => (
-              <tr key={transaction.id}>
+            <thead><tr><th>Date</th><th>Bénéficiaire</th><th>Opération</th><th>Montant / PRU</th><th>Quantité</th><th>Valeur actuelle</th><th>Saisie par</th>{isAdmin && <th>Localisation</th>}<th /></tr></thead>
+            <tbody>{filtered.map((transaction) => {
+              const memberSummary = transaction.authorRole === "Blockchain" ? "Transaction publique Ledger" : transaction.account === "Binance commun" ? "Bitcoin attribué · transfert à venir" : "Cadeau Bitcoin enregistré";
+              const needsAdminAction = transaction.authorRole !== "Blockchain" && transaction.status !== "Confirmée";
+              const quantity = Number(transaction.quantity ?? 0);
+              const hasPurchasePrice = transaction.amount > 0 && quantity > 0;
+              const averagePurchasePrice = hasPurchasePrice ? transaction.amount / quantity : null;
+              const currentValue = bitcoinEur && quantity > 0 ? bitcoinEur * quantity : null;
+              const performance = currentValue !== null && hasPurchasePrice ? currentValue - transaction.amount : null;
+              const location = transactionLocation(transaction);
+              const occasionEmoji = transaction.kind === "Anniversaire" ? "🎂" : transaction.kind === "Noël" ? "🎄" : null;
+              const canDelete = isAdmin && transaction.authorRole !== "Blockchain" && location !== "Ledger";
+              const blockchainUrl = transaction.authorRole === "Blockchain" && transaction.reference && /^[0-9a-f]{64}$/i.test(transaction.reference)
+                ? `https://blockstream.info/tx/${transaction.reference}`
+                : null;
+              return <tr key={transaction.id}>
                 <td>{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</td>
                 <td><strong>{transaction.member}</strong></td>
-                <td><strong>{transaction.kind}</strong><small>{transaction.asset} · {transaction.account}</small></td>
-                <td className="number-cell">{transaction.authorRole === "Blockchain" ? "—" : euro.format(transaction.amount)}</td>
-                <td className="number-cell">{transaction.quantity ? `${transaction.quantity.toFixed(8)} BTC` : "À saisir"}</td>
-                <td><span className={transaction.authorRole === "Enfant" ? "author-chip child" : "author-chip"}>{transaction.author}</span></td>
-                <td><span className={`transaction-status ${statusClass(transaction.status)}`}>{transaction.status}</span></td>
-                <td><div className="transaction-actions"><button className="detail-button" onClick={() => setSelected(transaction)}>Voir le détail</button>{transaction.status === "À transférer" && <button className="request-transfer-button" onClick={() => onTransferRequest(transaction)}>Demander le transfert</button>}</div></td>
-              </tr>
-            ))}</tbody>
+                <td><div className="transaction-kind">{occasionEmoji && <span className={"occasion-emoji " + (transaction.kind === "Noël" ? "christmas" : "birthday")} aria-hidden="true">{occasionEmoji}</span>}<div><strong>{transaction.kind}</strong><small>{transaction.asset} · {isAdmin ? transaction.account : memberSummary}</small></div></div></td>
+                <td className="number-cell transaction-investment"><strong>{hasPurchasePrice ? euro.format(transaction.amount) : "—"}</strong><small>{averagePurchasePrice ? "PRU " + euro.format(averagePurchasePrice) + " / BTC" : "PRU à rattacher"}</small></td>
+                <td className="number-cell">{transaction.quantity ? transaction.quantity.toFixed(8) + " BTC" : "À saisir"}</td>
+                <td className="number-cell transaction-current-value"><strong>{currentValue === null ? "—" : euro.format(currentValue)}</strong><small className={performance === null ? "performance neutral" : performance >= 0 ? "performance positive" : "performance negative"}>{performance === null ? (currentValue === null ? "Cours indisponible" : "Transfert sans PRU") : (performance >= 0 ? "+" : "") + euro.format(performance)}</small></td>
+                <td>{blockchainUrl ? <a className="author-chip blockchain-link" href={blockchainUrl} target="_blank" rel="noreferrer" title="Voir la transaction sur la blockchain">Blockchain<span aria-hidden="true">↗</span></a> : <span className={transaction.authorRole === "Enfant" ? "author-chip child" : "author-chip"}>{transaction.author}</span>}</td>
+                {isAdmin && <td><span className={"transaction-location " + (location === "Ledger" ? "ledger" : location === "Binance" ? "binance" : "unclassified")}>{location}</span></td>}
+                <td><div className="transaction-actions">{isAdmin && needsAdminAction && <button className="admin-work-button" onClick={() => onOpenPortfolio?.(transaction.member)}>{transaction.status === "À transférer" ? "Préparer le transfert" : "Classer / valider"}</button>}{canDelete && <button type="button" className="admin-delete-button" disabled={deletingTransactionId === transaction.id} onClick={() => void deleteGiftTransaction(transaction)}>{deletingTransactionId === transaction.id ? "Suppression…" : "Supprimer"}</button>}{!isAdmin && transaction.status === "À transférer" && <button className="request-transfer-button" onClick={() => onTransferRequest(transaction)}>Demander le transfert</button>}</div></td>
+              </tr>;
+            })}</tbody>
           </table>
         </div>
         {filtered.length === 0 && <div className="empty-transactions">Aucune opération ne correspond à ces filtres.</div>}
       </section>
-
-      {selected && <TransactionDetail transaction={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }
@@ -210,11 +360,14 @@ export function InvestmentModal({ onClose, onSave }: { onClose: () => void; onSa
   );
 }
 
-function TransactionDetail({ transaction, onClose }: { transaction: TransactionRecord; onClose: () => void }) {
-  const dialogRef = useDialogA11y(true, onClose);
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="transaction-detail" role="dialog" aria-modal="true" aria-labelledby="transaction-title" tabIndex={-1}><header><div><span>DÉTAIL DE L’OPÉRATION</span><h2 id="transaction-title">{transaction.kind}</h2><p>{transaction.member} · {dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</p></div><button onClick={onClose} aria-label="Fermer">×</button></header><div className="detail-amount"><small>{transaction.authorRole === "Blockchain" ? "Valeur publique" : "Montant investi"}</small><strong>{transaction.authorRole === "Blockchain" ? "Transaction Ledger" : euro.format(transaction.amount)}</strong><span className={`transaction-status ${statusClass(transaction.status)}`}>{transaction.status}</span></div><dl className="detail-list"><div><dt>Actif</dt><dd>{transaction.asset}</dd></div><div><dt>Quantité</dt><dd>{transaction.quantity ? transaction.quantity.toFixed(8) : "Non renseignée"}</dd></div><div><dt>Compte</dt><dd>{transaction.account}</dd></div><div><dt>Saisie par</dt><dd>{transaction.author} · {transaction.authorRole}</dd></div><div><dt>Référence</dt><dd>{transaction.reference ?? "Aucune"}</dd></div><div><dt>Commentaire</dt><dd>{transaction.note ?? "Aucun commentaire"}</dd></div></dl><div className="detail-safety">Cette fiche contient uniquement des informations de suivi. Elle ne contient aucune clé privée ni aucun mot Ledger.</div><button className="primary-button" onClick={onClose}>Fermer</button></section></div>;
-}
+type TransactionLocation = "Ledger" | "Binance" | "À classer";
 
-function statusClass(status: TransactionRecord["status"]) { return status === "Confirmée" ? "confirmed" : status === "À transférer" ? "transfer" : "incomplete"; }
+function transactionLocation(transaction: TransactionRecord): TransactionLocation {
+  const account = transaction.account.toLocaleLowerCase("fr");
+  if (account.includes("à rapprocher") || (account.includes("ledger") && account.includes("binance"))) return "À classer";
+  if (transaction.authorRole === "Blockchain" || account.includes("ledger")) return "Ledger";
+  if (account.includes("binance") || transaction.status === "À transférer") return "Binance";
+  return "À classer";
+}
 function stepTitle(step: number) { return step === 1 ? "Qui fait quoi ?" : step === 2 ? "Recopier les chiffres" : "Dernière vérification"; }
 function stepHelp(step: number) { return step === 1 ? "Indique le bénéficiaire et la personne qui effectue la saisie." : step === 2 ? "Recopie les informations affichées sur Binance, Ledger ou ton courtier." : "Tout est lisible : tu peux corriger ou confirmer l’opération."; }

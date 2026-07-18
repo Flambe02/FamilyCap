@@ -42,7 +42,7 @@
 .summary-cell { padding:11px 9px; text-align:center; vertical-align:middle; }.summary-cell b,.summary-cell small { display:block; }.summary-cell b { color:#183b4b; font-size:.7rem; line-height:1.45; }.summary-cell small { margin-top:5px; color:#526b72; font-size:.64rem; font-weight:800; }.summary-cell.ledger { background:#d9f2df; }.summary-cell.binance { background:#fff0b1; }.summary-cell.missing { background:#fde0de; }.summary-cell.future { background:#e5e8e9; }.summary-cell.future b,.summary-cell.missing b { color:#52646b; }.summary-matrix-empty { color:#b2bbbe; background:#fbfcfc; text-align:center; }
 .summary-gap { display:inline-grid; width:14px; height:14px; margin-left:3px; place-items:center; border-radius:50%; color:#765000; background:#ffd767; font-size:.6rem; cursor:help; }
 .wallet-control footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; margin-top:12px; color:#728187; font-size:.67rem; }
-.wallet-summary { min-width:1050px; }.wallet-summary th,.wallet-summary td { padding:10px 12px; border-right:1px solid #dce6e3; border-bottom:1px solid #dce6e3; color:#254353; font-size:.7rem; text-align:right; white-space:nowrap; }.wallet-summary th { color:#506a75; background:#edf3f2; font-size:.62rem; letter-spacing:.04em; text-align:left; }.wallet-summary tbody th { color:#173b4c; background:#fff; font-size:.72rem; }.wallet-summary .ledger-number { background:#e0f4e5; }.wallet-summary .binance-number { background:#fff2bb; }.wallet-summary .total-number { color:#15384d; background:#dce7f2; font-weight:900; }.wallet-summary .variance-ok { color:#14704e; font-weight:900; }.wallet-summary .variance-warning { color:#a56616; background:#fff7e5; font-weight:900; }.wallet-summary .wallet-total th,.wallet-summary .wallet-total td { border-top:2px solid #8eaaa5; color:#15384d; background:#e6edf6; font-weight:900; }
+.wallet-summary { min-width:1240px; }.wallet-summary th,.wallet-summary td { padding:10px 12px; border-right:1px solid #dce6e3; border-bottom:1px solid #dce6e3; color:#254353; font-size:.7rem; text-align:right; white-space:nowrap; }.wallet-summary th { color:#506a75; background:#edf3f2; font-size:.62rem; letter-spacing:.04em; text-align:left; }.wallet-summary tbody th { color:#173b4c; background:#fff; font-size:.72rem; }.wallet-summary .ledger-number { background:#e0f4e5; }.wallet-summary .binance-number { background:#fff2bb; }.wallet-summary .total-number { color:#15384d; background:#dce7f2; font-weight:900; }.wallet-summary .offered-number { color:#15384d; background:#e9eff7; font-weight:900; }.wallet-summary .fee-number { color:#a56616; background:#fff7e5; font-weight:900; }.wallet-summary .variance-ok { color:#14704e; font-weight:900; }.wallet-summary .variance-warning { color:#a56616; background:#fff7e5; font-weight:900; }.wallet-summary .wallet-total th,.wallet-summary .wallet-total td { border-top:2px solid #8eaaa5; color:#15384d; background:#e6edf6; font-weight:900; }
 @media (max-width:720px) { .synthesis-head,.synthesis-panel > header { align-items:flex-start; flex-direction:column; }.synthesis-head { padding:20px; }.synthesis-head h2,.synthesis-panel h2 { font-size:1.35rem; }.synthesis-kpis { grid-template-columns:1fr 1fr; }.synthesis-kpis article { padding:12px; }.synthesis-panel { padding:16px; }.synthesis-legend { justify-content:flex-start; }.wallet-control footer { display:grid; }.summary-matrix th,.summary-matrix td { min-width:145px; } }
 /* Synthèse opérationnelle : lecture immédiate, puis modification localisée. */
 .delivery-summary { padding:22px; }
@@ -127,3 +127,92 @@
 
 /* Administration — densité de pilotage, surfaces calmes et repères explicites. */
 .admin-root{gap:16px}.admin-command{border:1px solid rgba(23,50,77,.18);border-radius:var(--radius);box-shadow:var(--shadow-lg);background:linear-gradient(135deg,var(--navy),var(--navy-2))}.admin-tabs{padding:5px;border-color:rgba(23,50,77,.11);border-radius:12px;box-shadow:0 1px 2px rgba(23,50,77,.025)}.admin-tabs button{min-height:37px;border-radius:8px}.admin-tabs button.active{background:var(--navy)}.admin-summary>article,.admin-panel-new,.synthesis-panel{border-color:rgba(23,50,77,.11);border-radius:var(--radius);box-shadow:var(--shadow-sm)}.admin-form,.holding-form{border:1px solid rgba(23,50,77,.08);background:var(--surface-subtle)}.member-table article:hover,.positions>div:hover{background:#fbfcfb}.wallet-summary th,.summary-matrix th{background:#f2f7f5}.wallet-summary tr:hover td,.summary-matrix tr:hover td{background:#fbfcfb}.transfer-plan,.valuation-panel,.ledger-transaction-panel{border-color:rgba(23,50,77,.11);border-radius:var(--radius);box-shadow:var(--shadow-sm)}@media(max-width:720px){.admin-command,.admin-panel-new,.synthesis-panel,.transfer-plan,.valuation-panel,.ledger-transaction-panel{border-radius:15px}}
+/* Administration: meme grille centree et memes respirations que Portefeuilles. */
+.admin-root{width:min(1104px,calc(100% - 48px));margin:0 auto;padding:0 0 24px;gap:16px}
+.admin-root>*{min-width:0}.admin-root>.gift-portfolio{width:100%;margin-inline:0}
+.admin-command{min-height:144px;box-sizing:border-box;padding:28px 32px;border-radius:24px}
+.admin-tabs{width:100%;box-sizing:border-box;padding:5px;border-radius:16px;box-shadow:0 6px 18px rgb(23 50 77 / 4%)}
+.gift-synthesis,.admin-section{min-width:0;gap:16px}
+.synthesis-head{min-height:142px;box-sizing:border-box;padding:24px 26px;border-radius:20px}
+.synthesis-kpis{gap:12px}.synthesis-kpis article{min-height:86px;box-sizing:border-box;padding:15px 16px;border-radius:15px;box-shadow:0 4px 14px rgb(23 50 77 / 3%)}
+.transfer-plan,.valuation-panel,.delivery-summary,.synthesis-panel,.ledger-transaction-panel,.admin-panel-new{box-sizing:border-box;border-radius:18px;box-shadow:0 7px 22px rgb(23 50 77 / 4%)}
+.transfer-plan,.valuation-panel,.delivery-summary,.synthesis-panel,.ledger-transaction-panel{padding:22px 24px}
+.synthesis-scroll{max-width:100%}
+@media(max-width:900px){.admin-root{width:calc(100% - 32px)}.synthesis-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.admin-root{width:calc(100% - 24px);gap:12px;padding-bottom:16px}.admin-command{min-height:0;padding:20px}.admin-tabs{max-width:100%;margin:0;border-radius:14px}.synthesis-head{min-height:0;padding:18px}.synthesis-kpis{gap:8px}.synthesis-kpis article{min-height:78px;padding:12px}.transfer-plan,.valuation-panel,.delivery-summary,.synthesis-panel,.ledger-transaction-panel,.admin-panel-new{padding:16px;border-radius:15px}}
+/* Keep every administration panel inside the centered workspace. Wide tables
+   scroll in their own viewport instead of enlarging the whole page. */
+.admin-root{
+  min-width:0;
+  max-width:1104px;
+  box-sizing:border-box;
+}
+.admin-root>.gift-synthesis,
+.gift-synthesis,
+.gift-synthesis>*,
+.admin-section,
+.admin-section>*{
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  box-sizing:border-box;
+}
+.gift-synthesis,
+.admin-section{
+  grid-template-columns:minmax(0,1fr);
+}
+.synthesis-head>div,
+.transfer-plan>header>div:first-child,
+.valuation-panel>header>div:first-child,
+.ledger-transaction-panel>header>div:first-child,
+.synthesis-kpis article>div,
+.transfer-plan-grid article>div,
+.valuation-grid article>div{
+  min-width:0;
+}
+.synthesis-head h2,
+.transfer-plan h2,
+.valuation-panel h2,
+.ledger-transaction-panel h2{
+  overflow-wrap:anywhere;
+}
+.synthesis-kpis,
+.transfer-plan-grid,
+.valuation-grid,
+.valuation-panel footer,
+.ledger-wallet-list,
+.synthesis-scroll,
+.ledger-transaction-scroll{
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  box-sizing:border-box;
+}
+.synthesis-kpis article,
+.transfer-plan-grid article,
+.valuation-grid article{
+  max-width:100%;
+}
+.transfer-plan-grid article{
+  grid-template-columns:30px minmax(0,1fr);
+}
+.synthesis-scroll,
+.ledger-transaction-scroll{
+  overflow-x:auto;
+  overscroll-behavior-inline:contain;
+}
+.valuation-quote,
+.transfer-plan-total,
+.ledger-transaction-total{
+  max-width:100%;
+  box-sizing:border-box;
+}
+@media(max-width:1180px){
+  .transfer-plan-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:720px){
+  .transfer-plan-grid{grid-template-columns:1fr}
+  .transfer-plan-grid article{grid-template-columns:34px minmax(0,1fr) auto}
+}
+/* Lecture métier du plan de transfert : séparer la base Noël des anniversaires. */
+.transfer-plan-explanation{display:flex;align-items:flex-start;gap:10px;margin:0 0 13px;padding:11px 13px;border:1px solid #cfe5df;border-radius:11px;background:#f3faf7}.transfer-plan-explanation>span{display:grid;flex:0 0 28px;width:28px;height:28px;place-items:center;border-radius:8px;background:#fff;color:#173b4c;font-size:.9rem}.transfer-plan-explanation strong{display:block;color:#173b4c;font-size:.7rem}.transfer-plan-explanation p{margin-top:3px;max-width:none;color:#60757b;font-size:.65rem;line-height:1.4}.transfer-plan-grid article{align-content:start}.transfer-plan-breakdown{grid-column:1/-1;display:grid;gap:0;margin-top:2px;padding:7px 8px;border:1px solid rgba(190,167,91,.28);border-radius:9px;background:rgba(255,255,255,.62)}.transfer-plan-breakdown>div{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:6px;align-items:center;padding:5px 0}.transfer-plan-breakdown>div+div{border-top:1px solid rgba(23,59,76,.09)}.transfer-plan-breakdown>div>span{font-size:.67rem}.transfer-plan-breakdown p{margin:0;min-width:0}.transfer-plan-breakdown p b{display:block;color:#35535e;font-size:.6rem}.transfer-plan-breakdown p small{margin-top:1px;overflow:hidden;color:#75878c;font-size:.53rem;text-overflow:ellipsis;white-space:nowrap}.transfer-plan-breakdown>div>strong{color:#173b4c;font-size:.61rem;font-variant-numeric:tabular-nums;white-space:nowrap}@media(max-width:720px){.transfer-plan-explanation{padding:10px}.transfer-plan-breakdown{grid-column:1/-1;width:100%;box-sizing:border-box}.transfer-plan-breakdown p small{white-space:normal}}
