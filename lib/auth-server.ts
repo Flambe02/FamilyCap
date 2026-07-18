@@ -39,7 +39,7 @@ export async function requireFamilyMember(request: Request): Promise<Authenticat
 
 export async function requireAdmin(request: Request) {
   const member = await requireFamilyMember(request);
-  if (member.role !== "admin" || member.email.toLowerCase() !== "florent.lambert@gmail.com") {
+  if (member.role !== "admin") {
     throw new Response("Accès administrateur refusé", { status: 403 });
   }
   return member;

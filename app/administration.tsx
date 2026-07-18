@@ -329,13 +329,12 @@ function GiftSynthesis() {
         return <article key={row.name} className={toTransfer ? "ready" : "complete"}>
           <span className="transfer-plan-avatar">{row.initials}</span>
           <div><strong>{row.name}</strong><small>{toTransfer ? `${giftCount} cadeau${giftCount > 1 ? "x" : ""} acheté${giftCount > 1 ? "s" : ""}, en attente de transfert` : "Aucun bitcoin à transférer"}</small></div>
-          <div className="transfer-plan-amount"><b>{btc(row.binanceBtc)}</b><small>{euro.format(row.binanceEur)} investis</small></div>
-          {toTransfer && <div className="transfer-plan-breakdown" aria-label={`Détail des cadeaux de ${row.name}`}>
+          <div className="transfer-plan-amount"><b>{btc(row.ledgerBtc + row.binanceBtc)}</b><small>{euro.format(row.ledgerEur + row.binanceEur)} attribu&#233;s</small></div>
+          {toTransfer && <div className="transfer-plan-breakdown" aria-label={`Détail des cadeaux de ${row.name}`}><header><span>{btc(row.binanceBtc)} &middot; {euro.format(row.binanceEur)}</span></header>
             <div><span aria-hidden="true">🎄</span><p><b>Noël</b><small>{christmasYears.length ? christmasYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(christmasEur)}</strong></div>
             <div><span aria-hidden="true">🎂</span><p><b>Anniversaires</b><small>{birthdayYears.length ? birthdayYears.join(", ") : "Aucun en attente"}</small></p><strong>{euro.format(birthdayEur)}</strong></div>
           </div>}
-          {ledgerGiftCount > 0 && <div className="transfer-plan-ledger-breakdown" aria-label={"Cadeaux de " + row.name + " d\u00e9j\u00e0 sur Ledger"}><header><strong>D\u00e9j\u00e0 sur Ledger</strong><span>{btc(row.ledgerBtc)}</span></header><div><span aria-hidden="true">&#127876;</span><p><b>No\u00ebl</b><small>{ledgerChristmasYears.length ? ledgerChristmasYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(ledgerChristmasEur)}</strong></div><div><span aria-hidden="true">&#127874;</span><p><b>Anniversaires</b><small>{ledgerBirthdayYears.length ? ledgerBirthdayYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(ledgerBirthdayEur)}</strong></div></div>}
-          <em>{toTransfer ? "À transférer" : "À jour"}</em>
+          {ledgerGiftCount > 0 && <div className="transfer-plan-ledger-breakdown" aria-label={"Cadeaux de " + row.name + " d\u00e9j\u00e0 sur Ledger"}><header><strong>Ledger</strong><span>{btc(row.ledgerBtc)}</span></header><div><span aria-hidden="true">&#127876;</span><p><b>{"No\u00ebl"}</b><small>{ledgerChristmasYears.length ? ledgerChristmasYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(ledgerChristmasEur)}</strong></div><div><span aria-hidden="true">&#127874;</span><p><b>Anniversaires</b><small>{ledgerBirthdayYears.length ? ledgerBirthdayYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(ledgerBirthdayEur)}</strong></div></div>}
         </article>;
       })}</div>
       <footer><span>Les montants « À classer » ne sont pas inclus : leur localisation doit d’abord être confirmée.</span><span>Un même virement Ledger peut regrouper plusieurs cadeaux d’un enfant.</span></footer>

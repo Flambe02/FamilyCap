@@ -228,3 +228,7 @@
 .transfer-plan-ledger-breakdown p small{margin-top:1px;overflow:hidden;color:#75878c;font-size:.53rem;text-overflow:ellipsis;white-space:nowrap}
 .transfer-plan-ledger-breakdown>div>strong{color:#173b4c;font-size:.61rem;font-variant-numeric:tabular-nums;white-space:nowrap}
 @media(max-width:720px){.transfer-plan-ledger-breakdown{grid-column:1/-1;width:100%;box-sizing:border-box}.transfer-plan-ledger-breakdown p small{white-space:normal}}
+
+.transfer-plan-breakdown>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 0 6px;border-bottom:1px solid rgba(23,59,76,.10)}
+.transfer-plan-breakdown>header strong{color:#765000;font-size:.61rem}
+.transfer-plan-breakdown>header span{color:#765000;font-size:.59rem;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
