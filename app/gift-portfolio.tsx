@@ -218,7 +218,7 @@ const person = people.find((item) => item.name === selected) ?? people[0];
       <div className="person-tabs">{people.map((item) => <button type="button" key={item.name} className={selected === item.name ? "active" : ""} aria-pressed={selected === item.name} onClick={() => setSelected(item.name)}><b className={`avatar ${item.color}`}>{item.initials}</b><span><strong>{item.name}</strong><small>{item.birthday}</small></span></button>)}</div>
     </section>}
 
-<div className="next-birthday-notice" role="status"><span aria-hidden="true">&#127874;</span><span>Prochain anniversaire de <strong>{person.name}</strong> : {fullDate.format(nextBirthday)}</span><b>{daysUntilBirthday === 0 ? "Ce jour" : "dans " + daysUntilBirthday + " jours"}</b></div>
+{isAdmin && <div className="next-birthday-notice" role="status"><span aria-hidden="true">&#127874;</span><span>Prochain anniversaire de <strong>{person.name}</strong> : {fullDate.format(nextBirthday)}</span><b>{daysUntilBirthday === 0 ? "Ce jour" : "dans " + daysUntilBirthday + " jours"}</b></div>}
     <section className="portfolio-hero">
       <span className="hero-orb" aria-hidden="true" />
       <span className="hero-orb-ring" aria-hidden="true" />

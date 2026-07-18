@@ -32,13 +32,40 @@ function familyGiftKey(record: Pick<FamilyGiftRecord, "member_name" | "occasion"
 }
 
 const members = [
-  { name: "Thibault", initials: "TH", birthday: "15 mars", missing: 5, color: "mint" },
-  { name: "Uhaina", initials: "UH", birthday: "16 août", missing: 4, color: "coral" },
-  { name: "Paul", initials: "PA", birthday: "18 nov.", missing: 4, color: "blue" },
-  { name: "Aurore", initials: "AU", birthday: "27 août", missing: 4, color: "yellow" },
-  { name: "Thomas", initials: "TO", birthday: "29 déc.", missing: 5, color: "purple" },
+  { name: "Thibault", initials: "TH", birthday: "15 mars", birthdayDay: 15, birthdayMonth: 3, missing: 5, color: "mint" },
+  { name: "Uhaina", initials: "UH", birthday: "16 ao\u00fbt", birthdayDay: 16, birthdayMonth: 8, missing: 4, color: "coral" },
+  { name: "Paul", initials: "PA", birthday: "18 nov.", birthdayDay: 18, birthdayMonth: 11, missing: 4, color: "blue" },
+  { name: "Aurore", initials: "AU", birthday: "17 ao\u00fbt", birthdayDay: 17, birthdayMonth: 8, missing: 4, color: "yellow" },
+  { name: "Thomas", initials: "TO", birthday: "29 d\u00e9c.", birthdayDay: 29, birthdayMonth: 12, missing: 5, color: "purple" },
 ];
 
+type FamilyCalendarEvent = { kind: "birthday" | "christmas"; name?: string; day: number; month: number; date: Date };
+
+function nextFamilyCalendarEvents(today = new Date()) {
+  const year = today.getFullYear();
+  const todayStart = new Date(year, today.getMonth(), today.getDate());
+  const events = members.map<FamilyCalendarEvent>((member) => {
+    const date = new Date(year, member.birthdayMonth - 1, member.birthdayDay);
+    if (date < todayStart) date.setFullYear(year + 1);
+    return { kind: "birthday", name: member.name, day: member.birthdayDay, month: member.birthdayMonth, date };
+  });
+  const christmas = new Date(year, 11, 25);
+  if (christmas < todayStart) christmas.setFullYear(year + 1);
+  events.push({ kind: "christmas", day: 25, month: 12, date: christmas });
+  const first = events.sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+  return events.filter((event) => event.date.getFullYear() === first.date.getFullYear() && event.date.getMonth() === first.date.getMonth()).sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
+function familyCalendarLabel(events: FamilyCalendarEvent[]) {
+  const birthdays = events.filter((event) => event.kind === "birthday");
+  const christmas = events.find((event) => event.kind === "christmas");
+  const dateLabel = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(events[0].date);
+  const birthdayLabel = birthdays.length === 1
+    ? "Prochain anniversaire de " + birthdays[0].name + ": " + birthdays[0].day + " " + dateLabel
+    : "Prochains anniversaires de " + birthdays.slice(0, -1).map((event) => event.name).join(", ") + " et " + birthdays.at(-1)?.name + ": " + birthdays.map((event) => event.day).join(" et ") + " " + dateLabel;
+  if (!christmas) return birthdayLabel;
+  return birthdays.length > 0 ? birthdayLabel + " + No\u00ebl le 25 d\u00e9cembre" : "Prochain \u00e9v\u00e8nement : No\u00ebl le 25 " + dateLabel;
+}
 const navItems: { id: View; label: string; icon: string; iconLabel: string }[] = [
   { id: "famille", label: "Vue famille", icon: "⌂", iconLabel: "Accueil" },
   { id: "portefeuilles", label: "Portefeuilles", icon: "◫", iconLabel: "Portefeuilles" },
@@ -338,6 +365,9 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
   navigate: (view: View) => void;
   onOpenMember: (member: string) => void;
 }) {
+  const nextFamilyEvents = nextFamilyCalendarEvents();
+  const nextFamilyEvent = nextFamilyEvents[0];
+  const daysUntilNextFamilyEvent = Math.max(0, Math.ceil((nextFamilyEvent.date.getTime() - Date.now()) / 86400000));
   return (
     <div className="content-grid">
       <section className="welcome-panel">
@@ -349,10 +379,12 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
         <div className="hero-orbit" aria-hidden="true"><span className="coin">₿</span><i /><b /></div>
         <button className="primary-button welcome-action" onClick={openModal}>＋ Ajouter une opération</button>      </section>
 
+      <div className="next-birthday-notice family-calendar-notice" role="status"><span aria-hidden="true">&#127874;</span><span>{familyCalendarLabel(nextFamilyEvents)}</span><b>{daysUntilNextFamilyEvent === 0 ? "Ce jour" : "dans " + daysUntilNextFamilyEvent + " jours"}</b></div>
+
       <section className="stats-row" aria-label="Indicateurs clés">
         <Stat label="Valeur Bitcoin actuelle" value={totalBitcoinValueEur === null ? (marketLoading ? "Mise à jour…" : "Cours indisponible") : euro.format(totalBitcoinValueEur)} note={bitcoinEur ? `${totalBtc.toFixed(8)} BTC attribués · 1 BTC = ${euro.format(bitcoinEur)}` : "Bitcoin uniquement · PEA et compte-titres bientôt"} tone="navy" icon="₿" />
         <Stat label="À compléter" value={`${missing} achats`} note="Quantités BTC manquantes" tone="amber" icon="!" />
-        <Stat label="Prochain événement" value="16 août" note="Anniversaire d’Uhaina" tone="teal" icon="⌁" />
+        <Stat label={"Prochain \u00e9v\u00e8nement"} value={nextFamilyEvent.day + " " + new Intl.DateTimeFormat("fr-FR", { month: "long" }).format(nextFamilyEvent.date)} note={nextFamilyEvent.kind === "christmas" ? "No\u00ebl" : "Anniversaire de " + nextFamilyEvent.name} tone="teal" icon={"\u2311"} />
       </section>
 
       <section className="panel family-panel">

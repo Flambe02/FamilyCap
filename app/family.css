@@ -62,3 +62,7 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
   .panel { border: 0; border-radius: 20px; box-shadow: 0 10px 26px rgb(33 54 60 / 5%); }.family-panel { padding: 24px; }.member-grid { gap: 10px; }.member-card { padding: 15px; border: 0; border-radius: 15px; background: #f5f2e9; }.member-card h3 { margin: 10px 0 3px; font-size: 12px; }.member-value { margin: 10px 0 9px; }.member-value strong { font-family: inherit; font-size: 17px; font-weight: 750; }.mission-panel, .activity-panel { padding: 23px; }
 }
 @media (max-width: 780px) { .view-mode-switch { display: inline-flex; padding: 3px; border-radius: 999px; background: #e5e6e2; }.view-mode-switch button, .view-mode-switch select { min-height: 28px; border: 0; border-radius: 999px; background: transparent; font-size: 10px; }.view-mode-switch button.active { background: #fff; }.welcome-action { position: relative; margin-top: 18px; } }
+
+.family-calendar-notice{grid-column:1/-1;margin:0}
+
+@media (min-width: 781px) { .settings-layout { width: min(1280px, calc(100% - 48px)); } }

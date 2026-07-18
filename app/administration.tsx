@@ -161,7 +161,7 @@ function GiftSynthesis() {
     const inCustodyBtc = ledgerBtc + binanceBtc + pendingBtc;
     const ledgerGapBtc = ledgerExpectedBtc - ledgerBtc;
     const actualWallet = Number(ledger?.wallets?.find((wallet) => wallet.member === member.name)?.confirmedBalanceBtc ?? 0);
-    return { ...member, ledgerBtc, binanceBtc, pendingBtc, offeredBtc, inCustodyBtc, ledgerGapBtc, binanceChristmasGifts, binanceBirthdayGifts, ledgerEur: ledgerGifts.reduce((sum,gift) => sum + attributedEur(gift),0), binanceEur: binanceGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), pendingEur: pendingGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), actualWallet, variance: actualWallet - ledgerBtc };
+    return { ...member, ledgerBtc, binanceBtc, pendingBtc, offeredBtc, inCustodyBtc, ledgerGapBtc, binanceChristmasGifts, binanceBirthdayGifts, ledgerChristmasGifts: ledgerGifts.filter((gift) => gift.occasion === "No\u00ebl"), ledgerBirthdayGifts: ledgerGifts.filter((gift) => gift.occasion === "Anniversaire"), ledgerEur: ledgerGifts.reduce((sum,gift) => sum + attributedEur(gift),0), binanceEur: binanceGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), pendingEur: pendingGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), actualWallet, variance: actualWallet - ledgerBtc };
   }), [ledger?.wallets, records]);
   const total = rows.reduce((acc,row) => ({
     ledgerBtc: acc.ledgerBtc + row.ledgerBtc,
@@ -321,6 +321,11 @@ function GiftSynthesis() {
         const christmasYears = row.binanceChristmasGifts.map((gift) => gift.gift_date.slice(0, 4)).sort();
         const birthdayYears = row.binanceBirthdayGifts.map((gift) => gift.gift_date.slice(0, 4)).sort();
         const giftCount = row.binanceChristmasGifts.length + row.binanceBirthdayGifts.length;
+        const ledgerChristmasEur = row.ledgerChristmasGifts.reduce((sum, gift) => sum + Number(gift.amount_eur) * (Number(gift.ledger_amount ?? gift.btc_amount) / Number(gift.btc_amount || 1)), 0);
+        const ledgerBirthdayEur = row.ledgerBirthdayGifts.reduce((sum, gift) => sum + Number(gift.amount_eur) * (Number(gift.ledger_amount ?? gift.btc_amount) / Number(gift.btc_amount || 1)), 0);
+        const ledgerChristmasYears = row.ledgerChristmasGifts.map((gift) => gift.gift_date.slice(0, 4)).sort();
+        const ledgerBirthdayYears = row.ledgerBirthdayGifts.map((gift) => gift.gift_date.slice(0, 4)).sort();
+        const ledgerGiftCount = row.ledgerChristmasGifts.length + row.ledgerBirthdayGifts.length;
         return <article key={row.name} className={toTransfer ? "ready" : "complete"}>
           <span className="transfer-plan-avatar">{row.initials}</span>
           <div><strong>{row.name}</strong><small>{toTransfer ? `${giftCount} cadeau${giftCount > 1 ? "x" : ""} acheté${giftCount > 1 ? "s" : ""}, en attente de transfert` : "Aucun bitcoin à transférer"}</small></div>
@@ -329,6 +334,7 @@ function GiftSynthesis() {
             <div><span aria-hidden="true">🎄</span><p><b>Noël</b><small>{christmasYears.length ? christmasYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(christmasEur)}</strong></div>
             <div><span aria-hidden="true">🎂</span><p><b>Anniversaires</b><small>{birthdayYears.length ? birthdayYears.join(", ") : "Aucun en attente"}</small></p><strong>{euro.format(birthdayEur)}</strong></div>
           </div>}
+          {ledgerGiftCount > 0 && <div className="transfer-plan-ledger-breakdown" aria-label={"Cadeaux de " + row.name + " d\u00e9j\u00e0 sur Ledger"}><header><strong>D\u00e9j\u00e0 sur Ledger</strong><span>{btc(row.ledgerBtc)}</span></header><div><span aria-hidden="true">&#127876;</span><p><b>No\u00ebl</b><small>{ledgerChristmasYears.length ? ledgerChristmasYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(ledgerChristmasEur)}</strong></div><div><span aria-hidden="true">&#127874;</span><p><b>Anniversaires</b><small>{ledgerBirthdayYears.length ? ledgerBirthdayYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(ledgerBirthdayEur)}</strong></div></div>}
           <em>{toTransfer ? "À transférer" : "À jour"}</em>
         </article>;
       })}</div>
