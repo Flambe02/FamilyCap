@@ -14,6 +14,8 @@ const birthdays: HistoricalGift[] = [
   { member: "Uhaina", occasion: "Anniversaire", giftDate: "2023-08-16", purchaseDate: "2023-08-16", amountEur: 55.42, btcAmount: 0.00207, note: "Compensation du solde réduit reçu à Noël 2022, frais Binance inclus." },
   { member: "Paul", occasion: "Anniversaire", giftDate: "2023-11-18", purchaseDate: "2023-11-18", amountEur: 55, btcAmount: 0.00155968, note: "Valeur confirmée par le tableau familial." },
   { member: "Aurore", occasion: "Anniversaire", giftDate: "2023-08-27", purchaseDate: "2023-08-27", amountEur: 55, btcAmount: 0.00208, note: "Valeur confirmée par le tableau familial." },
+  { member: "Thibault", occasion: "Anniversaire", giftDate: "2024-03-15", purchaseDate: "2024-03-15", amountEur: 55, btcAmount: 0.00083, note: "Valeur confirmée par le tableau familial." },
+  { member: "Uhaina", occasion: "Anniversaire", giftDate: "2024-08-16", purchaseDate: "2024-08-16", amountEur: 55, btcAmount: 0.00102021, note: "Valeur confirmée par le tableau familial." },
   { member: "Aurore", occasion: "Anniversaire", giftDate: "2024-08-27", purchaseDate: "2024-08-27", amountEur: 55, btcAmount: 0.00147, note: "Valeur confirmée par le tableau familial." },
   { member: "Paul", occasion: "Anniversaire", giftDate: "2024-11-18", purchaseDate: "2024-11-18", amountEur: 55, btcAmount: 0.00061163, note: "Valeur confirmée par le tableau familial." },
   { member: "Thomas", occasion: "Anniversaire", giftDate: "2024-12-29", purchaseDate: "2024-12-29", amountEur: 55, btcAmount: 0.00059, note: "Valeur confirmée par le tableau familial." },
@@ -21,6 +23,8 @@ const birthdays: HistoricalGift[] = [
   { member: "Uhaina", occasion: "Anniversaire", giftDate: "2025-08-16", purchaseDate: "2025-08-16", amountEur: 55, btcAmount: 0.00053622, note: "Valeur confirmée par le tableau familial." },
   { member: "Paul", occasion: "Anniversaire", giftDate: "2025-11-18", purchaseDate: "2025-11-18", amountEur: 55, btcAmount: 0.00065951, note: "Valeur confirmée par le tableau familial." },
   { member: "Aurore", occasion: "Anniversaire", giftDate: "2025-08-27", purchaseDate: "2025-08-27", amountEur: 55, btcAmount: 0.00054322, note: "Valeur confirmée par le tableau familial." },
+  { member: "Thomas", occasion: "Anniversaire", giftDate: "2025-12-29", purchaseDate: "2025-12-29", amountEur: 55, btcAmount: 0.000713986, note: "Valeur confirmée par le tableau familial." },
+  { member: "Thibault", occasion: "Anniversaire", giftDate: "2026-03-15", purchaseDate: "2026-03-15", amountEur: 55, btcAmount: 0.00084, note: "Valeur confirmée par le tableau familial." },
 ];
 
 const christmasByYear: Array<{ date: string; amounts: Record<HistoricalGift["member"], number>; eurAmounts?: Partial<Record<HistoricalGift["member"], number>> }> = [

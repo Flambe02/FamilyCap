@@ -88,14 +88,19 @@
 .indicators-table th[scope="row"]{text-align:left;font-weight:800}
 .indicators-table thead th{color:#5f6d72;font-weight:700;text-align:right;border-bottom:1px solid #dbe3e0}
 .indicators-table thead th:first-child{text-align:left}
+.indicators-table-note{margin:12px 0 0;color:#8a999c;font-size:10.5px;line-height:1.5}
+
+.indicators-value-section{margin-top:28px;padding-top:22px;border-top:1px solid #eef2ee}
+.indicators-value-section h4{margin:0 0 6px;font:500 16px Georgia,serif;color:#17324d}
+.indicators-value-section .indicators-hint{margin-bottom:12px}
+.indicators-value-section .indicators-hint strong{color:#16766c;font-weight:800}
 .indicators-table-average-col{font-weight:800;color:#17324d;background:#f7faf9}
 .indicators-table thead th.indicators-table-average-col{color:#16766c}
 
-.indicators-table-cell{padding:0;position:relative}
-.indicators-cell-trigger{position:relative;display:block;width:100%;padding:10px 12px;border:0;background:transparent;color:inherit;font:inherit;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;cursor:pointer}
+.indicators-table-cell{padding:0}
+.indicators-cell-trigger{display:block;width:100%;padding:10px 12px;border:0;background:transparent;color:inherit;font:inherit;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;cursor:pointer}
 .indicators-cell-trigger:hover,.indicators-cell-trigger:focus-visible{background:#f0f6f4}
-.indicators-cell-tooltip{display:none;position:absolute;top:100%;right:0;z-index:5;margin-top:6px;min-width:230px;padding:11px 13px;border-radius:12px;background:#17324d;color:#fff;font-size:11px;font-weight:400;line-height:1.65;text-align:left;white-space:normal;box-shadow:0 12px 26px rgba(13,35,49,.28);pointer-events:none}
-.indicators-cell-trigger:hover .indicators-cell-tooltip,.indicators-cell-trigger:focus .indicators-cell-tooltip,.indicators-cell-trigger:focus-visible .indicators-cell-tooltip{display:block}
+.indicators-cell-tooltip{position:fixed;z-index:500;min-width:230px;padding:11px 13px;border-radius:12px;background:#17324d;color:#fff;font-size:11px;font-weight:400;line-height:1.65;text-align:left;white-space:normal;box-shadow:0 12px 26px rgba(13,35,49,.28);pointer-events:none}
 .indicators-cell-tooltip strong{display:block;margin-bottom:4px;color:#9fe0d2;font-size:10px;font-weight:800;letter-spacing:.02em}
 .indicators-cell-tooltip span{display:block}
 .indicators-cell-tooltip .positive{color:#8ce0c8}
@@ -153,6 +158,10 @@
   .indicators-dot-thomas{fill:#ab00c8}
   .indicators-tooltip{background:#0e2534;box-shadow:0 10px 24px rgba(0,0,0,.5)}
   .indicators-hint{color:#9db2b6}
+  .indicators-table-note{color:#9db2b6}
+  .indicators-value-section{border-top-color:rgba(255,255,255,.1)}
+  .indicators-value-section h4{color:#f2f7f5}
+  .indicators-value-section .indicators-hint strong{color:#5ec9b7}
   .indicators-legend li{color:#c4d3d6}
   .indicators-legend li.indicators-legend-thibault{color:#3fd9bc}
   .indicators-legend li.indicators-legend-uhaina{color:#ff8a63}

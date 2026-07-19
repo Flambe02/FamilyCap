@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { computePurchasePriceData, PURCHASE_PRICE_MEMBERS, type PurchaseSourceRecord } from "../lib/gift-history";
 import "./indicators.css";
 
@@ -15,6 +16,7 @@ const MONTH_LABELS = Array.from({ length: 12 }, (_, month) => monthShort.format(
 const fullDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 const dateOf = (giftDate: string) => fullDate.format(new Date(`${giftDate}T00:00:00Z`));
 const btcAmountFormat = (value: number) => `${value.toFixed(8)} BTC`;
+const BIRTHDAYS: Record<string, string> = { Thibault: "15 mars", Uhaina: "16 août", Paul: "18 novembre", Aurore: "27 août", Thomas: "29 décembre" };
 
 const WIDTH = 880;
 const HEIGHT = 300;
@@ -31,6 +33,29 @@ function runsOf(points: ChartPoint[]) {
     else runs.push([point]);
   }
   return runs;
+}
+
+function ValueCell({ display, tooltip }: { display: string; tooltip: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const ref = useRef<HTMLButtonElement>(null);
+
+  function show() {
+    const rect = ref.current?.getBoundingClientRect();
+    if (rect) setPos({ top: rect.bottom + 6, left: rect.right });
+    setOpen(true);
+  }
+  function hide() { setOpen(false); }
+
+  return <td className="indicators-table-cell">
+    <button ref={ref} type="button" className="indicators-cell-trigger" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
+      {display}
+    </button>
+    {open && pos && typeof document !== "undefined" && createPortal(
+      <div className="indicators-cell-tooltip" style={{ top: pos.top, left: pos.left, transform: "translateX(-100%)" }}>{tooltip}</div>,
+      document.body,
+    )}
+  </td>;
 }
 
 function PriceChart({ categories, series, bitcoinEur, average, emptyNote }: { categories: string[]; series: ChartSeries[]; bitcoinEur: number | null; average: number; emptyNote?: string }) {
@@ -78,7 +103,7 @@ function PriceChart({ categories, series, bitcoinEur, average, emptyNote }: { ca
           />))}
 
           {series.map((s) => s.points.map((point) => <circle
-            key={`${s.member}-${point.catIndex}`}
+            key={`${s.member}-${point.catIndex}-${point.giftDate}`}
             cx={xFor(point.catIndex)}
             cy={yFor(point.price)}
             r={hover === point.catIndex ? 4.5 : 3}
@@ -102,16 +127,15 @@ function PriceChart({ categories, series, bitcoinEur, average, emptyNote }: { ca
 
         {hover !== null && series.some((s) => s.points.some((p) => p.catIndex === hover)) && <div className="indicators-tooltip" style={{ left: `${(xFor(hover) / WIDTH) * 100}%` }}>
           <strong>{categories[hover]}</strong>
-          {series.filter((s) => s.points.some((point) => point.catIndex === hover)).map((s) => {
-            const point = s.points.find((item) => item.catIndex === hover)!;
+          {series.flatMap((s) => s.points.filter((point) => point.catIndex === hover).map((point) => {
             const currentValue = bitcoinEur ? point.btcAmount * bitcoinEur : null;
             const gainEur = currentValue === null ? null : currentValue - point.amountEur;
             const gainPct = gainEur === null ? null : (gainEur / point.amountEur) * 100;
-            return <span key={s.member} className={`indicators-tooltip-row indicators-tooltip-${s.member.toLowerCase()}`}>
+            return <span key={`${s.member}-${point.giftDate}`} className={`indicators-tooltip-row indicators-tooltip-${s.member.toLowerCase()}`}>
               {s.member} <i>({monthOf(point.giftDate)}{point.onLedger ? " · L" : ""})</i> · {euro.format(point.price)}
               {gainEur !== null && <em className={gainEur >= 0 ? "positive" : "negative"}> · {gainEur >= 0 ? "+" : ""}{euro.format(gainEur)} ({percent.format(gainPct!)} %)</em>}
             </span>;
-          })}
+          }))}
         </div>}
       </div>
     </div>
@@ -204,23 +228,59 @@ export function Indicators({ records, bitcoinEur }: { records: PurchaseSourceRec
                 const currentValue = bitcoinEur ? point.btcAmount * bitcoinEur : null;
                 const gainEur = currentValue === null ? null : currentValue - point.amountEur;
                 const gainPct = gainEur === null ? null : (gainEur / point.amountEur) * 100;
-                return <td key={label} className="indicators-table-cell">
-                  <button type="button" className="indicators-cell-trigger">
-                    {euroKDecimal(point.price)}
-                    <span className="indicators-cell-tooltip">
-                      <strong>{dateOf(point.giftDate)}</strong>
-                      <span>Quantité achetée : {btcAmountFormat(point.btcAmount)}</span>
-                      <span>Prix d’achat : {euro.format(point.price)} / BTC</span>
-                      {gainEur !== null && <span className={gainEur >= 0 ? "positive" : "negative"}>Plus/moins-value : {gainEur >= 0 ? "+" : ""}{euro.format(gainEur)} ({percent.format(gainPct!)} %)</span>}
-                      {point.onLedger && <span>Déjà transféré sur Ledger</span>}
-                    </span>
-                  </button>
-                </td>;
+                return <ValueCell
+                  key={label}
+                  display={euroKDecimal(point.price)}
+                  tooltip={<>
+                    <strong>{dateOf(point.giftDate)}</strong>
+                    <span>Quantité achetée : {btcAmountFormat(point.btcAmount)}</span>
+                    <span>Prix d’achat : {euro.format(point.price)} / BTC</span>
+                    {gainEur !== null && <span className={gainEur >= 0 ? "positive" : "negative"}>Plus/moins-value : {gainEur >= 0 ? "+" : ""}{euro.format(gainEur)} ({percent.format(gainPct!)} %)</span>}
+                    {point.onLedger && <span>Déjà transféré sur Ledger</span>}
+                  </>}
+                />;
               })}
               <td className="indicators-table-average-col">{memberAverage !== null ? euroKDecimal(memberAverage) : "—"}</td>
             </tr>;
           })}</tbody>
         </table>
+      </div>
+      <p className="indicators-table-note">Anniversaires : {PURCHASE_PRICE_MEMBERS.map((member) => `${member} ${BIRTHDAYS[member]}`).join(" · ")}. Noël pour tous le 25 décembre.</p>
+
+      <div className="indicators-value-section">
+        <h4>Valeur actuelle du portefeuille</h4>
+        <p className="indicators-hint">{bitcoinEur ? <>Recalculée au cours du jour : <strong>{euro.format(bitcoinEur)} / BTC</strong>.</> : "Cours indisponible pour le moment — valeurs actuelles non calculables."}</p>
+        {bitcoinEur ? <div className="indicators-scroll">
+          <table className="indicators-table">
+            <thead><tr><th scope="col">Enfant</th>{data.categories.map((label) => <th scope="col" key={label}>{label}</th>)}<th scope="col" className="indicators-table-average-col">Total actuel</th></tr></thead>
+            <tbody>{data.series.map((series) => {
+              const totalBtc = series.points.reduce((sum, point) => sum + point.btcAmount, 0);
+              const totalCurrent = totalBtc * bitcoinEur;
+              return <tr key={series.member}>
+                <th scope="row" className={`indicators-legend-${series.member.toLowerCase()}`}>{series.member}</th>
+                {data.categories.map((label, index) => {
+                  const point = series.points.find((item) => item.index === index);
+                  if (!point) return <td key={label}>—</td>;
+                  const currentValue = point.btcAmount * bitcoinEur;
+                  const gainEur = currentValue - point.amountEur;
+                  const gainPct = (gainEur / point.amountEur) * 100;
+                  return <ValueCell
+                    key={label}
+                    display={euro.format(currentValue)}
+                    tooltip={<>
+                      <strong>{dateOf(point.giftDate)}</strong>
+                      <span>Quantité détenue : {btcAmountFormat(point.btcAmount)}</span>
+                      <span>Acheté : {euro.format(point.amountEur)} le {monthOf(point.giftDate)}</span>
+                      <span className={gainEur >= 0 ? "positive" : "negative"}>Plus/moins-value : {gainEur >= 0 ? "+" : ""}{euro.format(gainEur)} ({percent.format(gainPct)} %)</span>
+                      {point.onLedger && <span>Déjà transféré sur Ledger</span>}
+                    </>}
+                  />;
+                })}
+                <td className="indicators-table-average-col">{euro.format(totalCurrent)}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div> : <p className="indicators-empty-note">Le cours BTC/EUR sera pris en compte dès qu’il sera de nouveau disponible.</p>}
       </div></>}
     </section>
   </div>;
