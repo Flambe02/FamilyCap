@@ -84,3 +84,182 @@
 .portfolio-occasion-counts{display:inline-flex;align-items:center;gap:6px;margin-left:6px}.portfolio-occasion-count{display:inline-flex;align-items:center;gap:3px;padding:3px 6px;border-radius:999px;font-size:9px;font-weight:800;line-height:1.1}.portfolio-occasion-count.christmas{background:#e4f3ed;color:#24745c}.portfolio-occasion-count.birthday{background:#fff1d1;color:#95680e}
 .portfolio-occasion-count{border:0;cursor:pointer;font:inherit}.portfolio-occasion-count:hover{filter:brightness(.96);transform:translateY(-1px)}.portfolio-occasion-count:focus-visible{outline:3px solid rgb(22 118 108 / 24%);outline-offset:2px}
 .next-birthday-notice{display:flex;align-items:center;gap:9px;margin:0 0 12px;padding:10px 14px;border:1px solid #f0dfb2;border-radius:12px;background:#fff8e8;color:#836c31;font-size:10px}.next-birthday-notice>span:first-child{font-size:17px}.next-birthday-notice strong{color:#6c551d}.next-birthday-notice>b{margin-left:auto;padding:5px 8px;border-radius:999px;background:#fff0c7;color:#95680e;font-size:9px;white-space:nowrap}@media(max-width:650px){.next-birthday-notice{align-items:flex-start;flex-wrap:wrap}.next-birthday-notice>b{margin-left:26px}}
+/* Mobile : la valeur du portefeuille (surtout le montant BTC quand le cours est indisponible) ne doit jamais déborder sur deux lignes. */
+@media(max-width:680px){.gift-portfolio .portfolio-current-value{font-size:clamp(30px,8.4vw,42px);line-height:1.04;overflow-wrap:normal;word-break:keep-all}}
+
+/* ============================================================
+   Mobile — thème sombre du portefeuille (suit le réglage du téléphone).
+   Scopé (max-width:780px) : le desktop reste clair même si l'OS est en sombre.
+   ============================================================ */
+@media (max-width:780px) and (prefers-color-scheme:dark){
+  .gift-portfolio{color:#e9f2ef}
+  .gift-portfolio .portfolio-hero{background:linear-gradient(120deg,#173b46,#12303c 72%);color:#e9f2ef}
+  .gift-portfolio .portfolio-hero .hero-birthday{color:#9fb4b8}
+  .hero-badge,.admin-tag{background:rgba(255,255,255,.10);color:#7fe0d0}
+  .portfolio-current-value,.portfolio-current-meta b,.portfolio-market-metrics b{color:#e9f2ef}
+  .portfolio-current-meta,.portfolio-market-metrics small{color:#9fb4b8}
+  .gift-portfolio .portfolio-market-metrics .gain.up{background:rgba(84,201,184,.16);color:#7fe0d0}
+  .gift-portfolio .portfolio-market-metrics .gain.down{background:rgba(255,141,114,.18);color:#ff9c86}
+  .gift-portfolio .portfolio-market-metrics .gain.neutral{background:rgba(255,255,255,.08);color:#9fb4b8}
+  .portfolio-occasion-count.christmas{background:rgba(84,201,184,.16);color:#7fe0d0}
+  .portfolio-occasion-count.birthday{background:rgba(243,182,73,.16);color:#f3c877}
+  .gift-portfolio .portfolio-hero .hero-action{background:linear-gradient(135deg,#54c9b8,#0e5d57);color:#052620}
+  .portfolio-asset-tabs{background:rgba(255,255,255,.08)}
+  .portfolio-asset-tabs button{color:#9fb4b8}
+  .portfolio-asset-tabs button.active{background:#15303d;color:#e9f2ef}
+  .portfolio-asset-tabs em{background:rgba(255,255,255,.12);color:#9fb4b8}
+  .portfolio-total-panel>div{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.10)}
+  .portfolio-total-panel span{color:#9fb4b8}.portfolio-total-panel strong{color:#e9f2ef}
+  .portfolio-allocation{color:#9fb4b8}.portfolio-allocation i{background:rgba(255,255,255,.10)}
+
+  .portfolio-card,.chain-readonly,.gift-requests{background:#15303d;border-color:rgba(255,255,255,.10)}
+  .chain-readonly{background:#132c37}
+  .custody-card h2,.custody-bars>div>span,.custody-shortcut>span,.gift-stats strong,.gift-story strong,.gift-amount strong,.reconciliation-list li strong,.timeline-shortcut span strong{color:#e9f2ef}
+  .custody-bars em,.gift-stats small,.gift-story small,.gift-amount small,.gift-timeline-panel .card-head h3{color:#9fb4b8}
+  .custody-bars i{background:rgba(255,255,255,.10)}
+  .custody-reconcile-trigger{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.18);color:#e9f2ef}
+  .reveal{border-color:rgba(255,255,255,.10)}
+  .reveal-content{color:#9fb4b8}.reveal-wallet{background:rgba(255,255,255,.05)}.reveal-wallet strong{color:#e9f2ef}
+  .gift-stats>article,.gift-stats>button{background:#15303d;border-color:rgba(255,255,255,.10)}
+  .gift-timeline-panel>.card-head{background:#15303d}
+  .timeline-shortcut{background:transparent}
+  .gift-year{border-color:rgba(255,255,255,.08)}.gift-year summary{color:#9fb4b8}
+  .hist-item{border-color:rgba(255,255,255,.08)}
+  .gift-btc-price b{color:#bcd0d4}
+
+  .gift-actions button{background:rgba(255,255,255,.05);color:#7fe0d0;border-color:rgba(255,255,255,.18)}
+  .person-tabs button{background:#15303d;color:#cfe0e3}
+  .person-tabs button small{color:#8ba0a5}
+  .next-birthday-notice{background:rgba(243,182,73,.10);border-color:rgba(243,182,73,.26);color:#e9cf95}
+  .next-birthday-notice strong{color:#f4dca8}
+  .next-birthday-notice>b{background:rgba(243,182,73,.2);color:#f3c877}
+  .gift-message{background:rgba(84,201,184,.14);color:#7fe0d0}
+
+  .simple-gift-editor input,.simple-gift-editor select,.simple-custody>button{background:#0f2733;border-color:rgba(255,255,255,.16);color:#e9f2ef}
+  .simple-custody small{color:#9fb4b8}
+  /* Outil admin (rapprochement) : panneau assombri au lieu de rester clair */
+  .gift-portfolio .transfer-workbench{background:#132c37;border-color:rgba(255,255,255,.10)}
+  .transfer-workbench-copy h2{color:#e9f2ef}
+  .transfer-workbench-copy p,.transfer-workbench-metrics span{color:#9fb4b8}
+  .transfer-workbench-metrics>div,.ledger-receipt-queue{background:#15303d;border-color:rgba(255,255,255,.10)}
+  .transfer-workbench-metrics strong,.ledger-receipt-queue>header h3,.ledger-receipt-identity strong,.ledger-receipt-value strong{color:#e9f2ef}
+  .transfer-workbench-metrics small,.ledger-receipt-queue>header p,.ledger-receipt-identity small,.ledger-receipt-value small,.transfer-workbench-footer p{color:#9fb4b8}
+  .ledger-receipt-queue>header{background:#132c37;border-color:rgba(255,255,255,.08)}
+  .ledger-receipt-row{border-color:rgba(255,255,255,.08)}
+  .admin-tag{background:rgba(255,255,255,.10);color:#7fe0d0}
+  /* Textes atténués/teal trop foncés remontés pour la lisibilité sombre */
+  .reveal summary,.timeline-shortcut span small,.custody-shortcut>small{color:#7fe0d0}
+  .reveal-wallet small,.reveal-wallet span,.gift-btc-price,.gift-story em,.chain-list small,.chain-empty{color:#9fb4b8}
+  .gift-btc-price b{color:#bcd0d4}
+  .chain-readonly>header>b{color:#7fe0d0}
+}
+
+/* Mobile : le sélecteur de portefeuille passe en pastilles qui s'enroulent (pas de défilement horizontal → le tap ne déclenche plus un scroll par erreur). */
+@media (max-width:680px){
+  .person-tabs{flex-wrap:wrap;overflow-x:visible;gap:8px;padding:2px 0 2px}
+  .person-tabs button{flex:0 0 auto;min-height:42px;padding:8px 15px 8px 8px;touch-action:manipulation}
+}
+
+/* ============================================================
+   Portefeuille — vue mobile membre seul (ex. Thibault connecté).
+   Masquée sur desktop et pour l'admin (voir .member-portfolio > ... ci-dessous).
+   Réutilise au maximum les classes déjà thémées (hero, gift-stats, custody-shortcut, gain up/down…).
+   ============================================================ */
+.member-portfolio-mobile{display:none}
+@media (max-width:780px){
+  /* La vue "classique" (desktop) reste intacte mais se masque pour le membre sur mobile ; l'admin la garde. */
+  .member-portfolio > .portfolio-hero,
+  .member-portfolio > .gift-message,
+  .member-portfolio > .portfolio-main-grid{display:none}
+  .member-portfolio-mobile{display:grid;gap:14px}
+
+  /* Hero : réutilise .portfolio-hero/.hero-badge/.portfolio-current-value déjà thémés */
+  .mpm-hero .portfolio-hero-top{display:block}
+  .mpm-btc-line{position:relative;z-index:1;display:block;margin-top:6px;color:#61747e;font-size:13px;font-variant-numeric:tabular-nums}
+  .mpm-occasion-counts{display:flex;gap:10px;margin:16px 0 0}
+  .mpm-occasion-counts .portfolio-occasion-count{flex:1 1 0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border-radius:14px;font-size:15px;background:rgb(255 255 255 / 62%)}
+  .mpm-occasion-counts .portfolio-occasion-count small{font-size:10px;font-weight:700;opacity:.85}
+
+  /* Métriques : réutilise .portfolio-market-metrics + .gain up/down/neutral déjà thémés, en carte autonome */
+  .mpm-metrics-card{padding:16px 18px}
+  .mpm-metrics-card .portfolio-market-metrics{margin-top:0;gap:16px;justify-content:space-between}
+  .mpm-metrics-card .portfolio-market-metrics span{gap:4px}
+
+  /* Anneau de répartition (nouveau) */
+  .mpm-ring-card{padding:16px 18px}
+  .mpm-ring-header span{color:#7d8d96;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+  .mpm-ring-row{display:flex;align-items:center;gap:16px;margin-top:12px}
+  .mpm-ring{flex:0 0 auto;width:74px;height:74px;transform:scaleY(-1)}
+  .mpm-ring-track{fill:none;stroke:#e7edec;stroke-width:8}
+  .mpm-ring-value{fill:none;stroke:#128c7e;stroke-width:8;stroke-linecap:round}
+  .mpm-ring-glyph{fill:#128c7e;font-size:20px;font-weight:800;transform:scaleY(-1) translateY(0);transform-origin:40px 47px}
+  .mpm-ring-copy{min-width:0}
+  .mpm-ring-copy strong{display:block;color:#14324a;font-size:14px}
+  .mpm-ring-copy small{display:block;margin-top:2px;color:#71838b;font-size:10.5px}
+  .mpm-ring-copy p{margin:6px 0 0;color:#8a999c;font-size:10.5px;line-height:1.4}
+
+  /* Rappel proactif de transfert (nouveau) */
+  .mpm-nudge{display:flex;align-items:center;gap:10px;margin-top:14px;padding:11px 13px;border:1px solid #e7c377;border-radius:13px;background:#fdf0d2}
+  .mpm-nudge span{font-size:16px;flex:0 0 auto}
+  .mpm-nudge p{flex:1;min-width:0;margin:0;color:#7a5a12;font-size:11px;line-height:1.4}
+  .mpm-nudge button{flex:0 0 auto;min-height:38px;padding:8px 13px;border:0;border-radius:10px;background:#128c7e;color:#fff;font-size:11px;font-weight:800;cursor:pointer}
+
+  /* Historique compact (nouveau) */
+  .mpm-history-card .card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .mpm-history-title small{color:#7d8d96;font-size:10px;font-weight:900;letter-spacing:.08em}
+  .mpm-history-card.gift-timeline-panel{max-height:none;overflow:visible}
+  .mpm-gift-rows{display:grid;gap:4px}
+  .mpm-gift-row{display:grid;grid-template-columns:32px 1fr;gap:11px;padding:11px 0;border-top:1px dashed #e5ece8}
+  .mpm-gift-rows>.mpm-gift-row:first-child{border-top:0}
+  .mpm-gift-icon{grid-row:1/3;display:grid;place-items:center;width:32px;height:32px;border-radius:10px;color:#fff;background:#128c7e;font-size:13px}
+  .mpm-gift-body{min-width:0}
+  .mpm-gift-body strong{display:block;color:#14324a;font-size:12.5px;font-weight:700}
+  .mpm-gift-body strong small{color:#7d8d96;font-size:10px;font-weight:600}
+  .mpm-gift-amount{display:block;margin-top:3px;color:#5c7079;font-size:11px;font-variant-numeric:tabular-nums}
+  .mpm-gift-status{grid-column:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:2px}
+  .mpm-chip{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:9.5px;font-weight:800;white-space:nowrap}
+  .mpm-chip.ledger{background:#dff2e4;color:#26743c}
+  .mpm-chip.binance{background:#fff0c7;color:#8b6100}
+  .mpm-chip.missing{background:#eef2f0;color:#71838b}
+  .mpm-chip.future{background:#eef2f0;color:#71838b}
+  .mpm-request-button{min-height:33px;padding:6px 11px;border:1px solid #9fcfc2;border-radius:9px;background:#fff;color:#0b6459;font-size:10.5px;font-weight:800;cursor:pointer}
+  .mpm-request-button:disabled{opacity:.65;cursor:default}
+
+  /* Confirmation en bas de page (nouveau) */
+  .mpm-toast{display:flex;align-items:flex-start;gap:11px;padding:14px 15px;border:1px solid #b9ded2;border-radius:15px;background:#edf8f4}
+  .mpm-toast-icon{flex:0 0 auto;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#128c7e;color:#fff;font-size:13px;font-weight:900}
+  .mpm-toast strong{display:block;color:#0b6459;font-size:12.5px}
+  .mpm-toast small{display:block;margin-top:3px;color:#4f7a70;font-size:10.5px;line-height:1.4}
+}
+
+/* ---- Mode sombre (suit le réglage du téléphone ; scopé mobile, desktop toujours clair) ---- */
+@media (max-width:780px) and (prefers-color-scheme:dark){
+  .mpm-btc-line{color:#9fb4b8}
+  .mpm-occasion-counts .portfolio-occasion-count{background:rgba(255,255,255,.08)}
+
+  .mpm-ring-track{stroke:rgba(255,255,255,.12)}
+  .mpm-ring-value{stroke:#54c9b8}
+  .mpm-ring-glyph{fill:#54c9b8}
+  .mpm-ring-copy strong{color:#e9f2ef}
+  .mpm-ring-copy small{color:#9fb4b8}
+  .mpm-ring-copy p{color:#8ba0a5}
+
+  .mpm-nudge{border-color:rgba(243,182,73,.4);background:rgba(243,182,73,.12)}
+  .mpm-nudge p{color:#f3d79a}
+  .mpm-nudge button{background:#54c9b8;color:#05271f}
+
+  .mpm-gift-row{border-color:rgba(255,255,255,.08)}
+  .mpm-gift-icon{background:rgba(84,201,184,.18);color:#7fe0d0}
+  .mpm-gift-body strong{color:#e9f2ef}
+  .mpm-gift-body strong small{color:#8ba0a5}
+  .mpm-gift-amount{color:#9fb4b8}
+  .mpm-chip.ledger{background:rgba(84,201,184,.16);color:#7fe0d0}
+  .mpm-chip.binance{background:rgba(243,182,73,.16);color:#f3c877}
+  .mpm-chip.missing,.mpm-chip.future{background:rgba(255,255,255,.08);color:#9fb4b8}
+  .mpm-request-button{background:rgba(255,255,255,.05);color:#7fe0d0;border-color:rgba(255,255,255,.18)}
+
+  .mpm-toast{border-color:rgba(84,201,184,.3);background:rgba(84,201,184,.12)}
+  .mpm-toast-icon{background:#54c9b8;color:#05271f}
+  .mpm-toast strong{color:#7fe0d0}
+  .mpm-toast small{color:#9fb4b8}
+}

@@ -36,3 +36,281 @@
   .mobile-nav button { min-height:48px; }
   .mobile-nav button:focus-visible, .top-actions .primary-button:focus-visible { outline:3px solid #f3b649; outline-offset:2px; }
 }
+
+/* Accès rapide à la visite de bienvenue, disponible à tout moment pour un membre. */
+.onboarding-settings{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:22px;padding:15px 16px;border:1px solid #d9e8e4;border-radius:13px;background:#f6fbf9}.onboarding-settings b{display:block;color:var(--ink);font-size:11px}.onboarding-settings p{margin:4px 0 0;color:var(--muted);font-size:9px;line-height:1.45}.onboarding-settings button{flex:0 0 auto;min-height:38px;border:1px solid #168276;border-radius:9px;padding:0 12px;background:#fff;color:#126f65;font-size:9px;font-weight:900;cursor:pointer}.onboarding-settings button:hover{background:#e7f5f0}@media(max-width:780px){.onboarding-settings{align-items:flex-start;flex-direction:column}.onboarding-settings button{width:100%}}
+/* Cap Family 2026 — socle visuel commun à toutes les vues. */
+:root{--navy:#17324d;--navy-2:#214b5c;--teal-strong:#0e5d57;--amber-strong:#825803;--coral-strong:#a74333;--page:#f4f6f3;--surface:#fff;--surface-subtle:#f8faf9;--line-strong:#cbdad7;--shadow-sm:0 1px 2px rgba(23,50,77,.05),0 10px 28px rgba(23,50,77,.06);--shadow-lg:0 18px 48px rgba(15,39,56,.12);--radius:18px;--radius-sm:12px}
+html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:-.01em}.app-shell{background:radial-gradient(circle at 100% 0,#eaf4f1 0,transparent 28%),var(--page)}.sidebar{padding:22px 16px 16px;background:linear-gradient(180deg,#15394f,#102d41);border-right:1px solid rgba(255,255,255,.08)}.brand{padding:3px 8px 26px}.brand-mark{border-radius:12px 12px 12px 5px}.nav-item{min-height:44px;border-radius:10px;font-size:12px}.nav-item.active{background:#fff;color:var(--ink);box-shadow:0 7px 20px rgba(0,0,0,.16)}.learning-card{border-radius:14px}.workspace{padding-bottom:38px}.topbar{height:92px;padding:22px clamp(22px,4vw,56px) 15px}.topbar h1{font-size:24px;font-weight:650;letter-spacing:-.9px}.icon-button{border-radius:11px;box-shadow:0 2px 8px rgba(23,50,77,.04)}.primary-button,.secondary-button{min-height:42px;border-radius:10px;font-size:11px}.primary-button{background:linear-gradient(135deg,var(--teal),var(--teal-strong));box-shadow:0 9px 20px rgba(14,93,87,.2)}.primary-button:hover{background:var(--teal-strong)}.secondary-button{border:1px solid var(--line);background:#fff}.content-grid,.page-stack,.settings-layout{width:min(1360px,calc(100% - 52px))}.panel{border-color:rgba(23,50,77,.11);border-radius:var(--radius);box-shadow:var(--shadow-sm)}.welcome-panel,.portfolio-hero{border:1px solid rgba(29,112,107,.12);border-radius:var(--radius);box-shadow:var(--shadow-sm)}.stat-card,.member-card,.lesson-card,.security-grid article,.export-card{border-color:rgba(23,50,77,.11);border-radius:14px;box-shadow:0 1px 2px rgba(23,50,77,.025)}.member-card:hover{border-color:var(--line-strong);box-shadow:var(--shadow-sm)}.settings-nav{border:1px solid rgba(23,50,77,.09);border-radius:var(--radius-sm);background:rgba(255,255,255,.72)}.settings-nav button.active{box-shadow:0 4px 12px rgba(23,50,77,.07)}.modal{border:1px solid rgba(255,255,255,.7);border-radius:20px;box-shadow:var(--shadow-lg)}:where(button,input,select,textarea,a):focus-visible{outline:3px solid rgba(29,112,107,.35);outline-offset:2px}@media(max-width:780px){.topbar{padding:16px 16px 12px}.content-grid,.page-stack,.settings-layout{width:calc(100% - 28px)}.panel{border-radius:15px}.workspace{padding-bottom:82px}}
+/* Référence visuelle commune : navigation compacte, contenu calme et centré. */
+@media (min-width: 781px) {
+  .app-shell { grid-template-columns: 226px minmax(0, 1fr); background: #f7f5ed; }
+  .sidebar { padding: 24px 14px 16px; background: #10425a; }
+  .brand { gap: 10px; padding: 0 8px 31px; }
+  .brand-mark { width: 31px; height: 31px; border-radius: 9px; background: #129f92; color: #fff; font-size: 15px; box-shadow: none; }
+  .brand strong { font-size: 13px; }.brand small { margin-top: 1px; font-size: 8px; letter-spacing: .2px; text-transform: none; }
+  .nav-kicker { margin: 7px 10px 8px; font-size: 9px; }.nav-item { gap: 7px; padding: 9px 10px; margin: 1px 0; border-radius: 10px; font-size: 12px; font-weight: 650; }
+  .nav-item > span[aria-hidden] { width: 7px; font-size: 0; }.nav-item > span[aria-hidden]::before { content: "•"; font-size: 16px; line-height: 1; }
+  .nav-item.active { color: #0f3f55; background: #dcefe9; box-shadow: none; }.nav-item em { min-width: 15px; height: 15px; font-size: 8px; }
+  .learning-card { margin: auto 0 0; padding: 14px; border-radius: 12px; }.learning-icon { display: none; }.profile-mini { margin-top: 13px; padding: 12px 2px 0; }.profile-mini .avatar { width: 26px; height: 26px; border-radius: 50%; font-size: 8px; }
+  .workspace { background: #f7f5ed; }.topbar { width: min(1104px, calc(100% - 48px)); height: 82px; margin: 0 auto; padding: 20px 0 12px; }.topbar .eyebrow { margin: 0; color: #5e7180; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .topbar-title { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }.top-actions { gap: 0; }.top-actions > .icon-button, .top-actions > .primary-button, .top-actions > .preview-pill { display: none; }
+  .view-mode-switch { display: inline-flex; align-items: center; padding: 3px; border-radius: 999px; background: #e5e6e2; box-shadow: 0 2px 7px rgb(15 44 57 / 10%); }.view-mode-switch button, .view-mode-switch select { min-height: 27px; border: 0; border-radius: 999px; color: #60717e; background: transparent; font-size: 11px; font-weight: 650; cursor: pointer; }.view-mode-switch button { padding: 0 15px; }.view-mode-switch button.active { color: #123a54; background: #fff; box-shadow: 0 1px 3px rgb(15 44 57 / 15%); }.view-mode-switch select { padding: 0 13px 0 9px; outline: none; }
+  .content-grid, .page-stack, .settings-layout { width: min(1104px, calc(100% - 48px)); }.content-grid { gap: 16px; }
+  .welcome-panel { min-height: 218px; padding: 31px 34px; border: 0; border-radius: 24px; box-shadow: 0 12px 26px rgb(33 54 60 / 4%); }.welcome-panel h2 { margin: 12px 0 5px; font-size: 29px; letter-spacing: -1px; }.welcome-panel p { max-width: 510px; font-size: 12px; line-height: 1.38; }.welcome-panel .soft-pill { padding: 5px 9px; font-size: 8px; }
+  .hero-orbit { width: 174px; height: 174px; top: -31px; right: -18px; border: 0; background: radial-gradient(circle at 32% 32%, #ffd586, #eca72e); }.hero-orbit::before, .hero-orbit .coin, .hero-orbit i, .hero-orbit b { display: none; }.welcome-action { position: absolute; z-index: 3; top: 32px; right: 34px; min-width: 187px; }
+  .stats-row { gap: 12px; }.stat-card { min-height: 68px; padding: 14px 16px; border: 0; border-radius: 14px; box-shadow: 0 7px 15px rgb(33 54 60 / 4%); }.stat-icon { display: none; }.stat-card strong { margin: 0 0 2px; font-family: inherit; font-size: 18px; font-weight: 750; }.stat-card p { font-size: 8px; }.stat-card small { font-size: 9px; }
+  .panel { border: 0; border-radius: 20px; box-shadow: 0 10px 26px rgb(33 54 60 / 5%); }.family-panel { padding: 24px; }.member-grid { gap: 10px; }.member-card { padding: 15px; border: 0; border-radius: 15px; background: #f5f2e9; }.member-card h3 { margin: 10px 0 3px; font-size: 12px; }.member-value { margin: 10px 0 9px; }.member-value strong { font-family: inherit; font-size: 17px; font-weight: 750; }.mission-panel, .activity-panel { padding: 23px; }
+}
+@media (max-width: 780px) { .view-mode-switch { display: inline-flex; padding: 3px; border-radius: 999px; background: #e5e6e2; }.view-mode-switch button, .view-mode-switch select { min-height: 28px; border: 0; border-radius: 999px; background: transparent; font-size: 10px; }.view-mode-switch button.active { background: #fff; }.welcome-action { position: relative; margin-top: 18px; } }
+
+.family-calendar-notice{grid-column:1/-1;margin:0}
+
+@media (min-width: 781px) { .settings-layout { width: min(1280px, calc(100% - 48px)); } }
+
+/* Mobile : menu portable (profil, paramètres, administration, déconnexion) — la sidebar reste la seule source sur desktop, ceci ne s'affiche jamais au-dessus de 780px. */
+.mobile-menu-trigger{display:none}
+.mobile-menu-backdrop{display:none}
+.mobile-menu-drawer{display:none}
+@media (max-width:780px) {
+  .mobile-menu-trigger{
+    display:grid;place-items:center;flex:0 0 auto;
+    width:40px;height:40px;margin-right:2px;
+    border:0;border-radius:12px 12px 12px 4px;
+    background:var(--amber);color:var(--ink);
+    font-size:11px;font-weight:900;cursor:pointer;
+  }
+  .mobile-menu-backdrop{
+    display:block;position:fixed;inset:0;z-index:70;
+    background:rgba(12,33,47,.5);opacity:0;pointer-events:none;
+    transition:opacity .18s ease;
+  }
+  .mobile-menu-backdrop.open{opacity:1;pointer-events:auto}
+  .mobile-menu-drawer{
+    display:flex;flex-direction:column;
+    position:fixed;top:0;right:0;bottom:0;z-index:71;
+    width:min(320px,86vw);background:#123248;color:#fff;
+    padding:20px 18px 18px;box-shadow:-18px 0 40px rgba(0,0,0,.28);
+    transform:translateX(100%);transition:transform .22s cubic-bezier(.2,.8,.3,1);
+    overflow-y:auto;
+  }
+  .mobile-menu-drawer.open{transform:translateX(0)}
+  .mobile-menu-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px}
+  .mobile-menu-head span{color:#9fded2;font-size:9px;font-weight:900;letter-spacing:1.2px}
+  .mobile-menu-close{border:0;background:rgba(255,255,255,.1);color:#fff;width:32px;height:32px;border-radius:10px;font-size:17px;cursor:pointer}
+  .mobile-menu-profile{display:flex;align-items:center;gap:11px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.14)}
+  .mobile-menu-profile strong{display:block;font-size:14px}
+  .mobile-menu-profile small{display:block;margin-top:2px;color:rgba(255,255,255,.6);font-size:10px}
+  .mobile-menu-section{padding:14px 0;border-bottom:1px solid rgba(255,255,255,.12)}
+  .mobile-menu-section:last-child{border-bottom:0}
+  .mobile-menu-section > p{margin:0 0 8px;font-size:9px;font-weight:900;letter-spacing:1.2px;color:rgba(255,255,255,.45);text-transform:uppercase}
+  .mobile-menu-link{
+    width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
+    border:0;background:none;color:#fff;padding:12px 4px;min-height:44px;
+    font-size:12.5px;font-weight:700;cursor:pointer;
+  }
+  .mobile-menu-link span:last-child{color:rgba(255,255,255,.4);font-weight:400}
+  .mobile-menu-link em{margin-left:auto;background:var(--coral);color:#fff;font-style:normal;font-size:9px;min-width:18px;height:18px;border-radius:9px;display:grid;place-items:center;padding:0 4px}
+  .mobile-menu-signout{
+    width:100%;margin-top:6px;min-height:44px;
+    border:1px solid rgba(239,139,114,.5);border-radius:11px;
+    background:rgba(239,139,114,.12);color:#f8b7a3;
+    font-size:12px;font-weight:800;cursor:pointer;
+  }
+  .mobile-menu-drawer:focus-visible, .mobile-menu-link:focus-visible, .mobile-menu-signout:focus-visible, .mobile-menu-close:focus-visible{outline:3px solid #f3b649;outline-offset:2px}
+}
+
+/* Mobile : le bouton d'ajout rejoint la zone de pouce, au-dessus de la navigation, au lieu du coin supérieur droit. */
+@media (max-width:780px) {
+  .top-actions .primary-button{
+    position:fixed;right:16px;bottom:86px;z-index:55;
+    width:52px;height:52px;padding:0;
+    border-radius:16px 16px 16px 6px;
+    box-shadow:0 14px 26px rgba(29,112,107,.32);
+  }
+}
+
+/* Pastille cours BTC + CTA du hero : visibles uniquement sur mobile (façon prototype). Masqués sur desktop qui a son propre agencement. */
+.mobile-btc-chip{display:none}
+.welcome-cta-mobile{display:none}
+.preview-banner{display:none}
+
+/* Mobile : alignement sur le prototype — écrans plus aérés, tactiles et calmes (mobile-only, aucun effet ≥781px). */
+@media (max-width:780px) {
+  .content-grid>*{margin-bottom:14px}
+
+  /* Barre du haut — une seule ligne épurée : avatar(menu) · date+titre · pastille BTC.
+     Les outils admin (bascule de vue) vivent désormais dans le tiroir ; l'aperçu affiche une barre fine dédiée. */
+  .topbar{display:grid;height:auto;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"avatar title chip";align-items:center;gap:12px;padding:calc(14px + env(safe-area-inset-top)) 16px 12px}
+  .topbar>.mobile-menu-trigger{grid-area:avatar}
+  .topbar>div{grid-area:title;min-width:0}
+  .topbar .eyebrow{display:block;margin:0 0 2px;font-size:9px;font-weight:800;letter-spacing:1px;color:var(--teal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topbar h1{font-size:21px;font-weight:650;letter-spacing:-.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topbar>.mobile-btc-chip{grid-area:chip;justify-self:end;display:inline-flex;align-items:center;gap:5px;padding:7px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:11px;font-weight:750;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(23,50,77,.05);white-space:nowrap}
+  .mobile-btc-mark{color:var(--amber);font-weight:900;font-size:12px;line-height:1}
+  .topbar>.top-actions{display:contents}
+  .view-mode-switch{display:none}
+  .top-actions .preview-pill{display:none}
+
+  /* Barre d'aperçu (admin prévisualisant un membre) — fine et non intrusive, remplace la grosse pastille */
+  .preview-banner{display:flex;align-items:center;gap:8px;width:calc(100% - 28px);margin:0 auto 2px;padding:9px 12px;border:1px solid var(--amber-line);border-radius:12px;background:var(--amber-soft);color:var(--amber-ink);font-size:11px;font-weight:600}
+  .preview-banner-eye{font-size:13px;line-height:1}
+  .preview-banner strong{font-weight:800}
+  .preview-banner button{margin-left:auto;flex:0 0 auto;min-height:34px;padding:6px 12px;border:1px solid var(--amber-line);border-radius:9px;background:rgba(255,255,255,.6);color:var(--amber-ink);font-size:10.5px;font-weight:800;cursor:pointer}
+
+  /* Tiroir — sélecteur "Voir comme" en pastilles compactes */
+  .mobile-view-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .mobile-view-chips button{min-height:38px;padding:8px 13px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.82);font-size:11.5px;font-weight:700;cursor:pointer}
+  .mobile-view-chips button.active{background:var(--amber);border-color:var(--amber);color:#3b2703}
+
+  /* Hero : l'orbe reste décorative et ne chevauche plus le texte */
+  .welcome-panel{overflow:hidden}
+  .hero-orbit{right:-104px;top:-6px;opacity:.55}
+  .hero-orbit i,.hero-orbit b{display:none}
+  .welcome-panel h2{max-width:88%}
+
+  /* Zones sûres (encoche + barre d'accueil iOS/Android) */
+  .mobile-nav{bottom:calc(14px + env(safe-area-inset-bottom))}
+  .top-actions .primary-button{bottom:calc(90px + env(safe-area-inset-bottom))}
+  .workspace{padding-bottom:calc(86px + env(safe-area-inset-bottom))}
+
+  /* Badge de version : superflu sur mobile (reste disponible dans Réglages) */
+  .app-version{display:none}
+
+  /* Hero d'accueil : carte épurée façon prototype — un seul bouton d'ajout (le FAB), plus d'accroche par-dessus le texte */
+  .welcome-panel{min-height:0;padding:22px 20px;border-radius:22px}
+  .welcome-panel>div:first-child{max-width:100%}
+  .welcome-panel h2{font-size:27px;line-height:1.1;letter-spacing:-1px}
+  .welcome-panel p{max-width:78%;font-size:12px;line-height:1.55}
+  .welcome-panel .soft-pill{padding:6px 11px;font-size:8px}
+  .hero-orbit{opacity:.72}
+  .welcome-action{display:none}
+  .welcome-cta-mobile{display:inline-flex;align-items:center;gap:6px;margin-top:16px;min-height:48px;padding:12px 18px;border:0;border-radius:12px;background:linear-gradient(135deg,var(--teal),var(--teal-strong));color:#fff;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 10px 22px rgba(14,93,87,.26)}
+  .welcome-cta-mobile:active{transform:scale(.98)}
+
+  /* Bandeau événement : pleine largeur, bien détaché */
+  .family-calendar-notice{width:100%}
+
+  /* Indicateurs clés : la valeur ressort davantage */
+  .stat-card{padding:15px 16px;border-radius:15px}
+  .stat-card strong{font-size:21px}
+
+  /* Bandeau membres : cartes un peu plus compactes, plus « carrousel » */
+  .member-grid{gap:10px}
+  .member-card{flex-basis:174px;padding:14px;border-radius:16px}
+  .member-value strong{font-size:18px}
+  .member-card-button:active{transform:scale(.99)}
+
+  /* Panneaux : coins plus doux, actions tactiles */
+  .panel{border-radius:18px}
+  .panel-title h2{font-size:19px}
+  .panel-title button{min-height:38px;padding:6px 4px}
+
+  /* Mission mise en avant : anneau + texte lisibles */
+  .mission-body{gap:14px}
+  .mission-copy h3{font-size:14px}
+
+  /* Missions : mois + contenu, statut sous la barre de progression (façon prototype) */
+  .mission-list article{grid-template-columns:44px minmax(0,1fr);gap:5px 12px;padding:16px 2px}
+  .mission-list .month-badge{grid-column:1;grid-row:1;padding-top:2px}
+  .mission-list article>div{grid-column:2;grid-row:1;min-width:0}
+  .mission-list article>strong{grid-column:2;grid-row:2;justify-self:start;text-align:left;margin-top:2px}
+  .mission-list h3{font-size:14px}
+  .progress.wide{max-width:none}
+
+  /* Barre de menu basse — traitement premium : verre dépoli, indicateur actif net */
+  .mobile-nav{left:14px;right:14px;bottom:14px;padding:7px 8px;border-radius:22px;background:rgba(16,42,56,.78);backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);border:1px solid rgba(255,255,255,.09);box-shadow:0 14px 36px rgba(0,0,0,.36)}
+  .mobile-nav button{position:relative;min-height:54px;border-radius:15px;gap:4px;color:rgba(255,255,255,.6);transition:color .16s}
+  .mobile-nav button span{font-size:19px;line-height:1;transition:transform .16s}
+  .mobile-nav small{font-size:9px;font-weight:750;letter-spacing:.02em}
+  .mobile-nav button.active{color:var(--amber)}
+  .mobile-nav button.active span{transform:translateY(-1px)}
+  .mobile-nav button.active::before{content:"";position:absolute;top:3px;left:50%;transform:translateX(-50%);width:20px;height:3px;border-radius:3px;background:var(--amber);box-shadow:0 0 10px rgba(243,182,73,.55)}
+
+  /* Le bouton flottant se cale au-dessus de la nav réhaussée */
+  .top-actions .primary-button{bottom:90px}
+}
+/* ============================================================
+   Mobile — thème sombre (suit le réglage du téléphone).
+   Scopé (max-width:780px) : le desktop reste clair même si l'OS est en sombre.
+   Même palette (teal/ambre/navy), posée sur fond sombre — façon prototype.
+   ============================================================ */
+@media (max-width:780px) and (prefers-color-scheme:dark) {
+  :root{
+    --ink:#e9f2ef;--muted:#9db2b6;--cream:#0a1720;--page:#0a1720;--paper:#15303d;
+    --surface:#15303d;--surface-subtle:#193846;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);
+    --teal:#54c9b8;--teal-soft:rgba(84,201,184,.16);--teal-strong:#6fd8c8;
+    --amber:#f3b649;--amber-soft:rgba(243,182,73,.16);--coral:#ff9c86;--navy:#0a1720;
+    --shadow:0 12px 30px rgba(0,0,0,.5);--shadow-sm:0 1px 2px rgba(0,0,0,.4),0 12px 28px rgba(0,0,0,.42);--shadow-lg:0 22px 55px rgba(0,0,0,.62);
+  }
+  html,body,.workspace{background:#0a1720}
+  .app-shell{background:radial-gradient(circle at 100% 0,rgba(84,201,184,.10) 0,transparent 32%),#0a1720}
+
+  /* Surfaces cartes / panneaux */
+  .panel,.stat-card,.lesson-card,.security-grid article,.export-card,.settings-content{background:#15303d;border-color:rgba(255,255,255,.10)}
+  .member-card{background:#132c39;border-color:rgba(255,255,255,.08)}
+  .topbar>.mobile-btc-chip{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14);color:#e9f2ef;box-shadow:none}
+
+  /* Hero d'accueil */
+  .welcome-panel{background:linear-gradient(120deg,#163440,#0f2733 72%);border-color:rgba(255,255,255,.08)}
+  .welcome-panel p{color:#a7bcc0}
+  .soft-pill{background:rgba(255,255,255,.08);color:#7fe0d0}
+  .welcome-cta-mobile{background:linear-gradient(135deg,#54c9b8,#0e5d57);color:#052620;box-shadow:0 10px 22px rgba(0,0,0,.35)}
+
+  /* Indicateurs clés */
+  .stat-icon.navy{background:rgba(255,255,255,.08);color:var(--ink)}
+  .stat-icon.amber{background:rgba(243,182,73,.16);color:#f3c877}
+  .stat-icon.teal{background:rgba(84,201,184,.16);color:#7fe0d0}
+
+  /* Membres */
+  .status-dot{background:rgba(243,182,73,.16);color:#f3c877}
+  .progress{background:rgba(255,255,255,.10)}
+  .member-card footer b{color:#f3c877}
+  /* Avatars : fonds assombris + texte clair lisible (le texte clair sur pastel clair était invisible) */
+  .avatar.mint{background:#17423a;color:#8fe3c8}
+  .avatar.coral{background:#4f3227;color:#f3b9a3}
+  .avatar.blue{background:#213b52;color:#a9cdec}
+  .avatar.yellow{background:#463914;color:#f0d276}
+  .avatar.purple{background:#332a55;color:#d3c2f5}
+  .avatar.admin{color:#3b2703}
+  .mobile-menu-trigger{color:#3b2703}
+
+  /* Bandeau événement */
+  .family-calendar-notice,.next-birthday-notice{background:rgba(243,182,73,.10);border-color:rgba(243,182,73,.26);color:#e9cf95}
+  .next-birthday-notice strong{color:#f4dca8}
+  .next-birthday-notice>b{background:rgba(243,182,73,.2);color:#f3c877}
+
+  /* Mission / Apprendre */
+  .mission-score{border-color:rgba(84,201,184,.28)}
+  .learn-head>p{color:#a7bcc0}
+  .lesson-icon.navy{background:rgba(255,255,255,.08);color:var(--ink)}
+
+  /* Journal d'activité */
+  .activity-item{border-color:rgba(255,255,255,.08)}
+
+  /* Réglages */
+  .settings-nav{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.08)}
+  .settings-nav button.active{background:#15303d;color:var(--ink)}
+  .form-grid input,.form-grid select,.field-preview input{background:#0f2733;border-color:rgba(255,255,255,.14);color:var(--ink)}
+  .info-callout p{color:#a7bcc0}
+  .account-version strong{color:var(--ink)}
+
+  /* Modales affichées par-dessus le mobile */
+  .modal{background:#15303d;border-color:rgba(255,255,255,.10)}
+  .modal header button{background:rgba(255,255,255,.08);color:var(--ink)}
+  .modal-help{color:#a7bcc0}
+  .step-progress span{background:rgba(255,255,255,.12)}
+
+  /* Toast : fond inversé -> forcer un fond sombre lisible */
+  .toast{background:#1f4150;color:#eaf3f0}
+
+  /* Bascule de vue admin + aperçu */
+  .view-mode-switch{background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+  .view-mode-switch button,.view-mode-switch select{color:#9fb4b8}
+  .view-mode-switch button.active{background:rgba(255,255,255,.16);color:#eaf3f0}
+  .view-mode-switch select option{background:#15303d;color:#eaf3f0}
+  .preview-pill{background:rgba(243,182,73,.14);border-color:rgba(243,182,73,.4);color:#f3d79a}
+  .preview-banner button{background:rgba(255,255,255,.1);color:#f3d79a}
+
+  :where(button,input,select,textarea,a):focus-visible{outline-color:rgba(84,201,184,.6)}
+}

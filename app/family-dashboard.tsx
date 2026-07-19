@@ -12,6 +12,7 @@ import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { MemberOnboarding } from "./member-onboarding";
 import { GIFT_HISTORY } from "../lib/gift-history";
+import { useDialogA11y } from "./use-dialog-a11y";
 
 type View = "famille" | "portefeuilles" | "transactions" | "backoffice" | "amatxi" | "missions" | "apprendre" | "parametres";
 
@@ -67,18 +68,19 @@ function familyCalendarLabel(events: FamilyCalendarEvent[]) {
   if (!christmas) return birthdayLabel;
   return birthdays.length > 0 ? birthdayLabel + " + No\u00ebl le 25 d\u00e9cembre" : "Prochain \u00e9v\u00e8nement : No\u00ebl le 25 " + dateLabel;
 }
-const navItems: { id: View; label: string; icon: string; iconLabel: string }[] = [
-  { id: "famille", label: "Vue famille", icon: "⌂", iconLabel: "Accueil" },
-  { id: "portefeuilles", label: "Portefeuilles", icon: "◫", iconLabel: "Portefeuilles" },
-  { id: "transactions", label: "Transactions", icon: "⇄", iconLabel: "Transactions" },
+const navItems: { id: View; label: string; icon: string; iconLabel: string; short?: string }[] = [
+  { id: "famille", label: "Vue famille", icon: "⌂", iconLabel: "Accueil", short: "Accueil" },
+  { id: "portefeuilles", label: "Portefeuilles", icon: "◫", iconLabel: "Portefeuilles", short: "Portefeuille" },
+  { id: "transactions", label: "Transactions", icon: "⇄", iconLabel: "Transactions", short: "Mouvements" },
   { id: "backoffice", label: "Administration", icon: "▣", iconLabel: "Administration" },
   { id: "amatxi", label: "Vue Amatxi", icon: "?", iconLabel: "Vue Amatxi" },
-  { id: "missions", label: "Missions", icon: "◎", iconLabel: "Missions" },
-  { id: "apprendre", label: "Apprendre", icon: "◇", iconLabel: "Apprendre" },
+  { id: "missions", label: "Missions", icon: "◎", iconLabel: "Missions", short: "Missions" },
+  { id: "apprendre", label: "Apprendre", icon: "◇", iconLabel: "Apprendre", short: "Apprendre" },
   { id: "parametres", label: "PARAMÈTRES", icon: "⚙", iconLabel: "PARAMÈTRES" },
 ];
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+const euroCompact = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
 async function authenticatedFetch(url: string, init: RequestInit) {
   const { data } = await supabaseBrowser.auth.getSession();
@@ -110,6 +112,8 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [previewMember, setPreviewMember] = useState<string | null>(null);
   const isPreview = previewMember !== null;
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useDialogA11y(mobileMenuOpen, () => setMobileMenuOpen(false));
   const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
   const memberNavItems = navItems.filter((item) => item.id !== "backoffice" && item.id !== "amatxi" && item.id !== "parametres");
   const adminNavItems = navItems.filter((item) => item.id === "backoffice" || item.id === "amatxi" || item.id === "parametres");
@@ -309,9 +313,16 @@ function replayOnboarding() { setOnboardingOpen(true); }
 
       <section className="workspace" id="main-content" tabIndex={-1}>
         <header className="topbar">
+          <button type="button" className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Ouvrir mon profil et les paramètres">
+            <span aria-hidden="true">{effectiveViewer.name.slice(0, 2).toUpperCase()}</span>
+          </button>
           <div>
             <p className="eyebrow" aria-label="Date du jour">JEUDI 16 JUILLET 2026</p>
             <h1 className="topbar-title">{titleFor(view)}</h1>
+          </div>
+          <div className="mobile-btc-chip" role="status" aria-label={bitcoinEur ? `Cours du Bitcoin : 1 bitcoin égale ${euro.format(bitcoinEur)}` : "Cours du Bitcoin en cours de mise à jour"}>
+            <span className="mobile-btc-mark" aria-hidden="true">₿</span>
+            <span>{bitcoinEur ? euroCompact.format(bitcoinEur) : "Cours…"}</span>
           </div>
           <div className="top-actions">
             {viewer.role === "admin" && <div className="view-mode-switch" role="group" aria-label="Choisir la vue affichée">
@@ -327,6 +338,12 @@ function replayOnboarding() { setOnboardingOpen(true); }
           </div>
         </header>
 
+        {isPreview && <div className="preview-banner" role="status" aria-live="polite">
+          <span className="preview-banner-eye" aria-hidden="true">◐</span>
+          <span>Aperçu de <strong>{previewMember}</strong> · lecture seule</span>
+          <button type="button" onClick={() => changePreview(null)}>Quitter</button>
+        </div>}
+
         {view === "famille" && (
           <Dashboard totalBtc={totalBtc} totalBitcoinValueEur={totalBitcoinValueEur} bitcoinEur={bitcoinEur} marketLoading={familyMarketLoading} memberBalances={memberBalances} missing={missing} activity={activity} openModal={() => setModalOpen(true)} navigate={navigate} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />
         )}
@@ -341,11 +358,55 @@ function replayOnboarding() { setOnboardingOpen(true); }
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
         {memberNavItems.map((item) => (
-          <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)}>
-            <span aria-hidden="true">{item.icon}</span><small>{item.label.split(" ")[0]}</small>
+          <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)} aria-current={view === item.id ? "page" : undefined}>
+            <span aria-hidden="true">{item.icon}</span><small>{item.short ?? item.label.split(" ")[0]}</small>
           </button>
         ))}
       </nav>
+
+      <div className={mobileMenuOpen ? "mobile-menu-backdrop open" : "mobile-menu-backdrop"} onMouseDown={(event) => event.target === event.currentTarget && setMobileMenuOpen(false)} />
+      <aside ref={mobileMenuRef} className={mobileMenuOpen ? "mobile-menu-drawer open" : "mobile-menu-drawer"} role="dialog" aria-modal="true" aria-label="Profil et paramètres" aria-hidden={!mobileMenuOpen} tabIndex={-1}>
+        <div className="mobile-menu-head">
+          <span>MON ESPACE</span>
+          <button type="button" className="mobile-menu-close" onClick={() => setMobileMenuOpen(false)} aria-label="Fermer le menu">×</button>
+        </div>
+        <div className="mobile-menu-profile">
+          <span className="avatar admin" aria-hidden="true">{effectiveViewer.name.slice(0, 2).toUpperCase()}</span>
+          <span><strong>{effectiveViewer.name}</strong><small>{isPreview ? "Aperçu lecture seule" : effectiveViewer.role === "admin" ? "Administrateur" : effectiveViewer.email}</small></span>
+        </div>
+        {viewer.role === "admin" && (
+          <div className="mobile-menu-section">
+            <p>Voir l’app comme</p>
+            <div className="mobile-view-chips" role="group" aria-label="Choisir la vue affichée">
+              <button type="button" className={!isPreview ? "active" : ""} aria-pressed={!isPreview} onClick={() => { changePreview(null); setMobileMenuOpen(false); }}>Admin</button>
+              {members.map((member) => <button key={member.name} type="button" className={previewMember === member.name ? "active" : ""} aria-pressed={previewMember === member.name} onClick={() => { changePreview(member.name); setMobileMenuOpen(false); }}>{member.name}</button>)}
+            </div>
+          </div>
+        )}
+        {isPreview ? (
+          <div className="mobile-menu-section">
+            <button type="button" className="mobile-menu-signout" onClick={() => { changePreview(null); setMobileMenuOpen(false); }}>Quitter l’aperçu</button>
+          </div>
+        ) : (
+          <>
+            <div className="mobile-menu-section">
+              <p>Réglages</p>
+              <button type="button" className="mobile-menu-link" onClick={() => { setView("parametres"); setMobileMenuOpen(false); }}><span>Paramètres</span><span>›</span></button>
+            </div>
+            {viewer.role === "admin" && (
+              <div className="mobile-menu-section">
+                <p>Administration</p>
+                <button type="button" className="mobile-menu-link" onClick={() => { setView("backoffice"); setMobileMenuOpen(false); }}><span>Administration</span>{transferRequests.length > 0 ? <em>{transferRequests.length}</em> : <span>›</span>}</button>
+                <button type="button" className="mobile-menu-link" onClick={() => { setView("amatxi"); setMobileMenuOpen(false); }}><span>Vue Amatxi</span><span>›</span></button>
+              </div>
+            )}
+            <div className="mobile-menu-section">
+              {viewer.role !== "admin" && <button type="button" className="mobile-menu-link" onClick={() => { replayOnboarding(); setMobileMenuOpen(false); }}><span>Revoir les premiers pas</span><span>›</span></button>}
+              <button type="button" className="mobile-menu-signout" onClick={() => { setMobileMenuOpen(false); onSignOut(); }}>Se déconnecter</button>
+            </div>
+          </>
+        )}
+      </aside>
 
       {onboardingOpen && !isPreview && effectiveViewer.role !== "admin" && <MemberOnboarding viewer={effectiveViewer} onComplete={completeOnboarding} onOpenPortfolio={() => setView("portefeuilles")} />}
       {modalOpen && <InvestmentModal onClose={() => setModalOpen(false)} onSave={saveInvestment} />}
@@ -376,6 +437,7 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
           <span className="soft-pill">● SITUATION AUJOURD’HUI</span>
           <h2>Bonjour 👋<br />La famille avance bien.</h2>
           <p>Le suivi Bitcoin est prêt. La prochaine étape est de compléter les achats manquants puis de rapprocher Binance et les Ledger.</p>
+          <button type="button" className="welcome-cta-mobile" onClick={() => navigate("portefeuilles")}>Voir les portefeuilles →</button>
         </div>
         <div className="hero-orbit" aria-hidden="true"><span className="coin">₿</span><i /><b /></div>
         <button className="primary-button welcome-action" onClick={openModal}>＋ Ajouter une opération</button>      </section>
@@ -517,5 +579,5 @@ function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow: string; tit
 }
 
 function titleFor(view: View) {
-  return { famille: "Vue famille", portefeuilles: "Portefeuilles", transactions: "Transactions", backoffice: "Administration", amatxi: "Vue Amatxi", missions: "Missions mensuelles", apprendre: "Apprendre", parametres: "PARAMÈTRES" }[view];
+  return { famille: "Accueil", portefeuilles: "Portefeuille", transactions: "Mouvements", backoffice: "Administration", amatxi: "Vue Amatxi", missions: "Missions", apprendre: "Apprendre", parametres: "Paramètres" }[view];
 }

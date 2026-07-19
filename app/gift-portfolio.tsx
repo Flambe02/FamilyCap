@@ -202,6 +202,10 @@ const person = people.find((item) => item.name === selected) ?? people[0];
       setMessage(error instanceof Error ? error.message : "Demande de transfert impossible.");
     }
   }
+  async function requestAllTransfers() {
+    const pending = recorded.filter((record) => record.custody === "Binance commun" && record.btc_amount > 0 && !hasPendingTransfer(record));
+    for (const record of pending) await requestGiftTransfer(record);
+  }
   async function unlinkLedger(record: GiftRecord) {
     if (!record.id || !window.confirm("Désassocier ce cadeau du virement Ledger ? Le mouvement blockchain ne sera pas modifié.")) return;
     try {
@@ -213,6 +217,30 @@ const person = people.find((item) => item.name === selected) ?? people[0];
     }
   }
   return <div className={`gift-portfolio ${isAdmin ? "admin-portfolio" : "member-portfolio"}`}>
+    {!isAdmin && <MemberPortfolioMobile
+      person={person}
+      currentValueEur={currentValueEur}
+      totalBtc={totalBtc}
+      totalEur={totalEur}
+      averagePurchasePriceEur={averagePurchasePriceEur}
+      theoreticalGainEur={theoreticalGainEur}
+      theoreticalGainPct={theoreticalGainPct}
+      bitcoinEur={ledger?.bitcoinEur ?? null}
+      christmasCount={christmasCount}
+      birthdayCount={birthdayCount}
+      ledgerGiftBtc={ledgerGiftBtc}
+      binanceBtc={binanceBtc}
+      documentedCount={recorded.length}
+      missingCount={missing}
+      records={records}
+      years={years}
+      hasPendingTransfer={hasPendingTransfer}
+      requestGiftTransfer={requestGiftTransfer}
+      requestAllTransfers={requestAllTransfers}
+      openTransactions={openTransactions}
+      message={message}
+      previewReadOnly={previewReadOnly}
+    />}
     {isAdmin && <section className="gift-person-picker" aria-label="Choisir un portefeuille">
       <span className="picker-label">À QUI APPARTIENT CE PORTEFEUILLE ?</span>
       <div className="person-tabs">{people.map((item) => <button type="button" key={item.name} className={selected === item.name ? "active" : ""} aria-pressed={selected === item.name} onClick={() => setSelected(item.name)}><b className={`avatar ${item.color}`}>{item.initials}</b><span><strong>{item.name}</strong><small>{item.birthday}</small></span></button>)}</div>
@@ -292,6 +320,147 @@ const person = people.find((item) => item.name === selected) ?? people[0];
     {isAdmin && requests.length > 0 && <section className="panel gift-requests"><header><div><span>DEMANDES DES ENFANTS</span><h2>Transferts Binance vers Ledger</h2></div></header>{requests.map((item) => <article key={item.id}><div><strong>{item.member}</strong><small>{item.btcAmount?.toFixed(8) ?? "Montant à confirmer"} BTC · {item.requestedAt}</small></div><select value={item.status} onChange={(event) => onRequestStatus?.(item.id, event.target.value as TransferRequest["status"])}><option>Nouvelle</option><option>En traitement</option><option>Transférée</option></select></article>)}</section>}
 
     {editor && <GiftEditor record={editor} wallets={ledger?.wallets ?? []} giftRecords={databaseRecords} onClose={() => setEditor(null)} onSaved={async (text) => { setEditor(null); setMessage(text); await load(); }} />}
+  </div>;
+}
+
+/* Portefeuille — vue mobile d’un membre connecté directement (ex. Thibault). Réutilise au maximum les classes déjà thémées
+   (clair/sombre) de la vue « classique » ; seuls le nouvel anneau de répartition, le rappel de transfert et l’historique
+   compact sont de nouveaux éléments. Masquée sur desktop et pour l’admin (voir gift-portfolio.css). */
+function MemberPortfolioMobile({ person, currentValueEur, totalBtc, totalEur, averagePurchasePriceEur, theoreticalGainEur, theoreticalGainPct, bitcoinEur, christmasCount, birthdayCount, ledgerGiftBtc, binanceBtc, documentedCount, missingCount, records, years, hasPendingTransfer, requestGiftTransfer, requestAllTransfers, openTransactions, message, previewReadOnly }: {
+  person: MemberInfo;
+  currentValueEur: number | null;
+  totalBtc: number;
+  totalEur: number;
+  averagePurchasePriceEur: number | null;
+  theoreticalGainEur: number | null;
+  theoreticalGainPct: number | null;
+  bitcoinEur: number | null;
+  christmasCount: number;
+  birthdayCount: number;
+  ledgerGiftBtc: number;
+  binanceBtc: number;
+  documentedCount: number;
+  missingCount: number;
+  records: GiftRecord[];
+  years: string[];
+  hasPendingTransfer: (record: GiftRecord) => boolean;
+  requestGiftTransfer: (record: GiftRecord) => Promise<void>;
+  requestAllTransfers: () => Promise<void>;
+  openTransactions: (label: string, location?: TransactionShortcut["location"], scope?: TransactionShortcut["scope"]) => void;
+  message: string;
+  previewReadOnly: boolean;
+}) {
+  const ledgerPct = totalBtc ? Math.round(ledgerGiftBtc / totalBtc * 100) : 0;
+  const binancePct = totalBtc ? Math.round(binanceBtc / totalBtc * 100) : 0;
+  const hasBinanceGifts = binanceBtc > 0.00000001;
+  const showTransferReassurance = /transfert/i.test(message);
+  const ringRadius = 34;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+
+  return <div className="member-portfolio-mobile">
+    <section className="portfolio-hero mpm-hero">
+      <span className="hero-orb" aria-hidden="true" />
+      <span className="hero-orb-ring" aria-hidden="true" />
+      <div className="portfolio-hero-top">
+        <div className="portfolio-hero-copy">
+          <span className="hero-badge">Portefeuille de {person.name}</span>
+          <p className="hero-birthday">Anniversaire le {person.birthday} · cadeau de Noël le 25 décembre</p>
+          <strong className="portfolio-current-value">{currentValueEur === null ? `${totalBtc.toFixed(8)} BTC` : euro.format(currentValueEur)}</strong>
+          {currentValueEur !== null && <span className="mpm-btc-line">{totalBtc.toFixed(8)} BTC</span>}
+          <span className="portfolio-current-meta">{euro.format(totalEur)} investis à l’époque</span>
+        </div>
+      </div>
+      <span className="portfolio-occasion-counts mpm-occasion-counts">
+        <button type="button" className="portfolio-occasion-count christmas" onClick={() => openTransactions("Noël de " + person.name, "Tous", "gifts")}>&#127876; {christmasCount}<small>Noël{christmasCount > 1 ? "s" : ""}</small></button>
+        <button type="button" className="portfolio-occasion-count birthday" onClick={() => openTransactions("Anniversaires de " + person.name, "Tous", "gifts")}>&#127874; {birthdayCount}<small>Anniversaire{birthdayCount > 1 ? "s" : ""}</small></button>
+      </span>
+    </section>
+
+    <section className="portfolio-card mpm-metrics-card">
+      <div className="portfolio-market-metrics">
+        <span><small>Prix moyen d’achat</small><b>{averagePurchasePriceEur === null ? "À calculer" : euro.format(averagePurchasePriceEur) + " / BTC"}</b></span>
+        <span><small>Gain depuis les cadeaux</small><b className={theoreticalGainEur === null ? "gain neutral" : theoreticalGainEur >= 0 ? "gain up" : "gain down"}>{theoreticalGainEur === null || theoreticalGainPct === null ? "Cours indisponible" : (theoreticalGainEur >= 0 ? "+" : "") + euro.format(theoreticalGainEur) + " · " + (theoreticalGainEur >= 0 ? "+" : "") + theoreticalGainPct.toFixed(1) + " %"}</b></span>
+        <span><small>Cours du Bitcoin</small><b>{bitcoinEur ? euro.format(bitcoinEur) : "Indisponible"}</b></span>
+      </div>
+    </section>
+
+    <section className="portfolio-card mpm-ring-card">
+      <header className="mpm-ring-header"><span>Répartition</span></header>
+      <div className="mpm-ring-row">
+        <svg className="mpm-ring" viewBox="0 0 80 80" aria-hidden="true">
+          <circle cx="40" cy="40" r={ringRadius} className="mpm-ring-track" />
+          <circle cx="40" cy="40" r={ringRadius} className="mpm-ring-value" strokeDasharray={`${ringCircumference} ${ringCircumference}`} transform="rotate(-90 40 40)" />
+          <text x="40" y="47" textAnchor="middle" className="mpm-ring-glyph">₿</text>
+        </svg>
+        <div className="mpm-ring-copy">
+          <strong>100 % Bitcoin</strong>
+          <small>0 % PEA · 0 % Compte-titres</small>
+          <p>PEA et compte-titres arriveront bientôt. Tu seras prévenu·e !</p>
+        </div>
+      </div>
+    </section>
+
+    <section className="portfolio-card custody-card mpm-custody-card">
+      <h2>Où sont mes bitcoins ?</h2>
+      <div className="custody-bars">
+        <button type="button" className="custody-shortcut" onClick={() => openTransactions("Ledger de " + person.name + " · blockchain", "Ledger", "all")}>
+          <span><b>Ledger personnel</b><em>{ledgerGiftBtc.toFixed(8)} BTC · {ledgerPct} %</em></span>
+          <i role="progressbar" aria-label="Part sur Ledger" aria-valuemin={0} aria-valuemax={100} aria-valuenow={ledgerPct}><b style={{ width: ledgerPct + "%" }} /></i>
+        </button>
+        <button type="button" className="custody-shortcut" onClick={() => openTransactions("Bitcoins de " + person.name + " sur Binance", "Binance", "gifts")}>
+          <span><b>Binance commun</b><em>{binanceBtc.toFixed(8)} BTC · {binancePct} %</em></span>
+          <i className="binance" role="progressbar" aria-label="Part sur Binance commun" aria-valuemin={0} aria-valuemax={100} aria-valuenow={binancePct}><b style={{ width: binancePct + "%" }} /></i>
+        </button>
+      </div>
+      {hasBinanceGifts && !previewReadOnly && <div className="mpm-nudge">
+        <span aria-hidden="true">✨</span>
+        <p>Tes bitcoins sur Binance peuvent être sécurisés sur ton Ledger.</p>
+        <button type="button" onClick={() => void requestAllTransfers()}>Demander le transfert</button>
+      </div>}
+    </section>
+
+    <div className="gift-stats mpm-stats">
+      <button type="button" onClick={() => openTransactions("Cadeaux documentés de " + person.name, "Tous", "documented")}><span>✓</span><div><strong>{documentedCount}</strong><small>cadeaux documentés</small></div></button>
+      <button type="button" onClick={() => openTransactions("Actions à traiter pour " + person.name, "À classer", "needs-action")}><span>!</span><div><strong>{missingCount}</strong><small>cadeaux à compléter</small></div></button>
+      <button type="button" onClick={() => openTransactions("Bitcoins de " + person.name + " sur Binance", "Binance", "gifts")}><span>₿</span><div><strong>{binanceBtc.toFixed(4)} BTC</strong><small>sur Binance commun</small></div></button>
+    </div>
+
+    <section className="portfolio-card gift-timeline-panel mpm-history-card">
+      <header className="card-head">
+        <span className="mpm-history-title"><small>HISTOIRE DES CADEAUX</small></span>
+        <button type="button" className="timeline-shortcut" onClick={() => openTransactions("Histoire des cadeaux de " + person.name, "Tous", "gifts")}><em>Voir tout →</em></button>
+      </header>
+      <div className="gift-years">{years.map((year, yearIndex) => <details key={year} className="gift-year" open={yearIndex === 0}>
+        <summary>{year}</summary>
+        <div className="mpm-gift-rows">{records.filter((record) => record.gift_date.startsWith(year)).map((record) => {
+          const isMissing = record.origin === "expected";
+          const isFuture = isMissing && new Date(record.gift_date + "T23:59:59Z") >= new Date();
+          const displayCustody = !isMissing && record.custody === "À rapprocher" && record.btc_amount > 0 ? "Binance commun" : record.custody;
+          const displayBtc = record.custody === "Ledger" ? Number(record.ledger_amount ?? record.btc_amount) : record.btc_amount;
+          const rowValueEur = bitcoinEur && displayBtc > 0 ? displayBtc * bitcoinEur : null;
+          const pending = hasPendingTransfer(record);
+          return <div className="mpm-gift-row" key={keyOf(record)}>
+            <div className="mpm-gift-icon" aria-hidden="true">{record.occasion === "Noël" ? "✦" : "♛"}</div>
+            <div className="mpm-gift-body">
+              <strong>{record.occasion} <small>· {fullDate.format(new Date((record.gift_date || record.purchase_date) + "T00:00:00Z"))}</small></strong>
+              <span className="mpm-gift-amount">{isMissing ? (isFuture ? "À venir" : "BTC à saisir") : <>{displayBtc.toFixed(8)} BTC{rowValueEur !== null && <> · ≈ {euro.format(rowValueEur)}</>}</>}</span>
+            </div>
+            <div className="mpm-gift-status">
+              {isMissing
+                ? <span className={`mpm-chip ${isFuture ? "future" : "missing"}`}>{isFuture ? "À venir" : "À compléter"}</span>
+                : displayCustody === "Ledger"
+                ? <span className="mpm-chip ledger">Transfert déjà réalisé</span>
+                : <><span className="mpm-chip binance">Encore sur Binance</span>{!previewReadOnly && <button type="button" className="mpm-request-button" disabled={pending} onClick={() => void requestGiftTransfer(record)}>{pending ? "Demandé" : "Demander le transfert"}</button>}</>}
+            </div>
+          </div>;
+        })}</div>
+      </details>)}</div>
+    </section>
+
+    {message && <div className="mpm-toast" role="status">
+      <span className="mpm-toast-icon" aria-hidden="true">✓</span>
+      <div><strong>{message}</strong>{showTransferReassurance && <small>Tu seras prévenu·e dès que Florent aura traité ta demande.</small>}</div>
+    </div>}
   </div>;
 }
 

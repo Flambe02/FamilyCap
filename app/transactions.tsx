@@ -30,6 +30,8 @@ export type TransactionShortcut = {
   label: string;
 };
 
+type MemberQuickFilter = "all" | "ledger" | "binance" | "pending" | "noel";
+
 type GiftApiRecord = {
   id: string;
   member_name: string;
@@ -89,6 +91,9 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
   const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const [mutationMessage, setMutationMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [mobileSortDir, setMobileSortDir] = useState<"desc" | "asc">("desc");
+  const [memberQuickFilter, setMemberQuickFilter] = useState<MemberQuickFilter>(() => shortcut?.location === "Ledger" ? "ledger" : shortcut?.location === "Binance" ? "binance" : "all");
+  const [requestedIds, setRequestedIds] = useState<string[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -212,6 +217,31 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
     return memberMatches && locationMatches && scopeMatches;
   }), [detailedTransactions, memberFilter, locationFilter, scopeFilter, isAdmin, viewerName]);
 
+  /* Mobile — vue membre : total personnel (indépendant des filtres) + filtre rapide indépendant de l'ancien mécanisme admin. */
+  const memberOwnTransactions = useMemo(() => detailedTransactions.filter((transaction) => transaction.member === viewerName), [detailedTransactions, viewerName]);
+  const memberReceived = useMemo(() => memberOwnTransactions.filter((transaction) => transaction.authorRole !== "Blockchain" && Number(transaction.quantity ?? 0) > 0), [memberOwnTransactions]);
+  const memberTotalInvested = memberReceived.reduce((sum, transaction) => sum + transaction.amount, 0);
+  const memberTotalBtc = memberReceived.reduce((sum, transaction) => sum + Number(transaction.quantity ?? 0), 0);
+  const memberTotalValue = bitcoinEur ? memberTotalBtc * bitcoinEur : null;
+  const memberGainEur = memberTotalValue !== null ? memberTotalValue - memberTotalInvested : null;
+  const memberGainPct = memberGainEur !== null && memberTotalInvested > 0 ? memberGainEur / memberTotalInvested * 100 : null;
+  function matchesMemberQuickFilter(transaction: TransactionRecord, mode: MemberQuickFilter) {
+    if (mode === "all") return true;
+    if (mode === "noel") return transaction.kind === "Noël";
+    if (mode === "pending") return transaction.status === "À transférer";
+    const location = transactionLocation(transaction);
+    if (mode === "ledger") return location === "Ledger";
+    if (mode === "binance") return location === "Binance";
+    return true;
+  }
+  const memberQuickFiltered = useMemo(() => memberOwnTransactions.filter((transaction) => matchesMemberQuickFilter(transaction, memberQuickFilter)), [memberOwnTransactions, memberQuickFilter]);
+
+  /* Mobile — vue admin : même liste que le tableau classique, simplement triable (nouveau, mobile uniquement). */
+  const adminMobileSorted = useMemo(() => {
+    const list = [...filtered];
+    return mobileSortDir === "desc" ? list : list.reverse();
+  }, [filtered, mobileSortDir]);
+
   function clearShortcut() {
     setMemberFilter("Tous");
     setLocationFilter("Tous");
@@ -255,6 +285,25 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
   }
   return (
     <div className={`page-stack transactions-page ${isAdmin ? "admin-transactions" : "member-transactions"}`}>
+      {!isAdmin && <MemberMovementsMobile
+        transactions={memberQuickFiltered}
+        totalValueEur={memberTotalValue}
+        totalBtc={memberTotalBtc}
+        receivedCount={memberReceived.length}
+        totalInvested={memberTotalInvested}
+        gainEur={memberGainEur}
+        gainPct={memberGainPct}
+        bitcoinEur={bitcoinEur}
+        quickFilter={memberQuickFilter}
+        onQuickFilter={setMemberQuickFilter}
+        requestedIds={requestedIds}
+        message={mutationMessage}
+        onRequestTransfer={(transaction) => {
+          setRequestedIds((current) => current.includes(transaction.id) ? current : [...current, transaction.id]);
+          onTransferRequest(transaction);
+          setMutationMessage({ tone: "success", text: "Demande de transfert envoyée à Florent." });
+        }}
+      />}
       <section className="transactions-guide panel">
         <div>
           <span className="soft-pill">REGISTRE PARTAGÉ</span>
@@ -298,23 +347,180 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
                 ? `https://blockstream.info/tx/${transaction.reference}`
                 : null;
               return <tr key={transaction.id}>
-                <td>{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</td>
-                <td><strong>{transaction.member}</strong></td>
-                <td><div className="transaction-kind">{occasionEmoji && <span className={"occasion-emoji " + (transaction.kind === "Noël" ? "christmas" : "birthday")} aria-hidden="true">{occasionEmoji}</span>}<div><strong>{transaction.kind}</strong><small>{transaction.asset} · {isAdmin ? transaction.account : memberSummary}</small></div></div></td>
-                <td className="number-cell transaction-investment"><strong>{hasPurchasePrice ? euro.format(transaction.amount) : "—"}</strong><small>{averagePurchasePrice ? "PRU " + euro.format(averagePurchasePrice) + " / BTC" : "PRU à rattacher"}</small></td>
-                <td className="number-cell">{transaction.quantity ? transaction.quantity.toFixed(8) + " BTC" : "À saisir"}</td>
-                <td className="number-cell transaction-current-value"><strong>{currentValue === null ? "—" : euro.format(currentValue)}</strong><small className={performance === null ? "performance neutral" : performance >= 0 ? "performance positive" : "performance negative"}>{performance === null ? (currentValue === null ? "Cours indisponible" : "Transfert sans PRU") : (performance >= 0 ? "+" : "") + euro.format(performance)}</small></td>
-                <td>{blockchainUrl ? <a className="author-chip blockchain-link" href={blockchainUrl} target="_blank" rel="noreferrer" title="Voir la transaction sur la blockchain">Blockchain<span aria-hidden="true">↗</span></a> : <span className={transaction.authorRole === "Enfant" ? "author-chip child" : "author-chip"}>{transaction.author}</span>}</td>
-                {isAdmin && <td><span className={"transaction-location " + (location === "Ledger" ? "ledger" : location === "Binance" ? "binance" : "unclassified")}>{location}</span></td>}
+                <td data-label="Date">{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</td>
+                <td data-label="Bénéficiaire"><strong>{transaction.member}</strong></td>
+                <td data-label="Opération"><div className="transaction-kind">{occasionEmoji && <span className={"occasion-emoji " + (transaction.kind === "Noël" ? "christmas" : "birthday")} aria-hidden="true">{occasionEmoji}</span>}<div><strong>{transaction.kind}</strong><small>{transaction.asset} · {isAdmin ? transaction.account : memberSummary}</small></div></div></td>
+                <td className="number-cell transaction-investment" data-label="Montant / PRU"><strong>{hasPurchasePrice ? euro.format(transaction.amount) : "—"}</strong><small>{averagePurchasePrice ? "PRU " + euro.format(averagePurchasePrice) + " / BTC" : "PRU à rattacher"}</small></td>
+                <td className="number-cell" data-label="Quantité">{transaction.quantity ? transaction.quantity.toFixed(8) + " BTC" : "À saisir"}</td>
+                <td className="number-cell transaction-current-value" data-label="Valeur actuelle"><strong>{currentValue === null ? "—" : euro.format(currentValue)}</strong><small className={performance === null ? "performance neutral" : performance >= 0 ? "performance positive" : "performance negative"}>{performance === null ? (currentValue === null ? "Cours indisponible" : "Transfert sans PRU") : (performance >= 0 ? "+" : "") + euro.format(performance)}</small></td>
+                <td data-label="Saisie par">{blockchainUrl ? <a className="author-chip blockchain-link" href={blockchainUrl} target="_blank" rel="noreferrer" title="Voir la transaction sur la blockchain">Blockchain<span aria-hidden="true">↗</span></a> : <span className={transaction.authorRole === "Enfant" ? "author-chip child" : "author-chip"}>{transaction.author}</span>}</td>
+                {isAdmin && <td data-label="Localisation"><span className={"transaction-location " + (location === "Ledger" ? "ledger" : location === "Binance" ? "binance" : "unclassified")}>{location}</span></td>}
                 <td><div className="transaction-actions">{isAdmin && needsAdminAction && <button className="admin-work-button" onClick={() => onOpenPortfolio?.(transaction.member)}>{transaction.status === "À transférer" ? "Préparer le transfert" : "Classer / valider"}</button>}{canDelete && <button type="button" className="admin-delete-button" disabled={deletingTransactionId === transaction.id} onClick={() => void deleteGiftTransaction(transaction)}>{deletingTransactionId === transaction.id ? "Suppression…" : "Supprimer"}</button>}{!isAdmin && transaction.status === "À transférer" && <button className="request-transfer-button" onClick={() => onTransferRequest(transaction)}>Demander le transfert</button>}</div></td>
               </tr>;
             })}</tbody>
           </table>
         </div>
         {filtered.length === 0 && <div className="empty-transactions">Aucune opération ne correspond à ces filtres.</div>}
+        {isAdmin && filtered.length > 0 && <AdminMovementsMobile
+          transactions={adminMobileSorted}
+          bitcoinEur={bitcoinEur}
+          sortDir={mobileSortDir}
+          onToggleSort={() => setMobileSortDir((current) => current === "desc" ? "asc" : "desc")}
+          onOpenPortfolio={onOpenPortfolio}
+          onDelete={(transaction) => void deleteGiftTransaction(transaction)}
+          deletingId={deletingTransactionId}
+        />}
       </section>
     </div>
   );
+}
+
+function MemberMovementsMobile({ transactions, totalValueEur, totalBtc, receivedCount, totalInvested, gainEur, gainPct, bitcoinEur, quickFilter, onQuickFilter, requestedIds, message, onRequestTransfer }: {
+  transactions: TransactionRecord[];
+  totalValueEur: number | null;
+  totalBtc: number;
+  receivedCount: number;
+  totalInvested: number;
+  gainEur: number | null;
+  gainPct: number | null;
+  bitcoinEur: number | null;
+  quickFilter: MemberQuickFilter;
+  onQuickFilter: (mode: MemberQuickFilter) => void;
+  requestedIds: string[];
+  message: { tone: "success" | "error"; text: string } | null;
+  onRequestTransfer: (transaction: TransactionRecord) => void;
+}) {
+  const chips: { id: MemberQuickFilter; label: string }[] = [
+    { id: "all", label: "Tous" },
+    { id: "ledger", label: "Sur Ledger" },
+    { id: "binance", label: "Sur Binance" },
+    { id: "pending", label: "À transférer" },
+    { id: "noel", label: "🎄 Noël" },
+  ];
+  const activeChip = chips.find((chip) => chip.id === quickFilter);
+  return <div className="mmv-mobile">
+    <section className="panel mmv-summary">
+      <div className="mmv-summary-head">
+        <span className="mmv-summary-icon" aria-hidden="true">🎁</span>
+        <div><h2>Mes mouvements</h2><p>Retrouve l’histoire de tes cadeaux Bitcoin et de leurs transferts.</p></div>
+      </div>
+      <div className="mmv-summary-stats">
+        <div><small>VALEUR TOTALE</small><strong>{totalValueEur === null ? `${totalBtc.toFixed(8)} BTC` : euro.format(totalValueEur)}</strong><span>aujourd’hui</span></div>
+        <div><small>CADEAUX REÇUS</small><strong>{receivedCount}</strong><span>cadeaux</span></div>
+        <div><small>MONTANT INVESTI</small><strong>{euro.format(totalInvested)}</strong><span>au total</span></div>
+        <div><small>GAIN TOTAL</small><strong className={gainEur === null ? "gain neutral" : gainEur >= 0 ? "gain up" : "gain down"}>{gainPct === null ? "—" : (gainPct >= 0 ? "+" : "") + gainPct.toFixed(1) + " %"}</strong><span>{gainEur === null ? "Cours indisponible" : (gainEur >= 0 ? "+" : "") + euro.format(gainEur)}</span></div>
+      </div>
+    </section>
+
+    <div className="mmv-chips">
+      {chips.map((chip) => <button key={chip.id} type="button" className={quickFilter === chip.id ? "active" : ""} onClick={() => onQuickFilter(chip.id)}>{chip.label}</button>)}
+    </div>
+    {quickFilter !== "all" && activeChip && <button type="button" className="mmv-active-chip" onClick={() => onQuickFilter("all")}>{activeChip.label}<span aria-hidden="true">×</span></button>}
+
+    <section className="mmv-history">
+      <header><span>Historique</span><h3>{transactions.length} mouvement{transactions.length > 1 ? "s" : ""} affiché{transactions.length > 1 ? "s" : ""}</h3></header>
+      <div className="mmv-cards">{transactions.map((transaction) => {
+        const quantity = Number(transaction.quantity ?? 0);
+        const hasPurchasePrice = transaction.amount > 0 && quantity > 0;
+        const currentValue = bitcoinEur && quantity > 0 ? bitcoinEur * quantity : null;
+        const performance = currentValue !== null && hasPurchasePrice ? currentValue - transaction.amount : null;
+        const performancePct = performance !== null && transaction.amount > 0 ? performance / transaction.amount * 100 : null;
+        const location = transactionLocation(transaction);
+        const blockchainUrl = transaction.authorRole === "Blockchain" && transaction.reference && /^[0-9a-f]{64}$/i.test(transaction.reference) ? `https://blockstream.info/tx/${transaction.reference}` : null;
+        const pending = requestedIds.includes(transaction.id);
+        const isBlockchainRow = transaction.authorRole === "Blockchain";
+        return <article className="mmv-card" key={transaction.id}>
+          <div className="mmv-card-top">
+            <span className={`mmv-card-icon ${isBlockchainRow ? "transfer" : transaction.kind === "Noël" ? "christmas" : "birthday"}`} aria-hidden="true">{isBlockchainRow ? "⇄" : transaction.kind === "Noël" ? "🎄" : "🎂"}</span>
+            <div className="mmv-card-title">
+              <small>{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`)).toUpperCase()}</small>
+              <strong>{isBlockchainRow ? "Transfert vers mon Ledger" : transaction.kind}</strong>
+              <span>{isBlockchainRow ? "Depuis Binance commun" : "Cadeau pour moi"}</span>
+            </div>
+            <div className="mmv-card-status">
+              {isBlockchainRow
+                ? <span className="mmv-pill ledger">✓ Confirmé sur la blockchain</span>
+                : quantity <= 0
+                ? <span className="mmv-pill missing">{new Date(`${transaction.date}T23:59:59Z`) >= new Date() ? "À venir" : "À compléter"}</span>
+                : location === "Ledger"
+                ? <span className="mmv-pill ledger">✓ Sur mon Ledger</span>
+                : <span className="mmv-pill binance">Sur Binance commun</span>}
+              {isBlockchainRow && blockchainUrl && <a href={blockchainUrl} target="_blank" rel="noreferrer" className="mmv-proof-link">Voir la preuve ↗</a>}
+              {!isBlockchainRow && quantity > 0 && location === "Ledger" && <small className="mmv-status-caption">Transfert réalisé</small>}
+              {!isBlockchainRow && quantity > 0 && location !== "Ledger" && transaction.status === "À transférer" && <button type="button" className="mmv-request-button" disabled={pending} onClick={() => onRequestTransfer(transaction)}>{pending ? "Demandé" : "Demander le transfert"}</button>}
+            </div>
+          </div>
+          <div className="mmv-card-stats">
+            {isBlockchainRow ? <>
+              <div><small>BTC TRANSFÉRÉS</small><strong>{quantity.toFixed(8)} BTC</strong></div>
+              <div><small>DATE</small><strong>{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</strong></div>
+            </> : <>
+              <div><small>OFFERTS</small><strong>{transaction.amount > 0 ? euro.format(transaction.amount) : "—"}</strong></div>
+              <div><small>AUJOURD’HUI</small><strong>{currentValue === null ? (quantity > 0 ? "Indisponible" : "—") : euro.format(currentValue)}</strong></div>
+              <div><small>GAIN</small><strong className={performance === null ? "" : performance >= 0 ? "up" : "down"}>{performancePct === null ? "—" : (performancePct >= 0 ? "+" : "") + performancePct.toFixed(1) + " %"}</strong></div>
+            </>}
+          </div>
+          {!isBlockchainRow && quantity > 0 && <div className="mmv-card-detail"><span><small>QUANTITÉ BTC</small><strong>{quantity.toFixed(8)} BTC</strong></span>{hasPurchasePrice && <span><small>PRIX MOYEN D’ACHAT</small><strong>{euro.format(transaction.amount / quantity)}</strong></span>}</div>}
+        </article>;
+      })}</div>
+      {transactions.length === 0 && <div className="empty-transactions">Aucun mouvement pour ce filtre.</div>}
+    </section>
+
+    {message && <div className={`mpm-toast ${message.tone === "error" ? "error" : ""}`} role="status">
+      <span className="mpm-toast-icon" aria-hidden="true">{message.tone === "error" ? "!" : "✓"}</span>
+      <div><strong>{message.text}</strong>{/transfert/i.test(message.text) && message.tone === "success" && <small>Tu seras prévenu·e dès son traitement.</small>}</div>
+    </div>}
+  </div>;
+}
+
+function AdminMovementsMobile({ transactions, bitcoinEur, sortDir, onToggleSort, onOpenPortfolio, onDelete, deletingId }: {
+  transactions: TransactionRecord[];
+  bitcoinEur: number | null;
+  sortDir: "desc" | "asc";
+  onToggleSort: () => void;
+  onOpenPortfolio?: (member: string) => void;
+  onDelete: (transaction: TransactionRecord) => void;
+  deletingId: string | null;
+}) {
+  return <div className="amv-mobile">
+    <div className="amv-toolbar">
+      <button type="button" className="amv-sort-button" onClick={onToggleSort}>Trier <span aria-hidden="true">{sortDir === "desc" ? "↓" : "↑"}</span></button>
+    </div>
+    <div className="amv-cards">{transactions.map((transaction) => {
+      const quantity = Number(transaction.quantity ?? 0);
+      const hasPurchasePrice = transaction.amount > 0 && quantity > 0;
+      const currentValue = bitcoinEur && quantity > 0 ? bitcoinEur * quantity : null;
+      const performance = currentValue !== null && hasPurchasePrice ? currentValue - transaction.amount : null;
+      const performancePct = performance !== null && transaction.amount > 0 ? performance / transaction.amount * 100 : null;
+      const location = transactionLocation(transaction);
+      const needsAdminAction = transaction.authorRole !== "Blockchain" && transaction.status !== "Confirmée";
+      const canDelete = transaction.authorRole !== "Blockchain" && location !== "Ledger";
+      return <article className="amv-card" key={transaction.id}>
+        <div className="amv-card-top">
+          <span className={`amv-card-icon ${transaction.kind === "Noël" ? "christmas" : "birthday"}`} aria-hidden="true">{transaction.kind === "Noël" ? "🎄" : "🎂"}</span>
+          <div className="amv-card-title">
+            <small>{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`)).toUpperCase()}</small>
+            <strong>{transaction.member}</strong>
+            <span className="amv-kind">{transaction.kind}</span>
+            <small className="amv-account">Bitcoin · {transaction.account}</small>
+          </div>
+          <div className="amv-card-status">
+            <span className={"transaction-location " + (location === "Ledger" ? "ledger" : location === "Binance" ? "binance" : "unclassified")}>{location === "À classer" ? "⏳ À classer" : location}</span>
+            <strong>{hasPurchasePrice ? euro.format(transaction.amount) : "—"}<small> investis</small></strong>
+          </div>
+        </div>
+        <div className="amv-card-stats">
+          <div><small>QUANTITÉ BTC</small><strong>{quantity ? quantity.toFixed(8) + " BTC" : "À saisir"}</strong></div>
+          <div><small>VALEUR AUJOURD’HUI</small><strong>{currentValue === null ? "—" : euro.format(currentValue)}</strong>{performancePct !== null && <small className={performancePct >= 0 ? "up" : "down"}>{(performancePct >= 0 ? "+" : "") + performancePct.toFixed(1) + " %"}</small>}</div>
+          <div><small>LOCALISATION</small><strong>{location === "À classer" ? "Non classée" : location}</strong></div>
+        </div>
+        <div className="amv-card-actions">
+          {needsAdminAction && <button type="button" className="admin-work-button" onClick={() => onOpenPortfolio?.(transaction.member)}>{transaction.status === "À transférer" ? "↗ Préparer le transfert" : "✓ Classer / valider"}</button>}
+          {canDelete && <button type="button" className="admin-delete-button" disabled={deletingId === transaction.id} onClick={() => onDelete(transaction)}>{deletingId === transaction.id ? "Suppression…" : "🗑 Supprimer"}</button>}
+        </div>
+      </article>;
+    })}</div>
+  </div>;
 }
 
 export function InvestmentModal({ onClose, onSave }: { onClose: () => void; onSave: (transaction: TransactionRecord) => void }) {
