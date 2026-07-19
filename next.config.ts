@@ -37,6 +37,15 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: getCommitVersion(),
   },
+  async headers() {
+    // Espace familial privé : interdire l'indexation sur toutes les réponses.
+    return [
+      {
+        source: "/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

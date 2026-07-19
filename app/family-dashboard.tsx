@@ -7,6 +7,7 @@ import { Administration } from "./administration";
 import { GiftPortfolio } from "./gift-portfolio";
 import { AdminUsers } from "./admin-users";
 import { InvestmentAccessSettings } from "./investment-access-settings";
+import { InstallAppCard } from "./install-app";
 import { AmatxiReport } from "./amatxi-report";
 import { Indicators } from "./indicators";
 import type { Viewer } from "../lib/auth-types";
@@ -263,9 +264,9 @@ function replayOnboarding() { setOnboardingOpen(true); }
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <button className="brand" onClick={() => setView("famille")} aria-label="Accueil Cap Family">
-          <span className="brand-mark">C</span>
-          <span><strong>Cap Family</strong><small>L’école financière</small></span>
+        <button className="brand" onClick={() => setView("famille")} aria-label="Accueil LaBaJo & Co">
+          <span className="brand-mark"><img src="/Labajo logo.png" alt="" width={39} height={39} /></span>
+          <span><strong>LaBaJo &amp; Co</strong><small>L’école financière</small></span>
         </button>
 
         <nav aria-label="Navigation principale">
@@ -555,7 +556,7 @@ function PersonalSettings({ viewer, onSignOut, publishedVersion, onReplayOnboard
     setMessage(error ? error.message : "Mot de passe mis à jour.");
     if (!error) setPassword("");
   }
-  return <><PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" /><p className="section-intro">Ces informations correspondent à ton accès personnel Cap Family.</p><div className="form-grid"><label>Nom<input value={viewer.name} readOnly /></label><label>Adresse e-mail<input value={viewer.email} readOnly /></label><label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "viewer" ? "Amatxi" : "Utilisateur"} readOnly /></label><label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label></div><div className="settings-account-actions"><button onClick={updatePassword}>Mettre à jour le mot de passe</button><button className="logout-button" onClick={onSignOut}>Se déconnecter</button></div>{viewer.role !== "admin" && onReplayOnboarding && <div className="onboarding-settings"><div><b>Revoir les premiers pas</b><p>Une visite courte pour comprendre Binance, Ledger et ton portefeuille.</p></div><button type="button" onClick={onReplayOnboarding}>Revoir la visite</button></div>}{<div className="account-version">Version publiée <strong>{publishedVersion}</strong></div>}{message && <div className="info-callout"><b>Compte</b><p>{message}</p></div>}</>;
+  return <><PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" /><p className="section-intro">Ces informations correspondent à ton accès personnel LaBaJo & Co.</p><InstallAppCard /><div className="form-grid"><label>Nom<input value={viewer.name} readOnly /></label><label>Adresse e-mail<input value={viewer.email} readOnly /></label><label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "viewer" ? "Amatxi" : "Utilisateur"} readOnly /></label><label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label></div><div className="settings-account-actions"><button onClick={updatePassword}>Mettre à jour le mot de passe</button><button className="logout-button" onClick={onSignOut}>Se déconnecter</button></div>{viewer.role !== "admin" && onReplayOnboarding && <div className="onboarding-settings"><div><b>Revoir les premiers pas</b><p>Une visite courte pour comprendre Binance, Ledger et ton portefeuille.</p></div><button type="button" onClick={onReplayOnboarding}>Revoir la visite</button></div>}{<div className="account-version">Version publiée <strong>{publishedVersion}</strong></div>}{message && <div className="info-callout"><b>Compte</b><p>{message}</p></div>}</>;
 }
 
 function UsersSettings() {

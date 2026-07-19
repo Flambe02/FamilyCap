@@ -56,7 +56,7 @@ export function AuthShell() {
   }, [session]);
 
   if (designPreview) return <FamilyDashboard viewer={{ id: "design-preview", email: "apercu@cap.family", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
-  if (!ready) return <div className="auth-loading"><span>C</span><p>Ouverture de Cap Family…</p></div>;
+  if (!ready) return <div className="auth-loading"><span><img src="/Labajo logo.png" alt="" width={48} height={48} /></span><p>Ouverture de LaBaJo &amp; Co…</p></div>;
   if (setupMode) return <FamilyDashboard viewer={{ id: "local-admin", email: "florent.lambert@gmail.com", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
   if (accessError) return <AccessDenied message={accessError} onSignOut={() => void supabaseBrowser.auth.signOut()} />;
   if (!session || !viewer) return <LoginScreen />;
@@ -97,7 +97,7 @@ function LoginScreen() {
 
   const heading = mode === "login" ? "Heureux de te revoir" : "Recevoir un lien unique";
   const subtitle = mode === "login"
-    ? "Accède à ton espace personnel sécurisé et retrouve tout l’univers Cap Family."
+    ? "Accède à ton espace personnel sécurisé et retrouve tout l’univers LaBaJo & Co."
     : "Reçois un lien de connexion sécurisé par e-mail, sans saisir de mot de passe.";
   const submitLabel = busy ? "Un instant…" : mode === "login" ? "Se connecter" : "Envoyer le lien unique";
   const discover = mode === "login"
@@ -107,9 +107,9 @@ function LoginScreen() {
   return <main className="auth-page">
     <div className="auth-hero">
       <section className="auth-brand">
-        <span className="auth-logo">C<i aria-hidden="true">.</i></span>
+        <span className="auth-logo"><img src="/Labajo logo.png" alt="LaBaJo & Co" width={52} height={52} /></span>
         <div className="auth-brand-copy">
-          <small>CAP FAMILY</small>
+          <small>LABAJO &amp; CO</small>
           <h1>Grandir avec<br />son argent.</h1>
           <p>Les cadeaux bienveillants d’aujourd’hui,<br />les grandes réussites de demain.</p>
         </div>
@@ -178,9 +178,9 @@ function LoginScreen() {
     {introOpen && <div className="modal-backdrop auth-intro-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setIntroOpen(false)}>
       <section ref={introRef} className="auth-intro" role="dialog" aria-modal="true" aria-labelledby="auth-intro-title" tabIndex={-1}>
         <button type="button" className="auth-intro-close" onClick={() => setIntroOpen(false)} aria-label="Fermer">×</button>
-        <span className="auth-intro-eyebrow">CAP FAMILY</span>
+        <span className="auth-intro-eyebrow">LABAJO &amp; CO</span>
         <h2 id="auth-intro-title">Comment rejoindre l’espace famille ?</h2>
-        <p>Cap Family est un espace privé réservé à la famille : chaque accès est créé par Florent, il n’y a pas d’inscription libre. Choisis ta situation :</p>
+        <p>LaBaJo &amp; Co est un espace privé réservé à la famille : chaque accès est créé par Florent, il n’y a pas d’inscription libre. Choisis ta situation :</p>
         <div className="auth-intro-options">
           <button type="button" className="auth-intro-option" onClick={() => { setIntroOpen(false); setMode("login"); setMessage(""); }}>
             <strong>J’ai reçu une invitation</strong>
@@ -196,12 +196,12 @@ function LoginScreen() {
   </main>;
 }
 
-const NOT_FAMILY_CONTACT = "Cette adresse e-mail n’est pas encore autorisée. Demande à Florent (florent.lambert@gmail.com) de créer ton accès Cap Family, puis réessaie.";
+const NOT_FAMILY_CONTACT = "Cette adresse e-mail n’est pas encore autorisée. Demande à Florent (florent.lambert@gmail.com) de créer ton accès LaBaJo & Co, puis réessaie.";
 
 function friendlyAuthError(error: unknown) {
   const message = error instanceof Error ? error.message : "Connexion impossible";
   const normalized = message.toLowerCase();
-  if (normalized.includes("ne fait pas partie de cap family")) return NOT_FAMILY_CONTACT;
+  if (normalized.includes("ne fait pas partie")) return NOT_FAMILY_CONTACT;
   if (normalized.includes("signups not allowed") || normalized.includes("signup is disabled") || normalized.includes("signups are disabled")) return NOT_FAMILY_CONTACT;
   if (normalized.includes("email not confirmed")) return "Adresse e-mail non confirmée. Utilise « Recevoir un lien unique » ou contacte Florent.";
   if (normalized.includes("invalid login credentials")) return "Adresse e-mail ou mot de passe incorrect.";

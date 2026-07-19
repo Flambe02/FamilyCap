@@ -8,7 +8,7 @@ async function source(relativePath) {
   return readFile(new URL(relativePath, root), "utf8");
 }
 
-test("uses the Cap Family shell rather than the retired starter preview", async () => {
+test("uses the LaBaJo & Co shell rather than the retired starter preview", async () => {
   const [page, layout, authShell, packageJson] = await Promise.all([
     source("app/page.tsx"),
     source("app/layout.tsx"),
@@ -19,10 +19,10 @@ test("uses the Cap Family shell rather than the retired starter preview", async 
   assert.match(page, /<AuthShell\s*\/>/);
   assert.match(page, /app-version/);
   assert.match(layout, /lang="fr"/);
-  assert.match(layout, /Cap Family/);
+  assert.match(layout, /LaBaJo & Co/);
   assert.match(layout, /skip-link/);
   assert.match(authShell, /auth-loading/);
-  assert.match(authShell, /Ouverture de Cap Family/);
+  assert.match(authShell, /Ouverture de LaBaJo/);
   assert.match(authShell, /api\/supabase\/status/);
   assert.match(authShell, /FamilyDashboard/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

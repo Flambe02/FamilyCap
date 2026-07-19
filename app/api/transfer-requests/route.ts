@@ -107,8 +107,8 @@ async function sendAlertEmail(data: { id: string; member: string; transactionId:
     body: JSON.stringify({
       from: runtime.ALERT_EMAIL_FROM,
       to: [to],
-      subject: `Cap Family — ${data.member} demande un transfert BTC`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto"><h1 style="color:#17324D">Demande de transfert Bitcoin</h1><p><strong>${escapeHtml(data.member)}</strong> demande le transfert de sa part actuellement conservée sur Binance commun.</p><p>Montant : <strong>${amount}</strong><br>Transaction de suivi : ${escapeHtml(data.transactionId)}<br>Date : ${escapeHtml(data.requestedAt)}</p><p style="color:#667">Ouvre le back-office Cap Family pour traiter cette demande.</p></div>`,
+      subject: `LaBaJo & Co — ${data.member} demande un transfert BTC`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto"><h1 style="color:#17324D">Demande de transfert Bitcoin</h1><p><strong>${escapeHtml(data.member)}</strong> demande le transfert de sa part actuellement conservée sur Binance commun.</p><p>Montant : <strong>${amount}</strong><br>Transaction de suivi : ${escapeHtml(data.transactionId)}<br>Date : ${escapeHtml(data.requestedAt)}</p><p style="color:#667">Ouvre le back-office LaBaJo &amp; Co pour traiter cette demande.</p></div>`,
     }),
   });
   if (!response.ok) return { sent: false, reason: `Resend ${response.status}` };

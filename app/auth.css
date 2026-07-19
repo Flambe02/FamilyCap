@@ -1,14 +1,15 @@
 @import "tailwindcss";
 
 /* ============================================================
-   Cap Family — écran de connexion (refonte inspirée de la maquette).
+   LaBaJo & Co — écran de connexion (refonte inspirée de la maquette).
    Thème-aware : sombre profond façon maquette en mode sombre,
    version claire équivalente en mode clair. Mobile-first + desktop centré.
    ============================================================ */
 
 /* Chargement + accès refusé */
 .auth-loading,.access-denied{min-height:100dvh;display:grid;place-content:center;justify-items:center;gap:12px;padding:30px;text-align:center;background:#eef2ee;color:#17324d}
-.auth-loading span{width:48px;height:48px;display:grid;place-items:center;border-radius:15px;background:#12312f;color:#fff;font-family:Georgia,serif;font-size:25px}
+.auth-loading span{width:48px;height:48px;display:grid;place-items:center;border-radius:13px;overflow:hidden}
+.auth-loading span img{width:100%;height:100%;object-fit:cover;display:block}
 .auth-loading p{font-size:11px;color:#6d797d}
 .access-denied>span{width:50px;height:50px;display:grid;place-items:center;border-radius:50%;background:#fff0ed;color:#a94736;font-size:22px;font-weight:900}
 .access-denied h1{font-family:Georgia,serif;font-size:32px;font-weight:500;margin:6px 0}
@@ -21,7 +22,8 @@
 
 /* Marque (haut) */
 .auth-brand{position:relative;overflow:hidden;padding:calc(15px + env(safe-area-inset-top)) 22px 18px;background:linear-gradient(160deg,#15394f,#0d2331);color:#fff}
-.auth-logo{display:inline-flex;align-items:baseline;font-family:Georgia,serif;font-size:28px;font-weight:600;color:#fff}
+.auth-logo{display:inline-flex;align-items:center}
+.auth-logo img{width:52px;height:52px;border-radius:13px;display:block;box-shadow:0 8px 22px rgba(0,0,0,.28)}
 .auth-logo i{color:#54c9b8;font-style:normal;margin-left:1px}
 .auth-brand-copy{position:relative;z-index:1;margin-top:22px;max-width:320px}
 .auth-brand-copy small{display:block;color:#5ec9b7;font-size:9.5px;font-weight:800;letter-spacing:.18em}

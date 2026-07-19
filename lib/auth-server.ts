@@ -33,7 +33,7 @@ export async function requireFamilyMember(request: Request): Promise<Authenticat
     `family_members?select=id,email,name,role,is_active&email=eq.${encodeURIComponent(user.email.toLowerCase())}&is_active=eq.true&limit=1`,
   );
   const member = rows[0];
-  if (!member) throw new Response("Cette adresse n’est pas autorisée dans Cap Family", { status: 403 });
+  if (!member) throw new Response("Cette adresse n’est pas autorisée dans LaBaJo & Co", { status: 403 });
   return { authUserId: user.id, id: member.id, email: member.email, name: member.name, role: member.role };
 }
 

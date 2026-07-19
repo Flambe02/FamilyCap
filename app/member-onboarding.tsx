@@ -15,7 +15,7 @@ type OnboardingStep = {
 
 const steps: OnboardingStep[] = [
   {
-    eyebrow: "BIENVENUE DANS CAP FAMILY",
+    eyebrow: "BIENVENUE DANS LABAJO & CO",
     title: "Tes bitcoins ont une histoire.",
     text: "Ici, tu retrouves les cadeaux Bitcoin qui te sont attribués par ta famille.",
     icon: "₿",
