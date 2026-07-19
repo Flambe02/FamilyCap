@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Viewer } from "../lib/auth-types";
 import { useDialogA11y } from "./use-dialog-a11y";
+import { InvestmentAccessSettings } from "./investment-access-settings";
 import "./member-onboarding.css";
 
 type OnboardingStep = {
@@ -35,7 +36,20 @@ const steps: OnboardingStep[] = [
     icon: "✦",
     points: ["Consulte ton total et ton historique.", "Pose une demande de transfert quand une part est sur Binance.", "Retrouve cette visite à tout moment dans Paramètres."],
   },
+  {
+    eyebrow: "DERNIÈRE ÉTAPE",
+    title: "Confirme tes informations.",
+    text: "Vérifie que tes informations sont exactes et choisis qui peut voir ton portefeuille. Tu pourras changer ce choix à tout moment dans Paramètres.",
+    icon: "✓",
+    points: [],
+  },
 ];
+
+function formatOnboardingBirthday(day?: number | null, month?: number | null, year?: number | null) {
+  if (!day || !month) return "Non renseignée";
+  const formatted = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(new Date(2000, month - 1, day));
+  return year ? `${formatted} ${year}` : formatted;
+}
 
 export function MemberOnboarding({ viewer, onComplete, onOpenPortfolio }: { viewer: Viewer; onComplete: () => void; onOpenPortfolio: () => void }) {
   const [step, setStep] = useState(0);
@@ -65,7 +79,15 @@ export function MemberOnboarding({ viewer, onComplete, onOpenPortfolio }: { view
         <span className="onboarding-eyebrow">{current.eyebrow}</span>
         <h2 id="onboarding-title">Bienvenue {viewer.name}.<br />{current.title}</h2>
         <p id="onboarding-description">{current.text}</p>
-        <ul>{current.points.map((point) => <li key={point}><span aria-hidden="true">✓</span>{point}</li>)}</ul>
+        {isLast ? <div className="onboarding-confirm">
+          <dl className="onboarding-confirm-facts">
+            <div><dt>Nom</dt><dd>{viewer.name}</dd></div>
+            <div><dt>Adresse e-mail</dt><dd>{viewer.email}</dd></div>
+            <div><dt>Date de naissance</dt><dd>{formatOnboardingBirthday(viewer.birthdayDay, viewer.birthdayMonth, viewer.birthdayYear)}</dd></div>
+          </dl>
+          <p className="onboarding-confirm-hint">Une erreur dans ces informations ? Préviens Florent, lui seul peut les corriger.</p>
+          <InvestmentAccessSettings />
+        </div> : <ul>{current.points.map((point) => <li key={point}><span aria-hidden="true">✓</span>{point}</li>)}</ul>}
       </div>
       <footer>
         <button type="button" className="onboarding-skip" onClick={onComplete}>Passer la visite</button>

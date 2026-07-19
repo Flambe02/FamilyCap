@@ -3,6 +3,15 @@
 /* Onboarding — continuité de marque sans alourdir la première visite. */
 .onboarding-backdrop{background:rgba(12,35,50,.64)}.onboarding-card{border-color:rgba(255,255,255,.55);border-radius:22px;box-shadow:0 28px 80px rgba(12,35,50,.32)}.onboarding-progress b,.onboarding-content li span{background:var(--teal-soft);color:var(--teal-strong)}.onboarding-next{min-height:43px;border-radius:10px;background:linear-gradient(135deg,var(--teal),var(--teal-strong));box-shadow:0 9px 20px rgba(14,93,87,.18)}.onboarding-next:hover{background:var(--teal-strong)}
 
+/* Dernière étape : confirmation des informations + partage. */
+.onboarding-confirm{margin-top:20px;text-align:left}
+.onboarding-confirm-facts{display:grid;gap:10px;margin:0 0 14px;padding:14px 16px;border:1px solid var(--line);border-radius:13px;background:var(--surface-subtle)}
+.onboarding-confirm-facts>div{display:flex;justify-content:space-between;gap:10px}
+.onboarding-confirm-facts dt{color:var(--muted);font-size:11px;font-weight:800}
+.onboarding-confirm-facts dd{margin:0;color:var(--ink);font-size:12.5px;font-weight:700;text-align:right}
+.onboarding-confirm-hint{margin:0 0 18px;color:var(--muted);font-size:10.5px;line-height:1.5}
+.onboarding-confirm .investment-access-settings{max-width:none}
+
 @media(max-width:780px) and (prefers-color-scheme:dark){
   .onboarding-backdrop{background:rgba(4,12,20,.72)}
   .onboarding-card{background:linear-gradient(135deg,#15303d,#0e2530);border-color:rgba(255,255,255,.12);box-shadow:0 32px 90px rgba(0,0,0,.5)}
@@ -24,4 +33,8 @@
   .onboarding-close:hover,.onboarding-skip:hover,.onboarding-back:hover{background:rgba(255,255,255,.08)}
   .onboarding-next{background:linear-gradient(135deg,#5ec9b7,#2fa78f);color:#05271f;box-shadow:0 9px 20px rgba(0,0,0,.4)}
   .onboarding-next:hover{background:#2fa78f}
+  .onboarding-confirm-facts{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.11)}
+  .onboarding-confirm-facts dt{color:#9db2b6}
+  .onboarding-confirm-facts dd{color:#e9f2ef}
+  .onboarding-confirm-hint{color:#9db2b6}
 }

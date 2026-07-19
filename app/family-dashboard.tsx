@@ -79,7 +79,7 @@ const navItems: { id: View; label: string; icon: string; iconLabel: string; shor
   { id: "amatxi", label: "Vue Amatxi", icon: "?", iconLabel: "Vue Amatxi" },
   { id: "missions", label: "Missions", icon: "◎", iconLabel: "Missions", short: "Missions" },
   { id: "apprendre", label: "Apprendre", icon: "◇", iconLabel: "Apprendre", short: "Apprendre" },
-  { id: "parametres", label: "PARAMÈTRES", icon: "⚙", iconLabel: "PARAMÈTRES" },
+  { id: "parametres", label: "Paramètres", icon: "⚙", iconLabel: "Paramètres", short: "Paramètres" },
 ];
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -117,11 +117,12 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const mobileMenuRef = useDialogA11y(mobileMenuOpen, () => setMobileMenuOpen(false));
   const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
-  const memberNavItems = navItems.filter((item) => item.id !== "backoffice" && item.id !== "amatxi" && item.id !== "parametres");
-  const adminNavItems = navItems.filter((item) => item.id === "backoffice" || item.id === "amatxi" || item.id === "parametres");
-  const bottomNavItems = memberNavItems.filter((item) => item.id !== "indicateurs");
+  const memberNavItems = navItems.filter((item) => item.id !== "backoffice" && item.id !== "amatxi");
+  const adminNavItems = navItems.filter((item) => item.id === "backoffice" || item.id === "amatxi");
+  const bottomNavItems = memberNavItems.filter((item) => item.id !== "indicateurs" && item.id !== "parametres");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -312,7 +313,14 @@ function replayOnboarding() { setOnboardingOpen(true); }
         <div className="profile-mini">
           <span className="avatar admin" aria-hidden="true">FM</span>
           <span><strong>{isPreview ? previewMember : viewer.name}</strong><small>{isPreview ? "Apercu lecture seule" : viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
-          {!isPreview && <button onClick={() => setView("parametres")} aria-label="Ouvrir les parametres">...</button>}
+          {!isPreview && <button type="button" onClick={() => setProfileMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-label="Menu du profil">...</button>}
+          {!isPreview && profileMenuOpen && <>
+            <div className="profile-menu-backdrop" onClick={() => setProfileMenuOpen(false)} />
+            <div className="profile-menu-popup" role="menu">
+              <button type="button" role="menuitem" onClick={() => { setView("parametres"); setProfileMenuOpen(false); }}>Paramètres</button>
+              <button type="button" role="menuitem" className="profile-menu-signout" onClick={() => { setProfileMenuOpen(false); onSignOut(); }}>Se déconnecter</button>
+            </div>
+          </>}
         </div>
       </aside>
 
@@ -547,16 +555,67 @@ function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding }: {
   return <div className="settings-layout"><aside className="settings-nav"><p>RÉGLAGES</p>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}<span>›</span></button>)}</aside><section className="settings-content panel">{tab === "utilisateurs" && viewer.role === "admin" && <UsersSettings />}{tab === "portefeuilles" && (viewer.role === "admin" ? <WalletSettings /> : <MemberWalletSettings viewer={viewer} />)}{tab === "partage" && viewer.role !== "admin" && <InvestmentAccessSettings />}{tab === "cadeaux" && viewer.role === "admin" && <GiftSettings />}{tab === "securite" && <SecuritySettings />}{tab === "donnees" && viewer.role === "admin" && <DataSettings />}{tab === "compte" && <PersonalSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={onReplayOnboarding} />}</section></div>;
 }
 
+function formatBirthday(day?: number | null, month?: number | null, year?: number | null) {
+  if (!day || !month) return "Non renseignée";
+  const formatted = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(new Date(2000, month - 1, day));
+  return year ? `${formatted} ${year}` : formatted;
+}
+
 function PersonalSettings({ viewer, onSignOut, publishedVersion, onReplayOnboarding }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void }) {
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [email, setEmail] = useState(viewer.email);
+  const [emailMessage, setEmailMessage] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
+
   async function updatePassword() {
-    if (password.length < 8) { setMessage("Le mot de passe doit contenir au moins 8 caractères."); return; }
+    if (password.length < 8) { setPasswordMessage("Le mot de passe doit contenir au moins 8 caractères."); return; }
     const { error } = await supabaseBrowser.auth.updateUser({ password });
-    setMessage(error ? error.message : "Mot de passe mis à jour.");
+    setPasswordMessage(error ? error.message : "Mot de passe mis à jour.");
     if (!error) setPassword("");
   }
-  return <><PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" /><p className="section-intro">Ces informations correspondent à ton accès personnel LaBaJo & Co.</p><InstallAppCard /><div className="form-grid"><label>Nom<input value={viewer.name} readOnly /></label><label>Adresse e-mail<input value={viewer.email} readOnly /></label><label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "viewer" ? "Amatxi" : "Utilisateur"} readOnly /></label><label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label></div><div className="settings-account-actions"><button onClick={updatePassword}>Mettre à jour le mot de passe</button><button className="logout-button" onClick={onSignOut}>Se déconnecter</button></div>{viewer.role !== "admin" && onReplayOnboarding && <div className="onboarding-settings"><div><b>Revoir les premiers pas</b><p>Une visite courte pour comprendre Binance, Ledger et ton portefeuille.</p></div><button type="button" onClick={onReplayOnboarding}>Revoir la visite</button></div>}{<div className="account-version">Version publiée <strong>{publishedVersion}</strong></div>}{message && <div className="info-callout"><b>Compte</b><p>{message}</p></div>}</>;
+
+  async function updateEmail() {
+    const trimmed = email.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(trimmed)) { setEmailMessage("Adresse e-mail invalide."); return; }
+    if (trimmed === viewer.email.toLowerCase()) { setEmailMessage("C'est déjà ton adresse actuelle."); return; }
+    setSavingEmail(true); setEmailMessage("");
+    const { error } = await supabaseBrowser.auth.updateUser({ email: trimmed });
+    setEmailMessage(error ? error.message : "E-mail de confirmation envoyé à la nouvelle adresse. Clique sur le lien reçu pour valider le changement.");
+    setSavingEmail(false);
+  }
+
+  return <>
+    <PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" />
+    <p className="section-intro">Ces informations correspondent à ton accès personnel LaBaJo &amp; Co.</p>
+    <InstallAppCard />
+    <div className="form-grid">
+      <label>Nom<input value={viewer.name} readOnly /></label>
+      <label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "viewer" ? "Amatxi" : "Utilisateur"} readOnly /></label>
+      <label>Date de naissance<input value={formatBirthday(viewer.birthdayDay, viewer.birthdayMonth, viewer.birthdayYear)} readOnly /></label>
+    </div>
+    <p className="section-hint">Le nom, le rôle et la date de naissance sont gérés par Florent — contacte-le pour une correction.</p>
+
+    <h3 className="settings-subhead">Adresse e-mail (identifiant de connexion)</h3>
+    <div className="form-grid">
+      <label className="span-2">Adresse e-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></label>
+    </div>
+    <div className="settings-account-actions"><button onClick={() => void updateEmail()} disabled={savingEmail}>{savingEmail ? "Envoi…" : "Changer d'adresse e-mail"}</button></div>
+    {emailMessage && <p className="info-callout" role="status">{emailMessage}</p>}
+
+    <h3 className="settings-subhead">Mot de passe</h3>
+    <div className="form-grid">
+      <label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label>
+    </div>
+    <div className="settings-account-actions">
+      <button onClick={() => void updatePassword()}>Mettre à jour le mot de passe</button>
+      <button className="logout-button" onClick={onSignOut}>Se déconnecter</button>
+    </div>
+    {passwordMessage && <p className="info-callout" role="status">{passwordMessage}</p>}
+
+    {viewer.role !== "admin" && onReplayOnboarding && <div className="onboarding-settings"><div><b>Revoir les premiers pas</b><p>Une visite courte pour comprendre Binance, Ledger et ton portefeuille.</p></div><button type="button" onClick={onReplayOnboarding}>Revoir la visite</button></div>}
+    <div className="account-version">Version publiée <strong>{publishedVersion}</strong></div>
+  </>;
 }
 
 function UsersSettings() {

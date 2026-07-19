@@ -14,6 +14,9 @@ export type AuthenticatedMember = {
   email: string;
   name: string;
   role: "admin" | "adult" | "child" | "viewer";
+  birthdayDay: number | null;
+  birthdayMonth: number | null;
+  birthdayYear: number | null;
 };
 
 export async function requireFamilyMember(request: Request): Promise<AuthenticatedMember> {
@@ -29,12 +32,12 @@ export async function requireFamilyMember(request: Request): Promise<Authenticat
   const user = await userResponse.json() as { id: string; email?: string };
   if (!user.email) throw new Response("Adresse e-mail absente", { status: 403 });
 
-  const rows = await supabaseRest<Array<{ id: string; email: string; name: string; role: AuthenticatedMember["role"]; is_active: boolean }>>(
-    `family_members?select=id,email,name,role,is_active&email=eq.${encodeURIComponent(user.email.toLowerCase())}&is_active=eq.true&limit=1`,
+  const rows = await supabaseRest<Array<{ id: string; email: string; name: string; role: AuthenticatedMember["role"]; is_active: boolean; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null }>>(
+    `family_members?select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year&email=eq.${encodeURIComponent(user.email.toLowerCase())}&is_active=eq.true&limit=1`,
   );
   const member = rows[0];
   if (!member) throw new Response("Cette adresse n’est pas autorisée dans LaBaJo & Co", { status: 403 });
-  return { authUserId: user.id, id: member.id, email: member.email, name: member.name, role: member.role };
+  return { authUserId: user.id, id: member.id, email: member.email, name: member.name, role: member.role, birthdayDay: member.birthday_day, birthdayMonth: member.birthday_month, birthdayYear: member.birthday_year };
 }
 
 export async function requireAdmin(request: Request) {
