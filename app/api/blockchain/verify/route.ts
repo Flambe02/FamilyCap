@@ -1,5 +1,4 @@
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
-import { isSupabaseConfigured } from "../../../../lib/supabase-rest";
 const ESPLORA_API = "https://blockstream.info/api";
 
 type EsploraTransaction = {
@@ -9,9 +8,7 @@ type EsploraTransaction = {
 };
 
 export async function POST(request: Request) {
-  if (isSupabaseConfigured()) {
-    try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
-  }
+  try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
   try {
     const payload = await request.json() as { address?: string; txid?: string; expectedBtc?: number; allowGrouped?: boolean };
     const address = payload.address?.trim() ?? "";

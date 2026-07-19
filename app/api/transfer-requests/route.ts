@@ -73,6 +73,7 @@ export async function POST(request: Request) {
     const email = await sendAlertEmail({ id, member, transactionId, btcAmount, requestedAt });
     return Response.json({ request: { id, member, transactionId, btcAmount, requestedAt, status: "Nouvelle" }, persisted, persistence, email }, { status: 201 });
   } catch (error) {
+    if (error instanceof Response) return error;
     return Response.json({ error: error instanceof Error ? error.message : "Demande impossible." }, { status: 500 });
   }
 }

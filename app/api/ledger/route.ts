@@ -1,5 +1,4 @@
 import { authErrorResponse, requireAdmin } from "../../../lib/auth-server";
-import { isSupabaseConfigured } from "../../../lib/supabase-rest";
 const wallets = [
   { member: "Thibault", address: "bc1qcy4jt8fh5dhj9fq9d4lu2hq6klvvdmlkeqcgks" },
   { member: "Uhaina", address: "bc1qqkfmts27j07y8u7a6ap7wyczfhe5afyrkn7y2t" },
@@ -106,7 +105,7 @@ async function getBitcoinEurPrice() {
 
 export async function GET(request: Request) {
   const priceOnly = new URL(request.url).searchParams.get("priceOnly") === "1";
-  if (!priceOnly && isSupabaseConfigured()) {
+  if (!priceOnly) {
     try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
   }
   try {
