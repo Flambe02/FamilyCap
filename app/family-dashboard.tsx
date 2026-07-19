@@ -8,13 +8,14 @@ import { GiftPortfolio } from "./gift-portfolio";
 import { AdminUsers } from "./admin-users";
 import { InvestmentAccessSettings } from "./investment-access-settings";
 import { AmatxiReport } from "./amatxi-report";
+import { Indicators } from "./indicators";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { MemberOnboarding } from "./member-onboarding";
 import { GIFT_HISTORY } from "../lib/gift-history";
 import { useDialogA11y } from "./use-dialog-a11y";
 
-type View = "famille" | "portefeuilles" | "transactions" | "backoffice" | "amatxi" | "missions" | "apprendre" | "parametres";
+type View = "famille" | "portefeuilles" | "transactions" | "indicateurs" | "backoffice" | "amatxi" | "missions" | "apprendre" | "parametres";
 
 type FamilyGiftRecord = {
   member_name: string;
@@ -72,6 +73,7 @@ const navItems: { id: View; label: string; icon: string; iconLabel: string; shor
   { id: "famille", label: "Vue famille", icon: "⌂", iconLabel: "Accueil", short: "Accueil" },
   { id: "portefeuilles", label: "Portefeuilles", icon: "◫", iconLabel: "Portefeuilles", short: "Portefeuille" },
   { id: "transactions", label: "Transactions", icon: "⇄", iconLabel: "Transactions", short: "Mouvements" },
+  { id: "indicateurs", label: "Indicateurs", icon: "↗", iconLabel: "Indicateurs", short: "Indicateurs" },
   { id: "backoffice", label: "Administration", icon: "▣", iconLabel: "Administration" },
   { id: "amatxi", label: "Vue Amatxi", icon: "?", iconLabel: "Vue Amatxi" },
   { id: "missions", label: "Missions", icon: "◎", iconLabel: "Missions", short: "Missions" },
@@ -113,10 +115,12 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const isPreview = previewMember !== null;
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
   const mobileMenuRef = useDialogA11y(mobileMenuOpen, () => setMobileMenuOpen(false));
   const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
   const memberNavItems = navItems.filter((item) => item.id !== "backoffice" && item.id !== "amatxi" && item.id !== "parametres");
   const adminNavItems = navItems.filter((item) => item.id === "backoffice" || item.id === "amatxi" || item.id === "parametres");
+  const bottomNavItems = memberNavItems.filter((item) => item.id !== "indicateurs");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -320,9 +324,26 @@ function replayOnboarding() { setOnboardingOpen(true); }
             <p className="eyebrow" aria-label="Date du jour">JEUDI 16 JUILLET 2026</p>
             <h1 className="topbar-title">{titleFor(view)}</h1>
           </div>
-          <div className="mobile-btc-chip" role="status" aria-label={bitcoinEur ? `Cours du Bitcoin : 1 bitcoin égale ${euro.format(bitcoinEur)}` : "Cours du Bitcoin en cours de mise à jour"}>
-            <span className="mobile-btc-mark" aria-hidden="true">₿</span>
-            <span>{bitcoinEur ? euroCompact.format(bitcoinEur) : "Cours…"}</span>
+          <div className="topbar-chip-group">
+            {viewer.role === "admin" && (
+              <div className="mobile-quick-switch">
+                <button type="button" className="mobile-quick-switch-trigger" onClick={() => setQuickSwitchOpen((open) => !open)} aria-expanded={quickSwitchOpen} aria-haspopup="listbox" aria-label="Changer la vue affichée">
+                  <span>{isPreview ? previewMember : "Admin"}</span>
+                  <b aria-hidden="true">⌄</b>
+                </button>
+                {quickSwitchOpen && <>
+                  <div className="mobile-quick-switch-backdrop" onClick={() => setQuickSwitchOpen(false)} />
+                  <div className="mobile-quick-switch-menu" role="listbox" aria-label="Choisir la vue affichée">
+                    <button type="button" role="option" aria-selected={!isPreview} className={!isPreview ? "active" : ""} onClick={() => { changePreview(null); setQuickSwitchOpen(false); }}>Admin</button>
+                    {members.map((member) => <button key={member.name} type="button" role="option" aria-selected={previewMember === member.name} className={previewMember === member.name ? "active" : ""} onClick={() => { changePreview(member.name); setQuickSwitchOpen(false); }}>{member.name}</button>)}
+                  </div>
+                </>}
+              </div>
+            )}
+            <div className="mobile-btc-chip" role="status" aria-label={bitcoinEur ? `Cours du Bitcoin : 1 bitcoin égale ${euro.format(bitcoinEur)}` : "Cours du Bitcoin en cours de mise à jour"}>
+              <span className="mobile-btc-mark" aria-hidden="true">₿</span>
+              <span>{bitcoinEur ? euroCompact.format(bitcoinEur) : "Cours…"}</span>
+            </div>
           </div>
           <div className="top-actions">
             {viewer.role === "admin" && <div className="view-mode-switch" role="group" aria-label="Choisir la vue affichée">
@@ -349,6 +370,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
         )}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} previewReadOnly={isPreview} onOpenTransactions={openFilteredTransactions} />}
         {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} onAdd={() => isPreview ? setToast("Apercu : aucune modification n est autorisee.") : setModalOpen(true)} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
+        {view === "indicateurs" && <Indicators records={familyGiftRecords} bitcoinEur={bitcoinEur} />}
         {view === "backoffice" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "amatxi" && effectiveViewer.role === "admin" && <AmatxiReport records={familyGiftRecords} bitcoinEur={bitcoinEur} loading={familyMarketLoading} />}
         {view === "missions" && <Missions openModal={() => setModalOpen(true)} />}
@@ -357,7 +379,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
-        {memberNavItems.map((item) => (
+        {bottomNavItems.map((item) => (
           <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)} aria-current={view === item.id ? "page" : undefined}>
             <span aria-hidden="true">{item.icon}</span><small>{item.short ?? item.label.split(" ")[0]}</small>
           </button>
@@ -389,6 +411,10 @@ function replayOnboarding() { setOnboardingOpen(true); }
           </div>
         ) : (
           <>
+            <div className="mobile-menu-section">
+              <p>Indicateurs</p>
+              <button type="button" className="mobile-menu-link" onClick={() => { setView("indicateurs"); setMobileMenuOpen(false); }}><span>Indicateurs</span><span>›</span></button>
+            </div>
             <div className="mobile-menu-section">
               <p>Réglages</p>
               <button type="button" className="mobile-menu-link" onClick={() => { setView("parametres"); setMobileMenuOpen(false); }}><span>Paramètres</span><span>›</span></button>
@@ -579,5 +605,5 @@ function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow: string; tit
 }
 
 function titleFor(view: View) {
-  return { famille: "Accueil", portefeuilles: "Portefeuille", transactions: "Mouvements", backoffice: "Administration", amatxi: "Vue Amatxi", missions: "Missions", apprendre: "Apprendre", parametres: "Paramètres" }[view];
+  return { famille: "Accueil", portefeuilles: "Portefeuille", transactions: "Mouvements", indicateurs: "Indicateurs", backoffice: "Administration", amatxi: "Vue Amatxi", missions: "Missions", apprendre: "Apprendre", parametres: "Paramètres" }[view];
 }

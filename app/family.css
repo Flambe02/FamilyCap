@@ -132,6 +132,8 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
 
 /* Pastille cours BTC + CTA du hero : visibles uniquement sur mobile (façon prototype). Masqués sur desktop qui a son propre agencement. */
 .mobile-btc-chip{display:none}
+.mobile-quick-switch{display:none}
+.topbar-chip-group{display:contents}
 .welcome-cta-mobile{display:none}
 .preview-banner{display:none}
 
@@ -146,7 +148,17 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
   .topbar>div{grid-area:title;min-width:0}
   .topbar .eyebrow{display:block;margin:0 0 2px;font-size:9px;font-weight:800;letter-spacing:1px;color:var(--teal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .topbar h1{font-size:21px;font-weight:650;letter-spacing:-.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .topbar>.mobile-btc-chip{grid-area:chip;justify-self:end;display:inline-flex;align-items:center;gap:5px;padding:7px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:11px;font-weight:750;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(23,50,77,.05);white-space:nowrap}
+  .topbar>.topbar-chip-group{grid-area:chip;justify-self:end;display:flex;align-items:center;gap:8px}
+  .mobile-btc-chip{display:inline-flex;align-items:center;gap:5px;padding:7px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:11px;font-weight:750;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(23,50,77,.05);white-space:nowrap}
+  .mobile-quick-switch{display:block;position:relative}
+  .mobile-quick-switch-trigger{display:flex;align-items:center;gap:4px;min-height:34px;max-width:96px;padding:7px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:11px;font-weight:800;cursor:pointer}
+  .mobile-quick-switch-trigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mobile-quick-switch-trigger b{flex:0 0 auto;font-style:normal;font-size:9px;opacity:.65}
+  .mobile-quick-switch-backdrop{position:fixed;inset:0;z-index:75}
+  .mobile-quick-switch-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:76;min-width:150px;padding:6px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 14px 34px rgba(23,50,77,.16)}
+  .mobile-quick-switch-menu button{display:block;width:100%;min-height:40px;padding:9px 12px;border:0;border-radius:9px;background:none;color:var(--ink);font-size:12.5px;font-weight:700;text-align:left;cursor:pointer}
+  .mobile-quick-switch-menu button.active{background:var(--teal-soft);color:var(--teal)}
+  .mobile-quick-switch-trigger:focus-visible,.mobile-quick-switch-menu button:focus-visible{outline:3px solid #f3b649;outline-offset:2px}
   .mobile-btc-mark{color:var(--amber);font-weight:900;font-size:12px;line-height:1}
   .topbar>.top-actions{display:contents}
   .view-mode-switch{display:none}
@@ -249,7 +261,11 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
   /* Surfaces cartes / panneaux */
   .panel,.stat-card,.lesson-card,.security-grid article,.export-card,.settings-content{background:#15303d;border-color:rgba(255,255,255,.10)}
   .member-card{background:#132c39;border-color:rgba(255,255,255,.08)}
-  .topbar>.mobile-btc-chip{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14);color:#e9f2ef;box-shadow:none}
+  .mobile-btc-chip{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14);color:#e9f2ef;box-shadow:none}
+  .mobile-quick-switch-trigger{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14);color:#e9f2ef}
+  .mobile-quick-switch-menu{background:#15303d;border-color:rgba(255,255,255,.14);box-shadow:0 14px 34px rgba(0,0,0,.5)}
+  .mobile-quick-switch-menu button{color:#e9f2ef}
+  .mobile-quick-switch-menu button.active{background:rgba(84,201,184,.16);color:#7fe0d0}
 
   /* Hero d'accueil */
   .welcome-panel{background:linear-gradient(120deg,#163440,#0f2733 72%);border-color:rgba(255,255,255,.08)}

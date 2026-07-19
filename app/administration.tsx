@@ -161,7 +161,7 @@ function GiftSynthesis() {
     const inCustodyBtc = ledgerBtc + binanceBtc + pendingBtc;
     const ledgerGapBtc = ledgerExpectedBtc - ledgerBtc;
     const actualWallet = Number(ledger?.wallets?.find((wallet) => wallet.member === member.name)?.confirmedBalanceBtc ?? 0);
-    return { ...member, ledgerBtc, binanceBtc, pendingBtc, offeredBtc, inCustodyBtc, ledgerGapBtc, binanceChristmasGifts, binanceBirthdayGifts, ledgerChristmasGifts: ledgerGifts.filter((gift) => gift.occasion === "No\u00ebl"), ledgerBirthdayGifts: ledgerGifts.filter((gift) => gift.occasion === "Anniversaire"), ledgerEur: ledgerGifts.reduce((sum,gift) => sum + attributedEur(gift),0), binanceEur: binanceGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), pendingEur: pendingGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), actualWallet, variance: actualWallet - ledgerBtc };
+    return { ...member, gifts: gifts.length, pendingCount: pendingGifts.length, ledgerBtc, binanceBtc, pendingBtc, offeredBtc, inCustodyBtc, ledgerGapBtc, binanceChristmasGifts, binanceBirthdayGifts, ledgerChristmasGifts: ledgerGifts.filter((gift) => gift.occasion === "No\u00ebl"), ledgerBirthdayGifts: ledgerGifts.filter((gift) => gift.occasion === "Anniversaire"), ledgerEur: ledgerGifts.reduce((sum,gift) => sum + attributedEur(gift),0), binanceEur: binanceGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), pendingEur: pendingGifts.reduce((sum,gift) => sum + Number(gift.amount_eur),0), actualWallet, variance: actualWallet - ledgerBtc };
   }), [ledger?.wallets, records]);
   const total = rows.reduce((acc,row) => ({
     ledgerBtc: acc.ledgerBtc + row.ledgerBtc,
@@ -328,7 +328,7 @@ function GiftSynthesis() {
         const ledgerGiftCount = row.ledgerChristmasGifts.length + row.ledgerBirthdayGifts.length;
         return <article key={row.name} className={toTransfer ? "ready" : "complete"}>
           <span className="transfer-plan-avatar">{row.initials}</span>
-          <div><strong>{row.name}</strong><small>{toTransfer ? `${giftCount} cadeau${giftCount > 1 ? "x" : ""} acheté${giftCount > 1 ? "s" : ""}, en attente de transfert` : "Aucun bitcoin à transférer"}</small></div>
+          <div><strong>{row.name}</strong><small>{row.gifts} cadeau{row.gifts > 1 ? "x" : ""} acheté{row.gifts > 1 ? "s" : ""} au total{toTransfer ? ` · ${giftCount} en attente de transfert` : ledgerGiftCount > 0 ? " · déjà sur Ledger" : ""}{row.pendingCount > 0 ? ` · ${row.pendingCount} à classer` : ""}</small></div>
           <div className="transfer-plan-amount"><b>{btc(row.ledgerBtc + row.binanceBtc)}</b><small>{euro.format(row.ledgerEur + row.binanceEur)} attribu&#233;s</small></div>
           {toTransfer && <div className="transfer-plan-breakdown" aria-label={`Détail des cadeaux de ${row.name}`}><header><span>{btc(row.binanceBtc)} &middot; {euro.format(row.binanceEur)}</span></header>
             <div><span aria-hidden="true">🎄</span><p><b>Noël</b><small>{christmasYears.length ? christmasYears.join(", ") : "Aucun"}</small></p><strong>{euro.format(christmasEur)}</strong></div>
