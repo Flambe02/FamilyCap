@@ -6,6 +6,7 @@ import { TransferRequest } from "./back-office";
 import type { Viewer } from "../lib/auth-types";
 import { GiftPortfolio } from "./gift-portfolio";
 import { GIFT_HISTORY } from "../lib/gift-history";
+import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import "./administration.css";
 
 type Tab = "summary" | "gifts" | "members" | "accounts" | "settings";
@@ -76,16 +77,12 @@ type SummaryDraft = {
 };
 type DeliveryState = { date: string; tone: "ledger" | "binance" | "missing"; label: string; detail: string; offered: boolean };
 
-const giftSummaryMembers = [
-  { name: "Thibault", initials: "TH", birthday: "15 mars" },
-  { name: "Uhaina", initials: "UH", birthday: "16 août" },
-  { name: "Paul", initials: "PA", birthday: "18 novembre" },
-  { name: "Aurore", initials: "AU", birthday: "27 août" },
-  { name: "Thomas", initials: "TO", birthday: "29 décembre" },
-] as const;
-const birthdayDates: Record<(typeof giftSummaryMembers)[number]["name"], string> = {
-  Thibault: "03-15", Uhaina: "08-16", Paul: "11-18", Aurore: "08-27", Thomas: "12-29",
-};
+const giftSummaryMembers = FAMILY_MEMBERS.map((member) => ({
+  name: member.name,
+  initials: member.initials,
+  birthday: BIRTHDAY_LABEL_LONG[member.name],
+}));
+const birthdayDates = BIRTHDAY_MONTH_DAY;
 const btc = (value: number) => `${value.toFixed(8)} BTC`;
 const summaryDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
 const summaryKey = (member: string, occasion: string, date: string) => `${member}:${occasion}:${date}`;

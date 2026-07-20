@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { GIFT_HISTORY } from "../lib/gift-history";
+import { FAMILY_MEMBERS, MEMBER_NAMES, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 import "./transactions.css";
 
@@ -70,14 +71,8 @@ export const initialTransactions: TransactionRecord[] = GIFT_HISTORY.map((gift) 
   note: gift.note,
 }));
 
-const memberNames = ["Thibault", "Uhaina", "Paul", "Aurore", "Thomas"];
-const memberBirthdays = [
-  { member: "Thibault", monthDay: "03-15" },
-  { member: "Uhaina", monthDay: "08-16" },
-  { member: "Paul", monthDay: "11-18" },
-  { member: "Aurore", monthDay: "08-27" },
-  { member: "Thomas", monthDay: "12-29" },
-];
+const memberNames = MEMBER_NAMES;
+const memberBirthdays = FAMILY_MEMBERS.map((member) => ({ member: member.name, monthDay: BIRTHDAY_MONTH_DAY[member.name] }));
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 

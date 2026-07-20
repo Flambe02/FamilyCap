@@ -6,6 +6,7 @@ import type { TransferRequest } from "./back-office";
 import type { TransactionShortcut } from "./transactions";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { GIFT_HISTORY } from "../lib/gift-history";
+import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 import "./gift-portfolio.css";
 
@@ -36,13 +37,14 @@ type LedgerWallet = { member: string; address: string; confirmedBalanceBtc?: num
 type LedgerResponse = { wallets?: LedgerWallet[]; bitcoinEur: number | null; updatedAt?: string };
 
 type MemberInfo = { name: string; initials: string; birthday: string; day: number; month: number; color: string };
-const people: MemberInfo[] = [
-  { name: "Thibault", initials: "TH", birthday: "15 mars", day: 15, month: 3, color: "mint" },
-  { name: "Uhaina", initials: "UH", birthday: "16 août", day: 16, month: 8, color: "coral" },
-  { name: "Paul", initials: "PA", birthday: "18 novembre", day: 18, month: 11, color: "blue" },
-  { name: "Aurore", initials: "AU", birthday: "27 août", day: 27, month: 8, color: "yellow" },
-  { name: "Thomas", initials: "TO", birthday: "29 décembre", day: 29, month: 12, color: "purple" },
-];
+const people: MemberInfo[] = FAMILY_MEMBERS.map((member) => ({
+  name: member.name,
+  initials: member.initials,
+  birthday: BIRTHDAY_LABEL_LONG[member.name],
+  day: member.birthdayDay,
+  month: member.birthdayMonth,
+  color: member.color,
+}));
 const historical: Omit<GiftRecord, "origin">[] = GIFT_HISTORY.map((gift) => ({
   member_name: gift.member,
   occasion: gift.occasion,

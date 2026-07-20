@@ -12,6 +12,7 @@ import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { MemberOnboarding } from "./member-onboarding";
 import { GIFT_HISTORY } from "../lib/gift-history";
+import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 
 type View = "famille" | "portefeuilles" | "transactions" | "indicateurs" | "backoffice" | "amatxi" | "apprendre" | "parametres";
@@ -33,13 +34,17 @@ function familyGiftKey(record: Pick<FamilyGiftRecord, "member_name" | "occasion"
   return `${record.member_name}|${record.occasion}|${record.gift_date}`;
 }
 
-const members = [
-  { name: "Thibault", initials: "TH", birthday: "15 mars", birthdayDay: 15, birthdayMonth: 3, missing: 5, color: "mint" },
-  { name: "Uhaina", initials: "UH", birthday: "16 ao\u00fbt", birthdayDay: 16, birthdayMonth: 8, missing: 4, color: "coral" },
-  { name: "Paul", initials: "PA", birthday: "18 nov.", birthdayDay: 18, birthdayMonth: 11, missing: 4, color: "blue" },
-  { name: "Aurore", initials: "AU", birthday: "17 ao\u00fbt", birthdayDay: 17, birthdayMonth: 8, missing: 4, color: "yellow" },
-  { name: "Thomas", initials: "TO", birthday: "29 d\u00e9c.", birthdayDay: 29, birthdayMonth: 12, missing: 5, color: "purple" },
-];
+// `missing` is a placeholder count, not derived from real gift records \u2014 see audit \u00a719.
+const MISSING_PLACEHOLDER: Record<string, number> = { Thibault: 5, Uhaina: 4, Paul: 4, Aurore: 4, Thomas: 5 };
+const members = FAMILY_MEMBERS.map((member) => ({
+  name: member.name,
+  initials: member.initials,
+  birthday: BIRTHDAY_LABEL_SHORT[member.name],
+  birthdayDay: member.birthdayDay,
+  birthdayMonth: member.birthdayMonth,
+  missing: MISSING_PLACEHOLDER[member.name] ?? 0,
+  color: member.color,
+}));
 
 type FamilyCalendarEvent = { kind: "birthday" | "christmas"; name?: string; day: number; month: number; date: Date };
 

@@ -1,5 +1,7 @@
+import { MEMBER_NAMES, type MemberName } from "./family-roster";
+
 export type HistoricalGift = {
-  member: "Thibault" | "Uhaina" | "Paul" | "Aurore" | "Thomas";
+  member: MemberName;
   occasion: "Anniversaire" | "Noël";
   giftDate: string;
   purchaseDate: string;
@@ -54,7 +56,7 @@ export type PurchasePriceSeries = { member: HistoricalGift["member"]; points: Pu
 export type PurchaseSourceRecord = { member_name: string; occasion: string; gift_date: string; amount_eur: number | string; btc_amount: number | string; custody?: string | null; is_deleted?: boolean };
 export type PurchasePriceData = { categories: string[]; series: PurchasePriceSeries[]; years: number[]; totalInvestedEur: number; totalBtc: number; average: number };
 
-export const PURCHASE_PRICE_MEMBERS: HistoricalGift["member"][] = ["Thibault", "Uhaina", "Paul", "Aurore", "Thomas"];
+export const PURCHASE_PRICE_MEMBERS: HistoricalGift["member"][] = MEMBER_NAMES;
 
 // Historical seed only — used as the fallback baseline. The real chart data
 // should come from computePurchasePriceData(familyGiftRecords), which merges

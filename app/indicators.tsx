@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { computePurchasePriceData, PURCHASE_PRICE_MEMBERS, type PurchaseSourceRecord } from "../lib/gift-history";
+import { BIRTHDAY_LABEL_LONG } from "../lib/family-roster";
 import "./indicators.css";
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
@@ -16,7 +17,7 @@ const MONTH_LABELS = Array.from({ length: 12 }, (_, month) => monthShort.format(
 const fullDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 const dateOf = (giftDate: string) => fullDate.format(new Date(`${giftDate}T00:00:00Z`));
 const btcAmountFormat = (value: number) => `${value.toFixed(8)} BTC`;
-const BIRTHDAYS: Record<string, string> = { Thibault: "15 mars", Uhaina: "16 août", Paul: "18 novembre", Aurore: "27 août", Thomas: "29 décembre" };
+const BIRTHDAYS: Record<string, string> = BIRTHDAY_LABEL_LONG;
 
 const WIDTH = 880;
 const HEIGHT = 300;
