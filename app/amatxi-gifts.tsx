@@ -1,12 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { GIFT_HISTORY } from "../lib/gift-history";
 import { InvestmentModal, type GiftEditingInput, type GiftSaveResult } from "./transactions";
 import { useDialogA11y } from "./use-dialog-a11y";
 import "./amatxi-gifts.css";
+
+const ICON_COMMON = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+const ICONS = {
+  gift: <svg {...ICON_COMMON}><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5" /></svg>,
+  trendingUp: <svg {...ICON_COMMON}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>,
+  shieldCheck: <svg {...ICON_COMMON}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" /></svg>,
+  diamond: <svg {...ICON_COMMON}><path d="M12 2 22 12 12 22 2 12Z" /></svg>,
+  users: <svg {...ICON_COMMON}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>,
+  refresh: <svg {...ICON_COMMON}><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16" /><path d="M3 21v-5h5" /></svg>,
+  grid: <svg {...ICON_COMMON}><rect x="3" y="3" width="7" height="7" rx="1.2" /><rect x="14" y="3" width="7" height="7" rx="1.2" /><rect x="3" y="14" width="7" height="7" rx="1.2" /><rect x="14" y="14" width="7" height="7" rx="1.2" /></svg>,
+  list: <svg {...ICON_COMMON}><path d="M8 6h13" /><path d="M8 12h13" /><path d="M8 18h13" /><path d="M3 6h.01" /><path d="M3 12h.01" /><path d="M3 18h.01" /></svg>,
+  arrowRight: <svg {...ICON_COMMON}><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>,
+} satisfies Record<string, ReactElement>;
 
 type Occasion = "Anniversaire" | "Noël" | "Autre cadeau";
 type Location = "Ledger" | "Binance" | "À classer";
@@ -114,6 +127,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
   const [locationFilter, setLocationFilter] = useState<"Toutes" | Location>("Toutes");
   const [detail, setDetail] = useState<GiftEntry | null>(null);
   const [modal, setModal] = useState<"create" | GiftEntry | null>(null);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const headers = await authHeaders();
@@ -209,28 +223,37 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
   return (
     <div className="page-stack amatxi-gifts-page">
       <section className="panel amatxi-head">
-        <div>
-          <span className="soft-pill">MÉMOIRE FAMILIALE</span>
-          <h2>Cadeaux d’Amatxi</h2>
-          <p>Retrouvez tous les cadeaux offerts pour les anniversaires et Noël, ainsi que leur évolution en Bitcoin.</p>
+        <div className="amatxi-head-content">
+          <div>
+            <span className="soft-pill">MÉMOIRE FAMILIALE</span>
+            <h2>Cadeaux d’Amatxi</h2>
+            <p>Retrouvez tous les cadeaux offerts pour les anniversaires et Noël, ainsi que leur évolution en Bitcoin.</p>
+          </div>
+          {canManage && <button type="button" className="primary-button amatxi-add-button" onClick={() => setModal("create")}>＋ Ajouter un cadeau</button>}
           {!isAdmin && summary.count > 0 && (
             <p className="amatxi-member-summary">
-              {summary.firstYear ? `Depuis ${summary.firstYear}, ` : ""}Amatxi t’a offert <strong>{euro.format(summary.totalEur)}</strong>. Ces cadeaux représentent {summary.currentValueEur === null ? `${summary.totalBtc.toFixed(8)} BTC` : <>aujourd’hui <strong>{euro.format(summary.currentValueEur)}</strong></>}.
+              <span className="amatxi-member-summary-icon" aria-hidden="true">{ICONS.gift}</span>
+              <span>
+                {summary.firstYear ? `Depuis ${summary.firstYear}, ` : ""}Amatxi t’a offert <strong>{euro.format(summary.totalEur)}</strong>.
+                {" "}Ces cadeaux représentent aujourd’hui {summary.currentValueEur === null ? <strong>{summary.totalBtc.toFixed(8)} BTC</strong> : <strong>{euro.format(summary.currentValueEur)}</strong>}.
+              </span>
             </p>
           )}
         </div>
-        {canManage && <button type="button" className="primary-button" onClick={() => setModal("create")}>＋ Ajouter un cadeau</button>}
+        <div className="amatxi-head-media" aria-hidden="true">
+          <img src="/amatxi-hero.png" alt="" />
+        </div>
       </section>
 
       {summary.count > 0 && (
         <section className="amatxi-summary-grid" aria-label="Indicateurs des cadeaux">
-          <SummaryCard label="Montant total offert" value={euro.format(summary.totalEur)} tone="amber" />
-          <SummaryCard label="Valeur aujourd’hui" value={summary.currentValueEur === null ? (loading ? "Mise à jour…" : "Cours indisponible") : euro.format(summary.currentValueEur)} note={bitcoinEur ? `1 BTC = ${euro.format(bitcoinEur)}` : undefined} tone="teal" />
-          <SummaryCard label="Bitcoin reçu" value={`${summary.totalBtc.toFixed(8)} BTC`} />
-          <SummaryCard label="Cadeaux" value={String(summary.count)} />
-          {isAdmin && <SummaryCard label="Bénéficiaires" value={String(summary.beneficiaries)} />}
-          <SummaryCard label="Conservés sur Binance" value={String(summary.binanceCount)} />
-          <SummaryCard label="Transférés sur Ledger" value={String(summary.ledgerCount)} />
+          <SummaryCard label="Montant total offert" value={euro.format(summary.totalEur)} tone="teal" icon="€" />
+          <SummaryCard label="Valeur aujourd’hui" value={summary.currentValueEur === null ? (loading ? "Mise à jour…" : "Cours indisponible") : euro.format(summary.currentValueEur)} note={bitcoinEur ? `1 BTC = ${euro.format(bitcoinEur)}` : undefined} tone="amber" icon={ICONS.trendingUp} />
+          <SummaryCard label="Bitcoin reçu" value={`${summary.totalBtc.toFixed(8)} BTC`} tone="neutral" icon="₿" />
+          <SummaryCard label="Cadeaux" value={String(summary.count)} tone="coral" icon={ICONS.gift} />
+          {isAdmin && <SummaryCard label="Bénéficiaires" value={String(summary.beneficiaries)} tone="neutral" icon={ICONS.users} />}
+          <SummaryCard label="Conservés sur Binance" value={String(summary.binanceCount)} tone="amber" icon={ICONS.diamond} />
+          <SummaryCard label="Transférés sur Ledger" value={String(summary.ledgerCount)} tone="teal" icon={ICONS.shieldCheck} />
         </section>
       )}
 
@@ -252,14 +275,22 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
               <button type="button" key={location} className={locationFilter === location ? "active" : ""} aria-pressed={locationFilter === location} onClick={() => setLocationFilter(location)}>{location === "Toutes" ? "Tous les emplacements" : location}</button>
             ))}
           </div>
-          {hasActiveFilters && <button type="button" className="amatxi-filter-clear" onClick={clearFilters}>Réinitialiser ×</button>}
+          {hasActiveFilters && <button type="button" className="amatxi-filter-clear" onClick={clearFilters}><span aria-hidden="true">{ICONS.refresh}</span>Réinitialiser</button>}
         </section>
       )}
 
       <section className="panel amatxi-list-panel">
         <header className="amatxi-list-head">
-          <span>CADEAUX</span>
-          <h3>{loading ? "Chargement…" : `${filteredGifts.length} cadeau${filteredGifts.length > 1 ? "x" : ""} affiché${filteredGifts.length > 1 ? "s" : ""}`}</h3>
+          <div>
+            <span>CADEAUX</span>
+            <h3>{loading ? "Chargement…" : `${filteredGifts.length} cadeau${filteredGifts.length > 1 ? "x" : ""} affiché${filteredGifts.length > 1 ? "s" : ""}`}</h3>
+          </div>
+          {!loading && filteredGifts.length > 0 && (
+            <div className="amatxi-view-toggle" role="group" aria-label="Choisir l’affichage">
+              <button type="button" className={viewMode === "grid" ? "active" : ""} aria-pressed={viewMode === "grid"} aria-label="Affichage en cartes" onClick={() => setViewMode("grid")}>{ICONS.grid}</button>
+              <button type="button" className={viewMode === "list" ? "active" : ""} aria-pressed={viewMode === "list"} aria-label="Affichage en liste" onClick={() => setViewMode("list")}>{ICONS.list}</button>
+            </div>
+          )}
         </header>
         {loading ? (
           <div className="amatxi-skeleton-grid" aria-hidden="true">{Array.from({ length: 6 }).map((_, index) => <div className="amatxi-skeleton-card" key={index} />)}</div>
@@ -268,9 +299,13 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
             {loadError && <p className="amatxi-load-warning" role="alert">{loadError} Les derniers cadeaux enregistrés peuvent manquer ci-dessous.</p>}
             {filteredGifts.length === 0 ? (
               <div className="amatxi-empty">{scopedGifts.length === 0 ? "Aucun cadeau n’est encore enregistré." : "Aucun cadeau ne correspond à ces filtres."}</div>
-            ) : (
+            ) : viewMode === "grid" ? (
               <div className="amatxi-grid">
                 {filteredGifts.map((gift) => <GiftCard key={giftKey(gift) + (gift.id ?? "")} gift={gift} bitcoinEur={bitcoinEur} onOpen={() => setDetail(gift)} />)}
+              </div>
+            ) : (
+              <div className="amatxi-rows" role="table" aria-label="Cadeaux, en liste">
+                {filteredGifts.map((gift) => <GiftRow key={giftKey(gift) + (gift.id ?? "")} gift={gift} bitcoinEur={bitcoinEur} onOpen={() => setDetail(gift)} />)}
               </div>
             )}
           </>
@@ -303,12 +338,15 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
   );
 }
 
-function SummaryCard({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: "amber" | "teal" }) {
+function SummaryCard({ label, value, note, tone, icon }: { label: string; value: string; note?: string; tone: "amber" | "teal" | "coral" | "neutral"; icon: ReactElement | string }) {
   return (
-    <article className={`amatxi-stat ${tone ?? ""}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {note && <small>{note}</small>}
+    <article className={`amatxi-stat ${tone}`}>
+      <span className={`amatxi-stat-icon ${tone}`} aria-hidden="true">{icon}</span>
+      <div className="amatxi-stat-body">
+        <p>{label}</p>
+        <strong>{value}</strong>
+        {note && <small>{note}</small>}
+      </div>
     </article>
   );
 }
@@ -334,7 +372,31 @@ function GiftCard({ gift, bitcoinEur, onOpen }: { gift: GiftEntry; bitcoinEur: n
         <span>{currentValue === null ? "Cours indisponible" : euro.format(currentValue)}</span>
         {gain !== null && <small className={gain >= 0 ? "up" : "down"}>{gain >= 0 ? "+" : ""}{euro.format(gain)}</small>}
       </div>
+      <div className="amatxi-card-footer">
+        <span className={`amatxi-location-chip ${location === "Ledger" ? "ledger" : location === "Binance" ? "binance" : "pending"}`}>{location === "À classer" ? "À classer" : location === "Ledger" ? "Sur Ledger" : "Sur Binance"}</span>
+        <span className="amatxi-card-detail-link">Voir le détail <span aria-hidden="true">{ICONS.arrowRight}</span></span>
+      </div>
+    </button>
+  );
+}
+
+function GiftRow({ gift, bitcoinEur, onOpen }: { gift: GiftEntry; bitcoinEur: number | null; onOpen: () => void }) {
+  const btc = ownedBtc(gift);
+  const currentValue = bitcoinEur && btc > 0 ? btc * bitcoinEur : null;
+  const gain = currentValue === null ? null : currentValue - gift.amountEur;
+  const location = locationOf(gift);
+  const year = gift.giftDate.slice(0, 4);
+  return (
+    <button type="button" className="amatxi-row" role="row" onClick={onOpen} aria-label={`Voir le détail du cadeau ${gift.occasion.toLowerCase()} de ${gift.member}, ${year}`}>
+      <span className={`amatxi-row-icon ${gift.occasion === "Noël" ? "christmas" : "birthday"}`} aria-hidden="true">{occasionIcon(gift.occasion)}</span>
+      <span className="amatxi-row-cell amatxi-row-member"><strong>{gift.member}</strong><small>{gift.occasion} · {year}</small></span>
+      <span className="amatxi-row-cell">{euro.format(gift.amountEur)} offerts<small>{btc > 0 ? `${btc.toFixed(8)} BTC` : "BTC à renseigner"}</small></span>
+      <span className="amatxi-row-cell">
+        <strong>{currentValue === null ? "Cours indisponible" : euro.format(currentValue)}</strong>
+        {gain !== null && <small className={gain >= 0 ? "up" : "down"}>{gain >= 0 ? "+" : ""}{euro.format(gain)}</small>}
+      </span>
       <span className={`amatxi-location-chip ${location === "Ledger" ? "ledger" : location === "Binance" ? "binance" : "pending"}`}>{location === "À classer" ? "À classer" : location === "Ledger" ? "Sur Ledger" : "Sur Binance"}</span>
+      <span className="amatxi-row-arrow" aria-hidden="true">{ICONS.arrowRight}</span>
     </button>
   );
 }
