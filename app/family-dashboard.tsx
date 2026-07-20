@@ -11,11 +11,11 @@ import { Indicators } from "./indicators";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { MemberOnboarding } from "./member-onboarding";
-import { GIFT_HISTORY } from "../lib/gift-history";
+import { GIFT_HISTORY, computePurchasePriceData } from "../lib/gift-history";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 
-type View = "famille" | "cadeaux-amatxi" | "portefeuilles" | "transactions" | "indicateurs" | "comptes" | "videos" | "famille-roster" | "backoffice" | "suggestions" | "administration-globale" | "apprendre" | "parametres";
+type View = "famille" | "cadeaux-amatxi" | "portefeuilles" | "bitcoin" | "transactions" | "indicateurs" | "comptes" | "videos" | "famille-roster" | "suggestions" | "administration-globale" | "apprendre" | "parametres";
 
 type FamilyGiftRecord = {
   member_name: string;
@@ -79,14 +79,14 @@ const navItems: { id: View; label: string; icon: NavIconId; iconLabel: string; s
   { id: "famille", label: "Tableau de bord", icon: "house", iconLabel: "Tableau de bord", short: "Accueil" },
   { id: "cadeaux-amatxi", label: "Cadeaux d’Amatxi", icon: "gift", iconLabel: "Cadeaux d’Amatxi", short: "Cadeaux" },
   { id: "portefeuilles", label: "Portefeuille", icon: "wallet", iconLabel: "Portefeuille" },
-  { id: "transactions", label: "Bitcoin", icon: "bitcoin", iconLabel: "Bitcoin" },
+  { id: "bitcoin", label: "Bitcoin", icon: "bitcoin", iconLabel: "Bitcoin" },
   { id: "indicateurs", label: "Investissements", icon: "trending-up", iconLabel: "Investissements", short: "Investir" },
   { id: "comptes", label: "Comptes (PEA / Titres)", icon: "landmark", iconLabel: "Comptes PEA et titres" },
   { id: "videos", label: "Vidéos souvenirs", icon: "square-play", iconLabel: "Vidéos souvenirs", short: "Vidéos" },
   { id: "famille-roster", label: "Famille", icon: "users", iconLabel: "Famille", short: "Famille" },
   { id: "apprendre", label: "Apprendre", icon: "book-open", iconLabel: "Apprendre" },
   { id: "parametres", label: "Paramètres", icon: "settings", iconLabel: "Paramètres" },
-  { id: "backoffice", label: "Opérations", icon: "list-checks", iconLabel: "Opérations" },
+  { id: "transactions", label: "Opérations", icon: "list-checks", iconLabel: "Opérations" },
   { id: "suggestions", label: "Suggestions mensuelles", icon: "star", iconLabel: "Suggestions mensuelles" },
   { id: "administration-globale", label: "Administration", icon: "shield-check", iconLabel: "Administration" },
 ];
@@ -113,7 +113,7 @@ const NAV_ICONS: Record<NavIconId, ReactElement> = {
 function NavIcon({ id }: { id: NavIconId }) {
   return NAV_ICONS[id];
 }
-const ADMIN_ONLY_VIEW_IDS: View[] = ["backoffice", "suggestions", "administration-globale"];
+const ADMIN_ONLY_VIEW_IDS: View[] = ["transactions", "suggestions", "administration-globale"];
 const BOTTOM_NAV_VIEW_IDS: View[] = ["famille", "cadeaux-amatxi", "indicateurs", "videos", "famille-roster"];
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -303,7 +303,6 @@ function replayOnboarding() { setOnboardingOpen(true); }
     <main className="app-shell">
       <aside className="sidebar">
         <button className="brand" onClick={() => setView("famille")} aria-label="Accueil LaBaJo & Co">
-          <span className="brand-mark"><img src="/Labajo logo.png" alt="" width={39} height={39} /></span>
           <span><strong>LaBaJo &amp; Co</strong><small>L’école financière familiale</small></span>
         </button>
 
@@ -333,7 +332,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
               >
                 <span aria-hidden="true"><NavIcon id={item.icon} /></span>
                 <span className="sr-only">{item.iconLabel} :</span>{item.label}
-                {item.id === "backoffice" && transferRequests.length > 0 && <em aria-label={`${transferRequests.length} demandes en attente`}>{transferRequests.length}</em>}
+                {item.id === "transactions" && transferRequests.length > 0 && <em aria-label={`${transferRequests.length} demandes en attente`}>{transferRequests.length}</em>}
               </button>
             ))}
           </div>}
@@ -363,7 +362,6 @@ function replayOnboarding() { setOnboardingOpen(true); }
       <section className="workspace" id="main-content" tabIndex={-1}>
         <header className="topbar">
           <div className="mobile-brand" aria-hidden="true">
-            <span className="mobile-brand-mark"><img src="/Labajo logo.png" alt="" width={32} height={32} /></span>
             <span><strong>LaBaJo &amp; Co</strong><small>L’école financière familiale</small></span>
           </div>
           <button type="button" className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Ouvrir mon profil et les paramètres">
@@ -421,14 +419,14 @@ function replayOnboarding() { setOnboardingOpen(true); }
         )}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} previewReadOnly={isPreview} onOpenTransactions={openFilteredTransactions} />}
+        {view === "bitcoin" && <BitcoinOverview records={familyGiftRecords} bitcoinEur={bitcoinEur} totalBtc={totalBtc} totalBitcoinValueEur={totalBitcoinValueEur} marketLoading={familyMarketLoading} activity={activity} onOpenOperations={() => navigate("transactions")} />}
         {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
-        {view === "indicateurs" && <Indicators records={familyGiftRecords} bitcoinEur={bitcoinEur} />}
+        {view === "indicateurs" && <Investissements onOpenAccounts={() => navigate("comptes")} />}
         {view === "comptes" && <ComingSoon eyebrow="COMPTES" title="Comptes (PEA / Titres)" description="Le suivi des comptes PEA et compte-titres arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." />}
         {view === "videos" && <ComingSoon eyebrow="SOUVENIRS" title="Vidéos souvenirs" description="Un espace pour retrouver les vidéos souvenirs d’Amatxi sera bientôt disponible ici." />}
         {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
-        {view === "backoffice" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "suggestions" && effectiveViewer.role === "admin" && <ComingSoon eyebrow="ADMINISTRATION" title="Suggestions mensuelles" description="Un futur outil de recommandation d’investissement mensuel (répartition PEA & titres) sera piloté depuis cet écran." />}
-        {view === "administration-globale" && effectiveViewer.role === "admin" && <ComingSoon eyebrow="ADMINISTRATION" title="Administration" description="Un tableau de pilotage global regroupant les réglages administrateurs arrivera ici." />}
+        {view === "administration-globale" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "apprendre" && <Learn />}
         {view === "parametres" && (isPreview ? <PreviewSettings member={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} />)}
       </section>
@@ -468,7 +466,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
           <>
             <div className="mobile-menu-section">
               <p>Espace famille</p>
-              <button type="button" className="mobile-menu-link" onClick={() => { setView("transactions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="bitcoin" /></span><span>Bitcoin</span></span><span>›</span></button>
+              <button type="button" className="mobile-menu-link" onClick={() => { setView("bitcoin"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="bitcoin" /></span><span>Bitcoin</span></span><span>›</span></button>
               <button type="button" className="mobile-menu-link" onClick={() => { setView("comptes"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="landmark" /></span><span>Comptes (PEA / Titres)</span></span><span>›</span></button>
             </div>
             <div className="mobile-menu-section">
@@ -478,7 +476,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
             {viewer.role === "admin" && (
               <div className="mobile-menu-section">
                 <p>Administration</p>
-                <button type="button" className="mobile-menu-link" onClick={() => { setView("backoffice"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="list-checks" /></span><span>Opérations</span></span>{transferRequests.length > 0 ? <em>{transferRequests.length}</em> : <span>›</span>}</button>
+                <button type="button" className="mobile-menu-link" onClick={() => { setView("transactions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="list-checks" /></span><span>Opérations</span></span>{transferRequests.length > 0 ? <em>{transferRequests.length}</em> : <span>›</span>}</button>
                 <button type="button" className="mobile-menu-link" onClick={() => { setView("suggestions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="star" /></span><span>Suggestions mensuelles</span></span><span>›</span></button>
                 <button type="button" className="mobile-menu-link" onClick={() => { setView("administration-globale"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="shield-check" /></span><span>Administration</span></span><span>›</span></button>
               </div>
@@ -606,6 +604,97 @@ function ComingSoon({ eyebrow, title, description }: { eyebrow: string; title: s
   );
 }
 
+function BitcoinOverview({ records, bitcoinEur, totalBtc, totalBitcoinValueEur, marketLoading, activity, onOpenOperations }: {
+  records: FamilyGiftRecord[];
+  bitcoinEur: number | null;
+  totalBtc: number;
+  totalBitcoinValueEur: number | null;
+  marketLoading: boolean;
+  activity: { member: string; label: string; detail: string; time: string }[];
+  onOpenOperations: () => void;
+}) {
+  const purchase = useMemo(() => computePurchasePriceData(records), [records]);
+  const custody = useMemo(() => records.reduce((acc, record) => {
+    const effectiveBtc = record.custody === "Ledger" && Number(record.ledger_amount) > 0 ? Number(record.ledger_amount) : Number(record.btc_amount);
+    const amount = Math.max(0, effectiveBtc || 0);
+    if (record.custody === "Ledger") acc.ledgerBtc += amount; else acc.binanceBtc += amount;
+    return acc;
+  }, { ledgerBtc: 0, binanceBtc: 0 }), [records]);
+  const totalGainEur = totalBitcoinValueEur === null ? null : totalBitcoinValueEur - purchase.totalInvestedEur;
+  const totalGainPct = totalGainEur === null || purchase.totalInvestedEur <= 0 ? null : (totalGainEur / purchase.totalInvestedEur) * 100;
+
+  return (
+    <div className="page-stack">
+      <section className="panel">
+        <PanelTitle eyebrow="SUIVI BITCOIN" title="Vue d’ensemble Bitcoin" />
+        <div className="stats-row stats-row-wide" aria-label="Indicateurs Bitcoin">
+          <Stat label="Quantité totale BTC" value={`${totalBtc.toFixed(8)} BTC`} note="Cadeaux attribués à la famille" tone="amber" icon="bitcoin" />
+          <Stat label="Valeur actuelle" value={totalBitcoinValueEur === null ? (marketLoading ? "Mise à jour…" : "Cours indisponible") : euro.format(totalBitcoinValueEur)} note={bitcoinEur ? `1 BTC = ${euro.format(bitcoinEur)}` : "Cours indisponible"} tone="teal" icon="trending-up" />
+          <Stat label="Montant investi" value={euro.format(purchase.totalInvestedEur)} note="Coût d’achat historique" tone="amber" icon="wallet" />
+          <Stat label="Plus / moins-value" value={totalGainEur === null ? "—" : `${totalGainEur >= 0 ? "+" : ""}${euro.format(totalGainEur)}`} note={totalGainPct !== null ? `${totalGainPct >= 0 ? "+" : ""}${totalGainPct.toFixed(1)} %` : "Cours indisponible"} tone="teal" icon="trending-up" />
+        </div>
+        <div className="stats-row stats-row-wide" aria-label="Prix moyen et répartition de garde">
+          <Stat label="Prix moyen d’achat" value={purchase.totalBtc > 0 ? `${euro.format(purchase.average)} / BTC` : "—"} note="Moyenne pondérée famille" tone="teal" icon="landmark" />
+          <Stat label="Sur Ledger" value={`${custody.ledgerBtc.toFixed(8)} BTC`} note="Transférés et verrouillés" tone="teal" icon="shield-check" />
+          <Stat label="Sur Binance commun" value={`${custody.binanceBtc.toFixed(8)} BTC`} note="En attente de transfert" tone="amber" icon="wallet" />
+        </div>
+      </section>
+
+      <Indicators records={records} bitcoinEur={bitcoinEur} />
+
+      <section className="panel activity-panel">
+        <PanelTitle eyebrow="JOURNAL" title="Dernières opérations Bitcoin" action="Voir toutes les opérations Bitcoin" onAction={onOpenOperations} />
+        <div className="activity-list">
+          {activity.slice(0, 4).map((item, index) => (
+            <div className="activity-item" key={`${item.label}-${index}`}><span className="activity-mark">{item.member.slice(0, 1)}</span><div><strong>{item.label}</strong><p>{item.member} · {item.detail}</p></div><time>{item.time}</time></div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Investissements({ onOpenAccounts }: { onOpenAccounts: () => void }) {
+  return (
+    <div className="page-stack">
+      <section className="panel coming-soon-panel">
+        <span className="soft-pill">INVESTISSEMENTS</span>
+        <h2>PEA, compte-titres et ETF</h2>
+        <p>Cet espace regroupera les investissements réguliers de la famille (PEA, compte-titres, ETF), une fois le partage familial appliqué côté serveur.</p>
+        <span className="coming-soon-badge">Bientôt disponible</span>
+      </section>
+
+      <div className="dashboard-bottom-row">
+        <section className="panel dashboard-mini-panel">
+          <PanelTitle eyebrow="SUGGESTION DU MOIS" title="Investir régulièrement" />
+          <p className="dashboard-mini-copy">Investir régulièrement compte souvent plus que choisir le « moment parfait ». Les recommandations personnalisées (PEA &amp; Titres) arrivent bientôt.</p>
+          <span className="coming-soon-badge">Bientôt disponible</span>
+        </section>
+
+        <section className="panel dashboard-mini-panel">
+          <PanelTitle eyebrow="OBJECTIF" title="Montant mensuel recommandé" />
+          <p className="dashboard-mini-copy">Un objectif d’investissement mensuel personnalisé pour chaque enfant sera calculé ici.</p>
+          <span className="coming-soon-badge">Bientôt disponible</span>
+        </section>
+
+        <section className="panel dashboard-mini-panel">
+          <PanelTitle eyebrow="STATUT" title="Effectué, reporté ou à faire" />
+          <p className="dashboard-mini-copy">Le suivi mensuel des versements (effectué, reporté ou à faire) apparaîtra ici.</p>
+          <span className="coming-soon-badge">Bientôt disponible</span>
+        </section>
+      </div>
+
+      <section className="panel coming-soon-panel">
+        <span className="soft-pill">HISTORIQUE</span>
+        <h2>Historique mensuel des investissements</h2>
+        <p>L’historique des versements PEA et compte-titres sera disponible dès que le suivi mensuel sera actif.</p>
+        <span className="coming-soon-badge">Bientôt disponible</span>
+        <button type="button" className="secondary-button" onClick={onOpenAccounts}>Voir les comptes PEA / Titres →</button>
+      </section>
+    </div>
+  );
+}
+
 function FamilyRoster({ memberBalances, onOpenMember }: { memberBalances: FamilyMemberBalance[]; onOpenMember: (member: string) => void }) {
   return (
     <div className="page-stack">
@@ -648,12 +737,12 @@ function titleFor(view: View) {
     famille: "Tableau de bord",
     "cadeaux-amatxi": "Cadeaux d’Amatxi",
     portefeuilles: "Portefeuille",
-    transactions: "Bitcoin",
+    bitcoin: "Bitcoin",
+    transactions: "Opérations",
     indicateurs: "Investissements",
     comptes: "Comptes (PEA / Titres)",
     videos: "Vidéos souvenirs",
     "famille-roster": "Famille",
-    backoffice: "Opérations",
     suggestions: "Suggestions mensuelles",
     "administration-globale": "Administration",
     apprendre: "Apprendre",

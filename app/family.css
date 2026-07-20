@@ -228,8 +228,11 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
   .family-calendar-notice{width:100%}
 
   /* Indicateurs clés : la valeur ressort davantage */
-  .stat-card{padding:15px 16px;border-radius:15px}
-  .stat-card strong{font-size:21px}
+  .stat-card{padding:15px 16px;border-radius:15px;min-width:0}
+  .stat-card>div{min-width:0}
+  .stat-card strong{font-size:21px;overflow-wrap:break-word}
+  /* Bitcoin overview KPIs carry longer values (8-decimal BTC amounts) than the dashboard's — one column avoids awkward mid-number wraps */
+  .stats-row-wide{grid-template-columns:1fr}
 
   /* Bandeau membres : cartes un peu plus compactes, plus « carrousel » */
   .member-grid{gap:10px}
