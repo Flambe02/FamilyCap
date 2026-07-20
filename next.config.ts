@@ -32,10 +32,20 @@ function getCommitVersion() {
   return localCommit ?? "local";
 }
 
+function getAppSemver() {
+  try {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as { version?: string };
+    return pkg.version ?? "1.0.0";
+  } catch {
+    return "1.0.0";
+  }
+}
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["10.5.0.2"],
   env: {
     NEXT_PUBLIC_APP_VERSION: getCommitVersion(),
+    NEXT_PUBLIC_APP_SEMVER: getAppSemver(),
   },
   async headers() {
     // Espace familial privé : interdire l'indexation sur toutes les réponses.

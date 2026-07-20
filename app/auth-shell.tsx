@@ -64,14 +64,19 @@ export function AuthShell() {
 }
 
 function LoginScreen() {
-  const [mode, setMode] = useState<"login" | "magic">("login");
+  const hashError = readAuthHashError();
+  const [mode, setMode] = useState<"login" | "magic">(hashError ? "magic" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(hashError ?? "");
   const [busy, setBusy] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [introOpen, setIntroOpen] = useState(false);
   const introRef = useDialogA11y(introOpen, () => setIntroOpen(false));
+
+  useEffect(() => {
+    if (window.location.hash) history.replaceState(null, "", window.location.pathname + window.location.search);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage("");
@@ -170,8 +175,9 @@ function LoginScreen() {
         </button>
         <p className="auth-secure">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" className="auth-secure-icon"><path d="M12 3 5 6v5c0 4.5 3 7.6 7 9 4-1.4 7-4.5 7-9V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></svg>
-          <span>Vos données sont 100% sécurisées.<br />Accès sur invitation · Aucune clé Ledger enregistrée.</span>
+          <span>Vos données sont 100% sécurisées.<br />Accès sur invitation.</span>
         </p>
+        <p className="auth-version">07/2026 · Version {appSemver()}</p>
       </section>
     </div>
 
@@ -194,6 +200,22 @@ function LoginScreen() {
       </section>
     </div>}
   </main>;
+}
+
+function appSemver() {
+  return process.env.NEXT_PUBLIC_APP_SEMVER ?? "1.6.1";
+}
+
+function readAuthHashError(): string | null {
+  if (typeof window === "undefined") return null;
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!hash || !hash.includes("error")) return null;
+  const params = new URLSearchParams(hash);
+  const errorCode = params.get("error_code");
+  if (errorCode === "otp_expired") return "Ce lien a expiré. Demande un nouveau lien ci-dessous : il te connectera directement, sans mot de passe.";
+  if (params.get("error") === "access_denied") return "Ce lien n’est plus valide. Demande un nouveau lien ci-dessous : il te connectera directement, sans mot de passe.";
+  const description = params.get("error_description");
+  return description ? description.replace(/\+/g, " ") : null;
 }
 
 const NOT_FAMILY_CONTACT = "Cette adresse e-mail n’est pas encore autorisée. Demande à Florent (florent.lambert@gmail.com) de créer ton accès LaBaJo & Co, puis réessaie.";
