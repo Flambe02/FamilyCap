@@ -521,22 +521,35 @@ function AdminMovementsMobile({ transactions, bitcoinEur, sortDir, onToggleSort,
 
 export type GiftSaveResult = { message: string; member: string; amountEur: number };
 
-export function InvestmentModal({ defaultMember, onClose, onSaved }: { defaultMember?: string; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
+export type GiftEditingInput = {
+  id?: string;
+  member: string;
+  occasion: "Anniversaire" | "Noël" | "Autre cadeau";
+  custody: "Binance commun" | "Ledger";
+  amountEur: number;
+  btcAmount: number;
+  giftDate: string;
+  txid?: string | null;
+  note?: string | null;
+};
+
+export function InvestmentModal({ defaultMember, editing, onClose, onSaved }: { defaultMember?: string; editing?: GiftEditingInput; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
   const [step, setStep] = useState(1);
   const [draft, setDraft] = useState({
-    member: defaultMember ?? memberNames[0],
-    occasion: "Anniversaire" as "Anniversaire" | "Noël" | "Autre cadeau",
-    custody: "Binance commun" as "Binance commun" | "Ledger",
-    amount: "55",
-    quantity: "",
-    date: new Date().toISOString().slice(0, 10),
-    txid: "",
-    note: "",
+    member: editing?.member ?? defaultMember ?? memberNames[0],
+    occasion: editing?.occasion ?? ("Anniversaire" as "Anniversaire" | "Noël" | "Autre cadeau"),
+    custody: editing?.custody ?? ("Binance commun" as "Binance commun" | "Ledger"),
+    amount: editing ? String(editing.amountEur) : "55",
+    quantity: editing?.btcAmount ? String(editing.btcAmount) : "",
+    date: editing?.giftDate ?? new Date().toISOString().slice(0, 10),
+    txid: editing?.txid ?? "",
+    note: editing?.note ?? "",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const update = <K extends keyof typeof draft>(key: K, value: typeof draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const dialogRef = useDialogA11y(true, onClose);
+  const isEditing = Boolean(editing?.id);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -548,6 +561,7 @@ export function InvestmentModal({ defaultMember, onClose, onSaved }: { defaultMe
       const amountEur = Number(draft.amount);
       const btcAmount = Number(draft.quantity);
       await saveGift({
+        id: editing?.id,
         member: draft.member,
         occasion: draft.occasion,
         giftDate: draft.date,
@@ -558,7 +572,7 @@ export function InvestmentModal({ defaultMember, onClose, onSaved }: { defaultMe
         txid: draft.custody === "Ledger" && draft.txid.trim() ? draft.txid.trim() : null,
         note: draft.note.trim() || null,
       });
-      onSaved({ message: "Cadeau enregistré et visible dans Transactions.", member: draft.member, amountEur });
+      onSaved({ message: isEditing ? "Cadeau modifié et visible dans Cadeaux d’Amatxi." : "Cadeau enregistré et visible dans Transactions.", member: draft.member, amountEur });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Enregistrement impossible.");
     } finally {
@@ -569,7 +583,7 @@ export function InvestmentModal({ defaultMember, onClose, onSaved }: { defaultMe
   return (
     <div className="modal-backdrop" onMouseDown={(event) => !busy && event.target === event.currentTarget && onClose()}>
       <section ref={dialogRef} className="modal guided-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" tabIndex={-1}>
-        <header><div><span>SAISIE GUIDÉE · ÉTAPE {step} SUR 3</span><h2 id="entry-title">{stepTitle(step)}</h2></div><button onClick={onClose} aria-label="Fermer" disabled={busy}>×</button></header>
+        <header><div><span>{isEditing ? "MODIFIER LE CADEAU" : "SAISIE GUIDÉE"} · ÉTAPE {step} SUR 3</span><h2 id="entry-title">{stepTitle(step)}</h2></div><button onClick={onClose} aria-label="Fermer" disabled={busy}>×</button></header>
         <div className="step-progress"><span className={step >= 1 ? "done" : ""} /><span className={step >= 2 ? "done" : ""} /><span className={step >= 3 ? "done" : ""} /></div>
         <p className="modal-help">{stepHelp(step)}</p>
         <form onSubmit={submit}>
@@ -585,7 +599,7 @@ export function InvestmentModal({ defaultMember, onClose, onSaved }: { defaultMe
             {draft.custody === "Ledger" && <label className="span-2">TxID (optionnel)<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} placeholder="Laisser vide si le virement n’a pas encore eu lieu" /></label>}
           </div>}
           {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Bénéficiaire</dt><dd>{draft.member}</dd></div><div><dt>Occasion</dt><dd>{draft.occasion}</dd></div><div><dt>Localisation</dt><dd>{draft.custody}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount) || 0)}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} BTC` : "—"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label>{error && <p className="editor-feedback" role="alert">{error}</p>}</div>}
-          <footer><button type="button" className="secondary-button" disabled={busy} onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)}>{step === 1 ? "Annuler" : "← Retour"}</button><button type="submit" className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : step === 3 ? "Enregistrer l’opération" : "Continuer →"}</button></footer>
+          <footer><button type="button" className="secondary-button" disabled={busy} onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)}>{step === 1 ? "Annuler" : "← Retour"}</button><button type="submit" className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : step === 3 ? (isEditing ? "Enregistrer les modifications" : "Enregistrer l’opération") : "Continuer →"}</button></footer>
         </form>
       </section>
     </div>

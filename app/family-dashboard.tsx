@@ -5,6 +5,7 @@ import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsVi
 import { TransferRequest } from "./back-office";
 import { Administration } from "./administration";
 import { GiftPortfolio } from "./gift-portfolio";
+import { AmatxiGifts } from "./amatxi-gifts";
 import { Settings, PreviewSettings } from "./settings";
 import { Indicators } from "./indicators";
 import type { Viewer } from "../lib/auth-types";
@@ -14,7 +15,7 @@ import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 
-type View = "famille" | "portefeuilles" | "transactions" | "indicateurs" | "comptes" | "videos" | "famille-roster" | "backoffice" | "suggestions" | "administration-globale" | "apprendre" | "parametres";
+type View = "famille" | "cadeaux-amatxi" | "portefeuilles" | "transactions" | "indicateurs" | "comptes" | "videos" | "famille-roster" | "backoffice" | "suggestions" | "administration-globale" | "apprendre" | "parametres";
 
 type FamilyGiftRecord = {
   member_name: string;
@@ -72,11 +73,12 @@ function familyCalendarLabel(events: FamilyCalendarEvent[]) {
   if (!christmas) return birthdayLabel;
   return birthdays.length > 0 ? birthdayLabel + " + No\u00ebl le 25 d\u00e9cembre" : "Prochain \u00e9v\u00e8nement : No\u00ebl le 25 " + dateLabel;
 }
-type NavIconId = "house" | "gift" | "bitcoin" | "trending-up" | "landmark" | "square-play" | "users" | "book-open" | "settings" | "list-checks" | "star" | "shield-check" | "calendar";
+type NavIconId = "house" | "gift" | "wallet" | "bitcoin" | "trending-up" | "landmark" | "square-play" | "users" | "book-open" | "settings" | "list-checks" | "star" | "shield-check" | "calendar";
 
 const navItems: { id: View; label: string; icon: NavIconId; iconLabel: string; short?: string }[] = [
   { id: "famille", label: "Tableau de bord", icon: "house", iconLabel: "Tableau de bord", short: "Accueil" },
-  { id: "portefeuilles", label: "Cadeaux d’Amatxi", icon: "gift", iconLabel: "Cadeaux d’Amatxi", short: "Cadeaux" },
+  { id: "cadeaux-amatxi", label: "Cadeaux d’Amatxi", icon: "gift", iconLabel: "Cadeaux d’Amatxi", short: "Cadeaux" },
+  { id: "portefeuilles", label: "Portefeuille", icon: "wallet", iconLabel: "Portefeuille" },
   { id: "transactions", label: "Bitcoin", icon: "bitcoin", iconLabel: "Bitcoin" },
   { id: "indicateurs", label: "Investissements", icon: "trending-up", iconLabel: "Investissements", short: "Investir" },
   { id: "comptes", label: "Comptes (PEA / Titres)", icon: "landmark", iconLabel: "Comptes PEA et titres" },
@@ -94,6 +96,7 @@ const NAV_ICON_COMMON = { viewBox: "0 0 24 24", fill: "none", stroke: "currentCo
 const NAV_ICONS: Record<NavIconId, ReactElement> = {
   house: <svg {...NAV_ICON_COMMON}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" /></svg>,
   gift: <svg {...NAV_ICON_COMMON}><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5" /></svg>,
+  wallet: <svg {...NAV_ICON_COMMON}><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><path d="M3 10h16.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H17a2 2 0 0 1 0-4h3.5" /></svg>,
   bitcoin: <svg {...NAV_ICON_COMMON}><path d="M11.8 19.1c4.9.9 6.1-6 1.2-6.9m-1.2 6.9L5.9 18m5.9 1.1-.3 2m1.6-8.9c4.9.9 6.1-6 1.2-6.9m-1.2 6.9-3.9-.7m5.1-6.2L8.3 4.3m5.9 1-.3-2M7.5 20.4l3.1-17.7" /></svg>,
   "trending-up": <svg {...NAV_ICON_COMMON}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>,
   landmark: <svg {...NAV_ICON_COMMON}><line x1="3" y1="22" x2="21" y2="22" /><line x1="6" y1="18" x2="6" y2="11" /><line x1="10" y1="18" x2="10" y2="11" /><line x1="14" y1="18" x2="14" y2="11" /><line x1="18" y1="18" x2="18" y2="11" /><polygon points="12 2 20 7 4 7" /></svg>,
@@ -111,7 +114,7 @@ function NavIcon({ id }: { id: NavIconId }) {
   return NAV_ICONS[id];
 }
 const ADMIN_ONLY_VIEW_IDS: View[] = ["backoffice", "suggestions", "administration-globale"];
-const BOTTOM_NAV_VIEW_IDS: View[] = ["famille", "portefeuilles", "indicateurs", "videos", "famille-roster"];
+const BOTTOM_NAV_VIEW_IDS: View[] = ["famille", "cadeaux-amatxi", "indicateurs", "videos", "famille-roster"];
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const euroCompact = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
@@ -416,6 +419,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
         {view === "famille" && (
           <Dashboard totalBtc={totalBtc} totalBitcoinValueEur={totalBitcoinValueEur} bitcoinEur={bitcoinEur} marketLoading={familyMarketLoading} memberBalances={memberBalances} activity={activity} transferRequests={transferRequests} canManageGifts={canManageGifts} openModal={() => setModalOpen(true)} navigate={navigate} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />
         )}
+        {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} previewReadOnly={isPreview} onOpenTransactions={openFilteredTransactions} />}
         {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "indicateurs" && <Indicators records={familyGiftRecords} bitcoinEur={bitcoinEur} />}
@@ -642,7 +646,8 @@ export function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow: stri
 function titleFor(view: View) {
   return {
     famille: "Tableau de bord",
-    portefeuilles: "Cadeaux d’Amatxi",
+    "cadeaux-amatxi": "Cadeaux d’Amatxi",
+    portefeuilles: "Portefeuille",
     transactions: "Bitcoin",
     indicateurs: "Investissements",
     comptes: "Comptes (PEA / Titres)",
