@@ -115,61 +115,13 @@ function LoginScreen() {
   return <main className="auth-page">
     <div className="auth-hero">
       <section className="auth-brand">
-        <div className="auth-brandmark">
-          <img src="/Labajo logo.png" alt="" width={56} height={56} className="auth-brandmark-icon" />
-          <span className="auth-brandmark-rule" aria-hidden="true" />
-          <span className="auth-brandmark-name">LaBaJo &amp; Co</span>
-        </div>
+        <img src="/labajo-logo.png" alt="LaBaJo &amp; Co" width={516} height={351} className="auth-brandmark" />
         <div className="auth-brand-copy">
           <small>ESPACE FAMILLE PRIVÉ</small>
           <h1>Grandir avec<br />son argent.</h1>
           <p>Organisez les cadeaux, suivez les projets<br />et construisez l’avenir financier de votre famille.</p>
         </div>
-        <span className="auth-art" aria-hidden="true">
-          <svg viewBox="0 0 420 460" fill="none">
-            <defs>
-              <radialGradient id="orbCore" cx="42%" cy="38%" r="60%"><stop offset="0%" stopColor="#fff8e6" /><stop offset="45%" stopColor="#f3d585" /><stop offset="100%" stopColor="#c99a44" /></radialGradient>
-              <filter id="orbGlow" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="14" /></filter>
-              <linearGradient id="domeGlass" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#79c9bd" stopOpacity=".55" /><stop offset="100%" stopColor="#1c4f4a" stopOpacity=".35" /></linearGradient>
-              <linearGradient id="coinGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f3d585" /><stop offset="100%" stopColor="#a97f3c" /></linearGradient>
-              <linearGradient id="coinTeal" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5f9c94" /><stop offset="100%" stopColor="#2a5551" /></linearGradient>
-              <linearGradient id="plinth" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#173347" /><stop offset="100%" stopColor="#0a1c28" /></linearGradient>
-            </defs>
-
-            <ellipse cx="200" cy="430" rx="150" ry="20" fill="url(#plinth)" />
-            <ellipse cx="200" cy="422" rx="150" ry="10" fill="none" stroke="#c99a44" strokeOpacity=".35" />
-
-            <g aria-hidden="true">
-              <rect x="96" y="368" width="56" height="52" rx="8" fill="url(#coinGold)" />
-              <ellipse cx="124" cy="368" rx="28" ry="9" fill="#f8e2ab" />
-              <path d="M96 384h56M96 398h56" stroke="#8a662f" strokeOpacity=".5" strokeWidth="1.5" />
-
-              <rect x="170" y="330" width="62" height="90" rx="8" fill="url(#coinTeal)" />
-              <ellipse cx="201" cy="330" rx="31" ry="9.5" fill="#8fc3ba" />
-              <path d="M170 350h62M170 368h62M170 386h62M170 404h62" stroke="#173430" strokeOpacity=".45" strokeWidth="1.5" />
-
-              <rect x="252" y="296" width="66" height="124" rx="8" fill="url(#coinGold)" />
-              <ellipse cx="285" cy="296" rx="33" ry="10" fill="#f8e2ab" />
-              <path d="M252 318h66M252 340h66M252 362h66M252 384h66M252 404h66" stroke="#8a662f" strokeOpacity=".5" strokeWidth="1.5" />
-            </g>
-
-            <path d="M110 420 V190 a90 90 0 0 1 180 0 V420" stroke="url(#domeGlass)" strokeWidth="6" strokeLinecap="round" />
-            <ellipse cx="200" cy="190" rx="90" ry="14" fill="none" stroke="url(#domeGlass)" strokeWidth="3" />
-
-            <g>
-              <path d="M136 340 Q116 280 142 200" stroke="#c9a86a" strokeOpacity=".85" strokeWidth="3.5" fill="none" strokeLinecap="round" />
-              <ellipse cx="143" cy="213" rx="16" ry="8" fill="#bcd1a4" opacity=".9" transform="rotate(-32 143 213)" />
-              <ellipse cx="126" cy="248" rx="14" ry="7" fill="#bcd1a4" opacity=".82" transform="rotate(-14 126 248)" />
-              <ellipse cx="133" cy="288" rx="13" ry="6.5" fill="#bcd1a4" opacity=".76" transform="rotate(-4 133 288)" />
-              <ellipse cx="122" cy="322" rx="11" ry="5.5" fill="#bcd1a4" opacity=".7" transform="rotate(-20 122 322)" />
-            </g>
-
-            <circle cx="200" cy="150" r="58" fill="#f3d585" opacity=".14" filter="url(#orbGlow)" />
-            <circle cx="200" cy="150" r="34" fill="none" stroke="#f3d585" strokeOpacity=".3" />
-            <circle cx="200" cy="150" r="26" fill="url(#orbCore)" opacity=".5" filter="url(#orbGlow)" />
-            <circle cx="200" cy="150" r="24" fill="url(#orbCore)" />
-          </svg>
-        </span>
+        <img src="/family-growth-illustration.webp" alt="" aria-hidden="true" width={868} height={913} className="auth-art" />
       </section>
       <section className="auth-panel">
         <div className="auth-card">
