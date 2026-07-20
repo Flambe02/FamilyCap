@@ -273,10 +273,10 @@ function replayOnboarding() { setOnboardingOpen(true); }
       <aside className="sidebar">
         <button className="brand" onClick={() => setView("famille")} aria-label="Accueil LaBaJo & Co">
           <span className="brand-mark"><img src="/Labajo logo.png" alt="" width={39} height={39} /></span>
-          <span><strong>LaBaJo &amp; Co</strong><small>L’école financière</small></span>
+          <span><strong>LaBaJo &amp; Co</strong><small>L’école financière familiale</small></span>
         </button>
 
-        <nav aria-label="Navigation principale">
+        <nav className="sidebar-nav" aria-label="Navigation principale">
           <div className="nav-group">
             <p className="nav-kicker" id="nav-membre-label">ESPACE FAMILLE</p>
             {memberNavItems.map((item) => (
@@ -318,7 +318,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
         <div className="profile-mini">
           <span className="avatar admin" aria-hidden="true">FM</span>
           <span><strong>{isPreview ? previewMember : viewer.name}</strong><small>{isPreview ? "Apercu lecture seule" : viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
-          {!isPreview && <button type="button" onClick={() => setProfileMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-label="Menu du profil">...</button>}
+          {!isPreview && <button type="button" className="profile-mini-trigger" onClick={() => setProfileMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-label="Menu du profil">⌄</button>}
           {!isPreview && profileMenuOpen && <>
             <div className="profile-menu-backdrop" onClick={() => setProfileMenuOpen(false)} />
             <div className="profile-menu-popup" role="menu">
