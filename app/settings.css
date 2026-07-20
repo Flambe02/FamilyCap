@@ -1,0 +1,40 @@
+/* Paramètres — layout dédié : menu principal conservé (family.css .sidebar),
+   navigation secondaire horizontale ici (pas de seconde sidebar). */
+.settings-page{width:min(1040px,calc(100% - 48px));margin:0 auto}
+.settings-page-head{margin-bottom:4px}
+.settings-page-head .settings-eyebrow{display:block;color:var(--teal);font-size:8px;font-weight:900;letter-spacing:1.4px;margin-bottom:6px}
+.settings-page-head h2{margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:clamp(26px,3vw,34px);font-weight:500;letter-spacing:-.8px;color:var(--ink)}
+.settings-page-head p{margin:0;color:var(--muted);font-size:12px;line-height:1.6;max-width:540px}
+
+.settings-tabbar{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 18px;list-style:none;padding:0}
+.settings-tabbar button{border:1px solid var(--line);background:var(--surface,#fff);border-radius:999px;padding:9px 16px;font-size:10.5px;font-weight:800;color:var(--muted);cursor:pointer;white-space:nowrap;min-height:38px;transition:.16s}
+.settings-tabbar button:hover{color:var(--ink);border-color:var(--line-strong,var(--line))}
+.settings-tabbar button.active{background:var(--teal-soft);border-color:transparent;color:var(--teal)}
+.settings-tabbar button:focus-visible{outline:3px solid rgba(29,112,107,.35);outline-offset:2px}
+
+.settings-account-head{display:flex;align-items:center;gap:14px;margin-bottom:24px}
+.settings-account-head .avatar{width:52px;height:52px;font-size:16px;border-radius:16px;flex:0 0 auto}
+.settings-account-head h3{margin:0;font-size:16px}
+.settings-account-head p{margin:3px 0 0;color:var(--muted);font-size:10px}
+
+.verify-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:20px;font-size:8px;font-weight:900;letter-spacing:.4px;vertical-align:middle}
+.verify-badge.verified{background:var(--teal-soft);color:var(--teal)}
+.verify-badge.unverified{background:var(--amber-soft);color:#9d6a00}
+.verify-badge.pending{background:#f0f3f3;color:var(--muted)}
+
+.settings-message{margin-top:10px;padding:11px 14px;border-radius:10px;font-size:9.5px;line-height:1.5}
+.settings-message.success{background:var(--teal-soft);color:#0e5d57}
+.settings-message.error{background:#fbe7e2;color:#a74333}
+
+.settings-account-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.settings-account-actions button{border:0;border-radius:9px;padding:11px 16px;background:var(--ink);color:#fff;font-size:10px;font-weight:800;cursor:pointer}
+.settings-account-actions button:disabled{opacity:.45;cursor:default}
+.settings-account-actions .logout-button{background:#fff;color:var(--coral);border:1px solid var(--line)}
+
+@media(max-width:780px){
+  .settings-page{width:calc(100% - 28px)}
+  .settings-page-head h2{font-size:24px}
+  .settings-tabbar{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+  .settings-tabbar button{flex:0 0 auto}
+  .settings-account-head{flex-wrap:wrap}
+}

@@ -5,9 +5,7 @@ import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsVi
 import { TransferRequest } from "./back-office";
 import { Administration } from "./administration";
 import { GiftPortfolio } from "./gift-portfolio";
-import { AdminUsers } from "./admin-users";
-import { InvestmentAccessSettings } from "./investment-access-settings";
-import { InstallAppCard } from "./install-app";
+import { Settings, PreviewSettings } from "./settings";
 import { AmatxiReport } from "./amatxi-report";
 import { Indicators } from "./indicators";
 import type { Viewer } from "../lib/auth-types";
@@ -522,120 +520,12 @@ function Learn() {
   return <div className="page-stack"><section className="learn-head"><span className="soft-pill">BIBLIOTHÈQUE FAMILIALE</span><h2>Apprendre juste ce qu’il faut,<br />au bon moment.</h2><p>Des explications courtes, reliées à une vraie action dans le portefeuille.</p></section><section className="lesson-grid">{lessons.map((lesson, i) => <article className="lesson-card" key={lesson.title}><div className={`lesson-icon ${lesson.color}`}>{lesson.icon}</div><span>{lesson.level} · {i + 4} MIN</span><h3>{lesson.title}</h3><p>{lesson.text}</p><button>Commencer la leçon →</button></article>)}</section></div>;
 }
 
-function PreviewSettings({ member, onExit }: { member: string; onExit: () => void }) {
-  return <div className="panel preview-settings"><span>MODE APERCU</span><h2>Vue de {member}</h2><p>Tu regardes l interface comme ce membre, sans modifier son compte, ses donnees ou ses droits reels.</p><button className="primary-button" onClick={onExit}>Quitter l apercu</button></div>;
-}
-function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void }) {
-  const adminTabs = [["utilisateurs", "Utilisateurs & accès"], ["portefeuilles", "Comptes & wallets"], ["partage", "Partage de mes investissements"], ["cadeaux", "Règles des cadeaux"], ["securite", "Sécurité"], ["donnees", "Données & exports"], ["compte", "Mon compte"]];
-  const memberTabs = [["compte", "Mon compte"], ["portefeuilles", "Mes portefeuilles"], ["partage", "Partage de mes investissements"], ["securite", "S\u00e9curit\u00e9"]];
-  const tabs = viewer.role === "admin" ? adminTabs : memberTabs;
-  const [tab, setTab] = useState(viewer.role === "admin" ? "utilisateurs" : "compte");
-  return <div className="settings-layout"><aside className="settings-nav"><p>RÉGLAGES</p>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}<span>›</span></button>)}</aside><section className="settings-content panel">{tab === "utilisateurs" && viewer.role === "admin" && <UsersSettings />}{tab === "portefeuilles" && (viewer.role === "admin" ? <WalletSettings /> : <MemberWalletSettings viewer={viewer} />)}{tab === "partage" && <InvestmentAccessSettings />}{tab === "cadeaux" && viewer.role === "admin" && <GiftSettings />}{tab === "securite" && <SecuritySettings />}{tab === "donnees" && viewer.role === "admin" && <DataSettings />}{tab === "compte" && <PersonalSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={onReplayOnboarding} />}</section></div>;
-}
-
-function formatBirthday(day?: number | null, month?: number | null, year?: number | null) {
-  if (!day || !month) return "Non renseignée";
-  const formatted = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(new Date(2000, month - 1, day));
-  return year ? `${formatted} ${year}` : formatted;
-}
-
-function PersonalSettings({ viewer, onSignOut, publishedVersion, onReplayOnboarding }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void }) {
-  const [password, setPassword] = useState("");
-  const [passwordMessage, setPasswordMessage] = useState("");
-  const [email, setEmail] = useState(viewer.email);
-  const [emailMessage, setEmailMessage] = useState("");
-  const [savingEmail, setSavingEmail] = useState(false);
-
-  async function updatePassword() {
-    if (password.length < 8) { setPasswordMessage("Le mot de passe doit contenir au moins 8 caractères."); return; }
-    const { error } = await supabaseBrowser.auth.updateUser({ password });
-    setPasswordMessage(error ? error.message : "Mot de passe mis à jour.");
-    if (!error) setPassword("");
-  }
-
-  async function updateEmail() {
-    const trimmed = email.trim().toLowerCase();
-    if (!/^\S+@\S+\.\S+$/.test(trimmed)) { setEmailMessage("Adresse e-mail invalide."); return; }
-    if (trimmed === viewer.email.toLowerCase()) { setEmailMessage("C'est déjà ton adresse actuelle."); return; }
-    setSavingEmail(true); setEmailMessage("");
-    const { error } = await supabaseBrowser.auth.updateUser({ email: trimmed });
-    setEmailMessage(error ? error.message : "E-mail de confirmation envoyé à la nouvelle adresse. Clique sur le lien reçu pour valider le changement.");
-    setSavingEmail(false);
-  }
-
-  return <>
-    <PanelTitle eyebrow="MON ESPACE" title="Compte & connexion" />
-    <p className="section-intro">Ces informations correspondent à ton accès personnel LaBaJo &amp; Co.</p>
-    <InstallAppCard />
-    <div className="form-grid">
-      <label>Nom<input value={viewer.name} readOnly /></label>
-      <label>Rôle<input value={viewer.role === "admin" ? "Administrateur" : viewer.role === "viewer" ? "Amatxi" : "Utilisateur"} readOnly /></label>
-      <label>Date de naissance<input value={formatBirthday(viewer.birthdayDay, viewer.birthdayMonth, viewer.birthdayYear)} readOnly /></label>
-    </div>
-    <p className="section-hint">Le nom, le rôle et la date de naissance sont gérés par Florent — contacte-le pour une correction.</p>
-
-    <h3 className="settings-subhead">Adresse e-mail (identifiant de connexion)</h3>
-    <div className="form-grid">
-      <label className="span-2">Adresse e-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></label>
-    </div>
-    <div className="settings-account-actions"><button onClick={() => void updateEmail()} disabled={savingEmail}>{savingEmail ? "Envoi…" : "Changer d'adresse e-mail"}</button></div>
-    {emailMessage && <p className="info-callout" role="status">{emailMessage}</p>}
-
-    <h3 className="settings-subhead">Mot de passe</h3>
-    <div className="form-grid">
-      <label>Nouveau mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" autoComplete="new-password" /></label>
-    </div>
-    <div className="settings-account-actions">
-      <button onClick={() => void updatePassword()}>Mettre à jour le mot de passe</button>
-      <button className="logout-button" onClick={onSignOut}>Se déconnecter</button>
-    </div>
-    {passwordMessage && <p className="info-callout" role="status">{passwordMessage}</p>}
-
-    {viewer.role !== "admin" && onReplayOnboarding && <div className="onboarding-settings"><div><b>Revoir les premiers pas</b><p>Une visite courte pour comprendre Binance, Ledger et ton portefeuille.</p></div><button type="button" onClick={onReplayOnboarding}>Revoir la visite</button></div>}
-    <div className="account-version">Version publiée <strong>{publishedVersion}</strong></div>
-  </>;
-}
-
-function UsersSettings() {
-  return <AdminUsers />;
-}
-
-function WalletSettings() {
-  const [wallets, setWallets] = useState<Array<{ name: string; address: string }> | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      const { data } = await supabaseBrowser.auth.getSession();
-      const response = await fetch("/api/admin/users", { headers: { authorization: "Bearer " + (data.session?.access_token ?? "") }, signal: controller.signal });
-      const result = await response.json() as { users?: Array<{ name: string; wallet_address?: string | null }> };
-      setWallets((result.users ?? []).filter((user) => user.wallet_address).map((user) => ({ name: user.name, address: user.wallet_address as string })));
-    })().catch(() => setWallets([]));
-    return () => controller.abort();
-  }, []);
-  return <><PanelTitle eyebrow="PARAMÈTRES" title="Comptes & wallets" /><p className="section-intro">Les adresses publiques Ledger enregistrées pour la famille sont contrôlées sur la blockchain. Jamais de clé privée ni de phrase de récupération. Ajoute ou modifie une adresse depuis Utilisateurs &amp; accès.</p><div className="wallet-list"><article><div className="wallet-logo bitcoin">₿</div><div><strong>Binance commun</strong><p>Compte de passage · parts individuelles à ventiler</p></div><span className="warning-pill">À rapprocher</span></article>{wallets === null ? <p className="section-hint">Chargement…</p> : wallets.length === 0 ? <p className="section-hint">Aucune adresse Ledger enregistrée pour l’instant.</p> : wallets.map((wallet) => <article key={wallet.name}><div className="wallet-logo ledger">L</div><div><strong>Ledger de {wallet.name}</strong><p title={wallet.address}>{wallet.address}</p></div><span className="access">Blockchain connectée</span></article>)}</div><div className="info-callout"><b>Important</b><p>Ces adresses servent uniquement à lire les soldes et transactions publics. Les 24 mots, clés privées, codes PIN et codes Binance ne doivent jamais être saisis ici.</p></div></>;
-}
-
-function MemberWalletSettings({ viewer }: { viewer: Viewer }) {
-  const address = viewer.walletAddress;
-  return <><PanelTitle eyebrow="MES PARAMÈTRES" title="Mon portefeuille" /><p className="section-intro">Tu peux consulter ton adresse publique et son historique. Seul Florent peut modifier les comptes familiaux.</p>{address ? <div className="wallet-list"><article><div className="wallet-logo ledger">L</div><div><strong>Ledger de {viewer.name}</strong><p>{address}</p></div><span className="access">Blockchain connectée</span></article></div> : <div className="info-callout"><b>Aucun portefeuille associé</b><p>Florent pourra ajouter ton compte depuis le back-office.</p></div>}</>;
-}
-function GiftSettings() {
-  return <><PanelTitle eyebrow="PARAMÈTRES" title="Règles des cadeaux" /><div className="form-grid"><label>Montant par cadeau<div className="input-suffix"><input defaultValue="55,00" /><span>EUR</span></div></label><label>Occasions<select defaultValue="birthday"><option value="birthday">Anniversaire + Noël</option></select></label><label>Date de début<input type="date" defaultValue="2022-12-27" /></label><label>Traitement des frais<select defaultValue="included"><option value="included">Inclus dans les 55 €</option></select></label></div><div className="info-callout"><b>Règle active</b><p>Chaque enfant reçoit 55 € au total, frais Binance et frais réseau compris. Les échéances futures sont générées automatiquement.</p></div></>;
-}
-
-function SecuritySettings() {
-  return <><PanelTitle eyebrow="PARAMÈTRES" title="Sécurité & confidentialité" /><div className="security-grid"><article><span>1</span><div><strong>Connexion personnelle</strong><p>À la mise en ligne, chaque membre utilisera une invitation sécurisée. Aucun mot de passe ne sera visible ou stocké en clair.</p></div><b>Prévu</b></article><article><span>2</span><div><strong>Rôles et permissions</strong><p>Administrateur, adulte, jeune investisseur et lecture seule.</p></div><b>Défini</b></article><article><span>3</span><div><strong>Données sensibles</strong><p>Les phrases Ledger, clés privées, codes Binance et codes 2FA sont interdits dans l’application.</p></div><b>Actif</b></article></div></>;
-}
-
-function DataSettings() {
-  return <><PanelTitle eyebrow="PARAMÈTRES" title="Données & exports" /><div className="export-card"><div><strong>Registre de rapprochement</strong><p>Exporter l’historique des cadeaux, les quantités BTC, les soldes Binance/Ledger et les écarts.</p></div><button>Exporter en Excel</button></div><div className="export-card"><div><strong>Sauvegarde familiale</strong><p>Une sauvegarde chiffrée sera disponible avec la version en ligne.</p></div><button disabled>Bientôt</button></div></>;
-}
 
 function Stat({ label, value, note, tone, icon }: { label: string; value: string; note: string; tone: string; icon: string }) {
   return <article className="stat-card"><span className={`stat-icon ${tone}`}>{icon}</span><div><p>{label}</p><strong>{value}</strong><small>{note}</small></div></article>;
 }
 
-function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow: string; title: string; action?: string; onAction?: () => void }) {
+export function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow: string; title: string; action?: string; onAction?: () => void }) {
   return <header className="panel-title"><div><span>{eyebrow}</span><h2>{title}</h2></div>{action && <button onClick={onAction}>{action} →</button>}</header>;
 }
 
