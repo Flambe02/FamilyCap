@@ -16,7 +16,7 @@ import { MemberOnboarding } from "./member-onboarding";
 import { GIFT_HISTORY } from "../lib/gift-history";
 import { useDialogA11y } from "./use-dialog-a11y";
 
-type View = "famille" | "portefeuilles" | "transactions" | "indicateurs" | "backoffice" | "amatxi" | "missions" | "apprendre" | "parametres";
+type View = "famille" | "portefeuilles" | "transactions" | "indicateurs" | "backoffice" | "amatxi" | "apprendre" | "parametres";
 
 type FamilyGiftRecord = {
   member_name: string;
@@ -77,7 +77,6 @@ const navItems: { id: View; label: string; icon: string; iconLabel: string; shor
   { id: "indicateurs", label: "Indicateurs", icon: "↗", iconLabel: "Indicateurs", short: "Indicateurs" },
   { id: "backoffice", label: "Administration", icon: "▣", iconLabel: "Administration" },
   { id: "amatxi", label: "Vue Amatxi", icon: "?", iconLabel: "Vue Amatxi" },
-  { id: "missions", label: "Missions", icon: "◎", iconLabel: "Missions", short: "Missions" },
   { id: "apprendre", label: "Apprendre", icon: "◇", iconLabel: "Apprendre", short: "Apprendre" },
   { id: "parametres", label: "Paramètres", icon: "⚙", iconLabel: "Paramètres", short: "Paramètres" },
 ];
@@ -103,7 +102,6 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const publishedVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "local";
   const [activity, setActivity] = useState([
     { member: "Thibault", label: "Cadeau anniversaire", detail: "55,00 € · Bitcoin", time: "15 mars" },
-    { member: "Famille", label: "Mission publiée", detail: "Comprendre les ETF indiciels", time: "1 juil." },
   ]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>(initialTransactions);
   const [transferRequests, setTransferRequests] = useState<TransferRequest[]>([]);
@@ -282,7 +280,6 @@ function replayOnboarding() { setOnboardingOpen(true); }
               >
                 <span aria-hidden="true">{item.icon}</span>
                 <span className="sr-only">{item.iconLabel} :</span>{item.label}
-                {item.id === "missions" && <em aria-label="4 missions en attente">4</em>}
               </button>
             ))}
           </div>
@@ -382,9 +379,8 @@ function replayOnboarding() { setOnboardingOpen(true); }
         {view === "indicateurs" && <Indicators records={familyGiftRecords} bitcoinEur={bitcoinEur} />}
         {view === "backoffice" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "amatxi" && effectiveViewer.role === "admin" && <AmatxiReport records={familyGiftRecords} bitcoinEur={bitcoinEur} loading={familyMarketLoading} />}
-        {view === "missions" && <Missions openModal={() => setModalOpen(true)} />}
         {view === "apprendre" && <Learn />}
-        {view === "parametres" && (isPreview ? <PreviewSettings member={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={viewer.role === "admin" ? undefined : replayOnboarding} />)}
+        {view === "parametres" && (isPreview ? <PreviewSettings member={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} />)}
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
@@ -500,15 +496,6 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
         </div>
       </section>
 
-      <section className="panel mission-panel">
-        <PanelTitle eyebrow="MISSION DE JUILLET" title="Faire travailler 55 €" action="Toutes les missions" onAction={() => navigate("missions")} />
-        <div className="mission-body">
-          <div className="mission-score"><strong>1<span>/5</span></strong><small>membre à jour</small></div>
-          <div className="mission-copy"><span className="tag">NIVEAU DÉBUTANT · 8 MIN</span><h3>Découvrir l’investissement régulier</h3><p>Comprendre pourquoi investir un petit montant chaque mois réduit le stress et construit une habitude durable.</p><div className="avatars"><span>TH</span><span>UH</span><span>PA</span><span>AU</span><span>TO</span><small>4 réponses attendues</small></div></div>
-          <button className="round-arrow" onClick={() => navigate("missions")} aria-label="Voir la mission">→</button>
-        </div>
-      </section>
-
       <section className="panel activity-panel">
         <PanelTitle eyebrow="JOURNAL" title="Activité récente" action="Ajouter" onAction={openModal} />
         <div className="activity-list">
@@ -525,15 +512,6 @@ function Portfolios({ viewer, requests, selectedMember, previewReadOnly, onOpenT
   return <GiftPortfolio viewer={viewer} requests={requests} selectedMember={selectedMember} previewReadOnly={previewReadOnly} onOpenTransactions={onOpenTransactions} />;
 }
 
-function Missions({ openModal }: { openModal: () => void }) {
-  const missions = [
-    { month: "JUILLET", title: "Investir régulièrement", desc: "Choisir un montant réaliste et déclarer l’achat du mois.", progress: 20, status: "En cours" },
-    { month: "JUIN", title: "Comprendre un ETF", desc: "Indice, diversification, frais et horizon de placement.", progress: 100, status: "Terminée" },
-    { month: "MAI", title: "Risque et volatilité", desc: "Distinguer perte temporaire et perte définitive.", progress: 80, status: "4 sur 5" },
-  ];
-  return <div className="page-stack"><section className="mission-banner"><div><span>MISSION FAMILIALE · JUILLET 2026</span><h2>Un petit investissement.<br />Une grande habitude.</h2><p>Chaque membre lit le conseil, réalise son opération puis la saisit lui-même.</p><button onClick={openModal}>J’ai investi ce mois-ci →</button></div><div className="steps"><b>1</b><span>Je comprends</span><b>2</b><span>Je choisis</span><b>3</b><span>Je saisis</span></div></section><section className="panel"><PanelTitle eyebrow="PARCOURS MENSUEL" title="Les dernières missions" action="Créer une mission" /><div className="mission-list">{missions.map(m => <article key={m.month}><span className="month-badge">{m.month}</span><div><h3>{m.title}</h3><p>{m.desc}</p><div className="progress wide" role="progressbar" aria-label={`Mission ${m.title}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={m.progress} aria-valuetext={`${m.progress}% terminé`}><span style={{ width: `${m.progress}%` }} /></div></div><strong>{m.status}</strong></article>)}</div></section></div>;
-}
-
 function Learn() {
   const lessons = [
     { level: "LES BASES", title: "Pourquoi investir tôt ?", text: "Le temps et les intérêts composés sont les deux meilleurs alliés d’un jeune investisseur.", icon: "↗", color: "navy" },
@@ -548,11 +526,11 @@ function PreviewSettings({ member, onExit }: { member: string; onExit: () => voi
   return <div className="panel preview-settings"><span>MODE APERCU</span><h2>Vue de {member}</h2><p>Tu regardes l interface comme ce membre, sans modifier son compte, ses donnees ou ses droits reels.</p><button className="primary-button" onClick={onExit}>Quitter l apercu</button></div>;
 }
 function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void }) {
-  const adminTabs = [["utilisateurs", "Utilisateurs & accès"], ["portefeuilles", "Comptes & wallets"], ["cadeaux", "Règles des cadeaux"], ["securite", "Sécurité"], ["donnees", "Données & exports"], ["compte", "Mon compte"]];
+  const adminTabs = [["utilisateurs", "Utilisateurs & accès"], ["portefeuilles", "Comptes & wallets"], ["partage", "Partage de mes investissements"], ["cadeaux", "Règles des cadeaux"], ["securite", "Sécurité"], ["donnees", "Données & exports"], ["compte", "Mon compte"]];
   const memberTabs = [["compte", "Mon compte"], ["portefeuilles", "Mes portefeuilles"], ["partage", "Partage de mes investissements"], ["securite", "S\u00e9curit\u00e9"]];
   const tabs = viewer.role === "admin" ? adminTabs : memberTabs;
   const [tab, setTab] = useState(viewer.role === "admin" ? "utilisateurs" : "compte");
-  return <div className="settings-layout"><aside className="settings-nav"><p>RÉGLAGES</p>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}<span>›</span></button>)}</aside><section className="settings-content panel">{tab === "utilisateurs" && viewer.role === "admin" && <UsersSettings />}{tab === "portefeuilles" && (viewer.role === "admin" ? <WalletSettings /> : <MemberWalletSettings viewer={viewer} />)}{tab === "partage" && viewer.role !== "admin" && <InvestmentAccessSettings />}{tab === "cadeaux" && viewer.role === "admin" && <GiftSettings />}{tab === "securite" && <SecuritySettings />}{tab === "donnees" && viewer.role === "admin" && <DataSettings />}{tab === "compte" && <PersonalSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={onReplayOnboarding} />}</section></div>;
+  return <div className="settings-layout"><aside className="settings-nav"><p>RÉGLAGES</p>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}<span>›</span></button>)}</aside><section className="settings-content panel">{tab === "utilisateurs" && viewer.role === "admin" && <UsersSettings />}{tab === "portefeuilles" && (viewer.role === "admin" ? <WalletSettings /> : <MemberWalletSettings viewer={viewer} />)}{tab === "partage" && <InvestmentAccessSettings />}{tab === "cadeaux" && viewer.role === "admin" && <GiftSettings />}{tab === "securite" && <SecuritySettings />}{tab === "donnees" && viewer.role === "admin" && <DataSettings />}{tab === "compte" && <PersonalSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={onReplayOnboarding} />}</section></div>;
 }
 
 function formatBirthday(day?: number | null, month?: number | null, year?: number | null) {
@@ -665,5 +643,5 @@ function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow: string; tit
 }
 
 function titleFor(view: View) {
-  return { famille: "Accueil", portefeuilles: "Portefeuille", transactions: "Mouvements", indicateurs: "Indicateurs", backoffice: "Administration", amatxi: "Vue Amatxi", missions: "Missions", apprendre: "Apprendre", parametres: "Paramètres" }[view];
+  return { famille: "Accueil", portefeuilles: "Portefeuille", transactions: "Mouvements", indicateurs: "Indicateurs", backoffice: "Administration", amatxi: "Vue Amatxi", apprendre: "Apprendre", parametres: "Paramètres" }[view];
 }
