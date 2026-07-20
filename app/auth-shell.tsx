@@ -50,7 +50,10 @@ export function AuthShell() {
         if (!response.ok || !result.member) throw new Error(result.error ?? "Accès familial non autorisé");
         setViewer(result.member);
       })
-      .catch((error: unknown) => setAccessError(error instanceof Error ? error.message : "Accès refusé"))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setAccessError(error instanceof Error ? error.message : "Accès refusé");
+      })
       .finally(() => setReady(true));
     return () => controller.abort();
   }, [session]);
@@ -106,41 +109,72 @@ function LoginScreen() {
     : "Reçois un lien de connexion sécurisé par e-mail, sans saisir de mot de passe.";
   const submitLabel = busy ? "Un instant…" : mode === "login" ? "Se connecter" : "Envoyer le lien unique";
   const discover = mode === "login"
-    ? { title: "Première connexion ?", action: "Comment ça marche", go: () => setIntroOpen(true) }
+    ? { title: "Vous avez reçu une invitation ?", action: "Découvrir comment activer votre compte", go: () => setIntroOpen(true) }
     : { title: "Retour", action: "Revenir à la connexion", go: () => { setMode("login"); setMessage(""); } };
 
   return <main className="auth-page">
     <div className="auth-hero">
       <section className="auth-brand">
-        <span className="auth-logo"><img src="/Labajo logo.png" alt="LaBaJo & Co" width={52} height={52} /></span>
+        <div className="auth-brandmark">
+          <img src="/Labajo logo.png" alt="" width={56} height={56} className="auth-brandmark-icon" />
+          <span className="auth-brandmark-rule" aria-hidden="true" />
+          <span className="auth-brandmark-name">LaBaJo &amp; Co</span>
+        </div>
         <div className="auth-brand-copy">
-          <small>LABAJO &amp; CO</small>
+          <small>ESPACE FAMILLE PRIVÉ</small>
           <h1>Grandir avec<br />son argent.</h1>
-          <p>Les cadeaux bienveillants d’aujourd’hui,<br />les grandes réussites de demain.</p>
+          <p>Organisez les cadeaux, suivez les projets<br />et construisez l’avenir financier de votre famille.</p>
         </div>
         <span className="auth-art" aria-hidden="true">
-          <svg viewBox="0 0 180 210" fill="none">
+          <svg viewBox="0 0 420 460" fill="none">
             <defs>
-              <radialGradient id="capSun" cx="50%" cy="45%" r="55%"><stop offset="0%" stopColor="#fef5d3" /><stop offset="52%" stopColor="#f3d585" /><stop offset="100%" stopColor="#dca844" /></radialGradient>
-              <linearGradient id="capArch" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3a716c" /><stop offset="100%" stopColor="#123230" /></linearGradient>
-              <linearGradient id="capStep" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#4c8b83" /><stop offset="100%" stopColor="#1b4742" /></linearGradient>
-              <filter id="capGlow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="9" /></filter>
+              <radialGradient id="orbCore" cx="42%" cy="38%" r="60%"><stop offset="0%" stopColor="#fff8e6" /><stop offset="45%" stopColor="#f3d585" /><stop offset="100%" stopColor="#c99a44" /></radialGradient>
+              <filter id="orbGlow" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="14" /></filter>
+              <linearGradient id="domeGlass" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#79c9bd" stopOpacity=".55" /><stop offset="100%" stopColor="#1c4f4a" stopOpacity=".35" /></linearGradient>
+              <linearGradient id="coinGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f3d585" /><stop offset="100%" stopColor="#a97f3c" /></linearGradient>
+              <linearGradient id="coinTeal" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5f9c94" /><stop offset="100%" stopColor="#2a5551" /></linearGradient>
+              <linearGradient id="plinth" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#173347" /><stop offset="100%" stopColor="#0a1c28" /></linearGradient>
             </defs>
-            <circle cx="108" cy="74" r="42" fill="#f3d585" opacity="0.16" filter="url(#capGlow)" />
-            <path d="M44 205 L44 92 a46 46 0 0 1 92 0 L136 205" stroke="url(#capArch)" strokeWidth="15" strokeLinecap="round" />
-            <path d="M60 205 L60 95 a30 30 0 0 1 60 0 L120 205 Z" fill="#0b2321" />
-            <circle cx="108" cy="76" r="21" fill="url(#capSun)" opacity="0.55" filter="url(#capGlow)" />
-            <circle cx="108" cy="76" r="20" fill="url(#capSun)" />
-            <ellipse cx="88" cy="196" rx="42" ry="9" fill="url(#capStep)" />
-            <ellipse cx="92" cy="179" rx="34" ry="8" fill="url(#capStep)" />
-            <ellipse cx="97" cy="163" rx="26" ry="7" fill="url(#capStep)" />
+
+            <ellipse cx="200" cy="430" rx="150" ry="20" fill="url(#plinth)" />
+            <ellipse cx="200" cy="422" rx="150" ry="10" fill="none" stroke="#c99a44" strokeOpacity=".35" />
+
+            <g aria-hidden="true">
+              <rect x="96" y="368" width="56" height="52" rx="8" fill="url(#coinGold)" />
+              <ellipse cx="124" cy="368" rx="28" ry="9" fill="#f8e2ab" />
+              <path d="M96 384h56M96 398h56" stroke="#8a662f" strokeOpacity=".5" strokeWidth="1.5" />
+
+              <rect x="170" y="330" width="62" height="90" rx="8" fill="url(#coinTeal)" />
+              <ellipse cx="201" cy="330" rx="31" ry="9.5" fill="#8fc3ba" />
+              <path d="M170 350h62M170 368h62M170 386h62M170 404h62" stroke="#173430" strokeOpacity=".45" strokeWidth="1.5" />
+
+              <rect x="252" y="296" width="66" height="124" rx="8" fill="url(#coinGold)" />
+              <ellipse cx="285" cy="296" rx="33" ry="10" fill="#f8e2ab" />
+              <path d="M252 318h66M252 340h66M252 362h66M252 384h66M252 404h66" stroke="#8a662f" strokeOpacity=".5" strokeWidth="1.5" />
+            </g>
+
+            <path d="M110 420 V190 a90 90 0 0 1 180 0 V420" stroke="url(#domeGlass)" strokeWidth="6" strokeLinecap="round" />
+            <ellipse cx="200" cy="190" rx="90" ry="14" fill="none" stroke="url(#domeGlass)" strokeWidth="3" />
+
+            <g>
+              <path d="M136 340 Q116 280 142 200" stroke="#c9a86a" strokeOpacity=".85" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+              <ellipse cx="143" cy="213" rx="16" ry="8" fill="#bcd1a4" opacity=".9" transform="rotate(-32 143 213)" />
+              <ellipse cx="126" cy="248" rx="14" ry="7" fill="#bcd1a4" opacity=".82" transform="rotate(-14 126 248)" />
+              <ellipse cx="133" cy="288" rx="13" ry="6.5" fill="#bcd1a4" opacity=".76" transform="rotate(-4 133 288)" />
+              <ellipse cx="122" cy="322" rx="11" ry="5.5" fill="#bcd1a4" opacity=".7" transform="rotate(-20 122 322)" />
+            </g>
+
+            <circle cx="200" cy="150" r="58" fill="#f3d585" opacity=".14" filter="url(#orbGlow)" />
+            <circle cx="200" cy="150" r="34" fill="none" stroke="#f3d585" strokeOpacity=".3" />
+            <circle cx="200" cy="150" r="26" fill="url(#orbCore)" opacity=".5" filter="url(#orbGlow)" />
+            <circle cx="200" cy="150" r="24" fill="url(#orbCore)" />
           </svg>
         </span>
       </section>
       <section className="auth-panel">
         <div className="auth-card">
           <header><span>ESPACE FAMILLE PRIVÉ</span><h2>{heading}</h2><p>{subtitle}</p></header>
-          <button type="button" className="google-button" onClick={googleLogin} disabled>
+          <button type="button" className="google-button" onClick={googleLogin} disabled={busy} aria-busy={busy}>
             <svg className="google-g" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1Z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z" /><path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38Z" /></svg>
             Continuer avec Google
           </button>
@@ -149,7 +183,7 @@ function LoginScreen() {
             <label>Adresse e-mail
               <span className="auth-field">
                 <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m4 7 8 6 8-6" /></svg>
-                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="prenom@example.com" autoComplete="email" required />
+                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="prenom@exemple.com" autoComplete="email" required />
               </span>
             </label>
             {mode !== "magic" && <label>Mot de passe
@@ -164,18 +198,21 @@ function LoginScreen() {
               </span>
             </label>}
             {mode === "login" && <button type="button" className="auth-forgot" onClick={() => { setMode("magic"); setMessage(""); }}>Mot de passe oublié ?</button>}
-            <button className="auth-submit" disabled={busy}>{submitLabel}</button>
-            {mode === "login" && <button type="button" className="auth-magic" onClick={() => { setMode("magic"); setMessage(""); }}>Recevoir un lien unique par e-mail →</button>}
+            <button className="auth-submit" disabled={busy} aria-busy={busy}>{busy && <span className="auth-spinner" aria-hidden="true" />}{submitLabel}</button>
+            {mode === "login" && <button type="button" className="auth-magic" onClick={() => { setMode("magic"); setMessage(""); }}>Recevoir un lien unique par e-mail</button>}
           </form>
-          {message && <p className="auth-message">{message}</p>}
+          {message && <p className="auth-message" role="status" aria-live="polite">{message}</p>}
         </div>
         <button type="button" className="auth-discover" onClick={discover.go}>
-          <span><strong>{discover.title}</strong><small>{discover.action}</small></span>
+          <span className="auth-discover-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m4 7 8 6 8-6" /></svg>
+          </span>
+          <span className="auth-discover-copy"><strong>{discover.title}</strong><small>{discover.action}</small></span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" className="auth-discover-arrow"><path d="m9 6 6 6-6 6" /></svg>
         </button>
         <p className="auth-secure">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" className="auth-secure-icon"><path d="M12 3 5 6v5c0 4.5 3 7.6 7 9 4-1.4 7-4.5 7-9V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></svg>
-          <span>Vos données sont 100% sécurisées.<br />Accès sur invitation.</span>
+          <span>Connexion sécurisée.<br />Vos données sont chiffrées et protégées.</span>
         </p>
         <p className="auth-version">07/2026 · Version {appSemver()}</p>
       </section>
