@@ -29,6 +29,8 @@ export type GiftSavePayload = {
   forceReason?: string | null;
   publicAddress?: string | null;
   txid?: string | null;
+  blockchainStatus?: string;
+  confirmations?: number;
   note?: string | null;
 };
 

@@ -5,6 +5,7 @@ import type { Viewer } from "../lib/auth-types";
 import type { TransferRequest } from "./back-office";
 import type { TransactionShortcut } from "./transactions";
 import { supabaseBrowser } from "../lib/supabase-browser";
+import { saveGift, type GiftSavePayload } from "../lib/gifts-client";
 import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
@@ -639,11 +640,30 @@ function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (draft.custody === "À rapprocher") { setVerification("Choisissez si ce cadeau est encore sur Binance commun ou déjà présent sur le Ledger."); return; }
+    if (busy) return;
     setBusy(true);
     try {
-      const body = { id: record.origin === "database" ? record.id : undefined, ...draft, purchaseDate: draft.giftDate, amountEur: Number(draft.amountEur), btcAmount: Number(draft.btcAmount), ledgerAmount: draft.ledgerAmount ? Number(draft.ledgerAmount) : null };
-      await request("/api/gifts", { method: body.id ? "PATCH" : "POST", body: JSON.stringify(body) });
-      await onSaved(body.id ? "Cadeau modifié." : "Cadeau enregistré.");
+      const id = record.origin === "database" ? record.id : undefined;
+      await saveGift({
+        id,
+        member: draft.member,
+        occasion: draft.occasion as GiftSavePayload["occasion"],
+        giftDate: draft.giftDate,
+        purchaseDate: draft.giftDate,
+        amountEur: Number(draft.amountEur),
+        btcAmount: Number(draft.btcAmount),
+        custody: draft.custody as "Binance commun" | "Ledger",
+        transferDate: draft.transferDate,
+        ledgerAmount: draft.ledgerAmount ? Number(draft.ledgerAmount) : null,
+        forceLedgerAmount: draft.forceLedgerAmount,
+        forceReason: draft.forceReason,
+        publicAddress: draft.publicAddress,
+        txid: draft.txid,
+        blockchainStatus: draft.blockchainStatus,
+        confirmations: draft.confirmations,
+        note: draft.note,
+      });
+      await onSaved(id ? "Cadeau modifié." : "Cadeau enregistré.");
     } catch (error) { setVerification(error instanceof Error ? error.message : "Enregistrement impossible"); }
     finally { setBusy(false); }
   }

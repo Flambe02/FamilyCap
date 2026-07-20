@@ -5,6 +5,7 @@ import { supabaseBrowser } from "../lib/supabase-browser";
 import { TransferRequest } from "./back-office";
 import type { Viewer } from "../lib/auth-types";
 import { GiftPortfolio } from "./gift-portfolio";
+import { saveGift } from "../lib/gifts-client";
 import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import "./administration.css";
@@ -252,10 +253,10 @@ function GiftSynthesis() {
     const amountEur = Number(draft.amountEur);
     const btcAmount = Number(draft.btcAmount);
     if (!Number.isFinite(amountEur) || amountEur <= 0 || !Number.isFinite(btcAmount) || btcAmount <= 0) { setMessage("Renseignez un montant en euros et une quantité BTC supérieurs à zéro."); return; }
+    if (busy) return;
     setBusy(true);
     try {
-      const body = { id: draft.id, member: draft.member, occasion: draft.occasion, giftDate: draft.giftDate, purchaseDate: draft.giftDate, amountEur, btcAmount, custody: "Binance commun", note: draft.note };
-      await api("/api/gifts", { method: draft.id ? "PATCH" : "POST", body: JSON.stringify(body) });
+      await saveGift({ id: draft.id, member: draft.member, occasion: draft.occasion, giftDate: draft.giftDate, purchaseDate: draft.giftDate, amountEur, btcAmount, custody: "Binance commun", note: draft.note });
       setMessage(draft.id ? "Cadeau mis à jour dans le registre." : "Cadeau ajouté au registre Binance." );
       setDraft(null);
       await load();
