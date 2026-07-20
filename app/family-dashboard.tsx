@@ -601,25 +601,22 @@ function UsersSettings() {
 }
 
 function WalletSettings() {
-  const ledgerAddresses = [
-    ["Thibault", "bc1qcy4jt8fh5dhj9fq9d4lu2hq6klvvdmlkeqcgks"],
-    ["Uhaina", "bc1qqkfmts27j07y8u7a6ap7wyczfhe5afyrkn7y2t"],
-    ["Paul", "bc1qxx7ve23aggf0596zf45kx0ppk5qjggpak82wd5"],
-    ["Aurore", "bc1qxs2uy67myzfx8z2vtzr6lm3cgrx808azqkt4pg"],
-    ["Thomas", "bc1qfwuze87xnhxjfdmr3wnfy3wguu5ymedk4qcwjr"],
-  ];
-  return <><PanelTitle eyebrow="PARAMÈTRES" title="Comptes & wallets" action="＋ Ajouter un compte" /><p className="section-intro">Les cinq adresses publiques Ledger sont maintenant enregistrées et contrôlées sur la blockchain. Jamais de clé privée ni de phrase de récupération.</p><div className="wallet-list"><article><div className="wallet-logo bitcoin">₿</div><div><strong>Binance commun</strong><p>Compte de passage · parts individuelles à ventiler</p></div><span className="warning-pill">À rapprocher</span></article>{ledgerAddresses.map(([name, address]) => <article key={name}><div className="wallet-logo ledger">L</div><div><strong>Ledger de {name}</strong><p title={address}>{address}</p></div><span className="access">Blockchain connectée</span></article>)}</div><div className="info-callout"><b>Important</b><p>Ces adresses servent uniquement à lire les soldes et transactions publics. Les 24 mots, clés privées, codes PIN et codes Binance ne doivent jamais être saisis ici.</p></div></>;
+  const [wallets, setWallets] = useState<Array<{ name: string; address: string }> | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      const { data } = await supabaseBrowser.auth.getSession();
+      const response = await fetch("/api/admin/users", { headers: { authorization: "Bearer " + (data.session?.access_token ?? "") }, signal: controller.signal });
+      const result = await response.json() as { users?: Array<{ name: string; wallet_address?: string | null }> };
+      setWallets((result.users ?? []).filter((user) => user.wallet_address).map((user) => ({ name: user.name, address: user.wallet_address as string })));
+    })().catch(() => setWallets([]));
+    return () => controller.abort();
+  }, []);
+  return <><PanelTitle eyebrow="PARAMÈTRES" title="Comptes & wallets" /><p className="section-intro">Les adresses publiques Ledger enregistrées pour la famille sont contrôlées sur la blockchain. Jamais de clé privée ni de phrase de récupération. Ajoute ou modifie une adresse depuis Utilisateurs &amp; accès.</p><div className="wallet-list"><article><div className="wallet-logo bitcoin">₿</div><div><strong>Binance commun</strong><p>Compte de passage · parts individuelles à ventiler</p></div><span className="warning-pill">À rapprocher</span></article>{wallets === null ? <p className="section-hint">Chargement…</p> : wallets.length === 0 ? <p className="section-hint">Aucune adresse Ledger enregistrée pour l’instant.</p> : wallets.map((wallet) => <article key={wallet.name}><div className="wallet-logo ledger">L</div><div><strong>Ledger de {wallet.name}</strong><p title={wallet.address}>{wallet.address}</p></div><span className="access">Blockchain connectée</span></article>)}</div><div className="info-callout"><b>Important</b><p>Ces adresses servent uniquement à lire les soldes et transactions publics. Les 24 mots, clés privées, codes PIN et codes Binance ne doivent jamais être saisis ici.</p></div></>;
 }
 
 function MemberWalletSettings({ viewer }: { viewer: Viewer }) {
-  const addresses: Record<string, string> = {
-    Thibault: "bc1qcy4jt8fh5dhj9fq9d4lu2hq6klvvdmlkeqcgks",
-    Uhaina: "bc1qqkfmts27j07y8u7a6ap7wyczfhe5afyrkn7y2t",
-    Paul: "bc1qxx7ve23aggf0596zf45kx0ppk5qjggpak82wd5",
-    Aurore: "bc1qxs2uy67myzfx8z2vtzr6lm3cgrx808azqkt4pg",
-    Thomas: "bc1qfwuze87xnhxjfdmr3wnfy3wguu5ymedk4qcwjr",
-  };
-  const address = addresses[viewer.name];
+  const address = viewer.walletAddress;
   return <><PanelTitle eyebrow="MES PARAMÈTRES" title="Mon portefeuille" /><p className="section-intro">Tu peux consulter ton adresse publique et son historique. Seul Florent peut modifier les comptes familiaux.</p>{address ? <div className="wallet-list"><article><div className="wallet-logo ledger">L</div><div><strong>Ledger de {viewer.name}</strong><p>{address}</p></div><span className="access">Blockchain connectée</span></article></div> : <div className="info-callout"><b>Aucun portefeuille associé</b><p>Florent pourra ajouter ton compte depuis le back-office.</p></div>}</>;
 }
 function GiftSettings() {

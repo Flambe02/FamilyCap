@@ -17,6 +17,7 @@ export type AuthenticatedMember = {
   birthdayDay: number | null;
   birthdayMonth: number | null;
   birthdayYear: number | null;
+  walletAddress: string | null;
 };
 
 export async function requireFamilyMember(request: Request): Promise<AuthenticatedMember> {
@@ -32,12 +33,12 @@ export async function requireFamilyMember(request: Request): Promise<Authenticat
   const user = await userResponse.json() as { id: string; email?: string };
   if (!user.email) throw Response.json({ error: "Adresse e-mail absente" }, { status: 403 });
 
-  const rows = await supabaseRest<Array<{ id: string; email: string; name: string; role: AuthenticatedMember["role"]; is_active: boolean; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null }>>(
-    `family_members?select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year&email=eq.${encodeURIComponent(user.email.toLowerCase())}&is_active=eq.true&limit=1`,
+  const rows = await supabaseRest<Array<{ id: string; email: string; name: string; role: AuthenticatedMember["role"]; is_active: boolean; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; wallets: Array<{ public_address: string | null }> }>>(
+    `family_members?select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year,wallets(public_address)&email=eq.${encodeURIComponent(user.email.toLowerCase())}&is_active=eq.true&limit=1`,
   );
   const member = rows[0];
   if (!member) throw Response.json({ error: "Cette adresse n’est pas autorisée dans LaBaJo & Co" }, { status: 403 });
-  return { authUserId: user.id, id: member.id, email: member.email, name: member.name, role: member.role, birthdayDay: member.birthday_day, birthdayMonth: member.birthday_month, birthdayYear: member.birthday_year };
+  return { authUserId: user.id, id: member.id, email: member.email, name: member.name, role: member.role, birthdayDay: member.birthday_day, birthdayMonth: member.birthday_month, birthdayYear: member.birthday_year, walletAddress: member.wallets?.[0]?.public_address ?? null };
 }
 
 export async function requireAdmin(request: Request) {

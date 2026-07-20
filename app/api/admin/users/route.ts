@@ -9,6 +9,22 @@ function adminClient() { const runtime: RuntimeEnv = { SUPABASE_URL: process.env
 async function findMember(id: string): Promise<Member | null> { const rows = await supabaseRest<Member[]>("family_members?select=id,name,email,auth_user_id,role,is_active&id=eq." + encodeURIComponent(id) + "&limit=1"); return rows[0] ?? null; }
 function isPrimaryAdmin(member: Member) { return member.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL; }
 function birthdayParts(value?: string | null) { const iso = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/); const short = value?.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/); const year = iso ? Number(iso[1]) : short?.[3] ? Number(short[3]) : null; const month = iso ? Number(iso[2]) : short ? Number(short[2]) : null; const day = iso ? Number(iso[3]) : short ? Number(short[1]) : null; if (month !== null && day !== null && month >= 1 && month <= 12 && day >= 1 && day <= 31 && (year === null || (year >= 1900 && year <= new Date().getFullYear()))) return { year, month, day }; return { year: null, month: null, day: null }; }
+const BTC_ADDRESS_RE = /^(bc1[a-zA-HJ-NP-Z0-9]{25,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,61})$/;
+async function saveWallet(memberId: string, memberName: string, walletAddress?: string) {
+  if (walletAddress === undefined) return;
+  const trimmed = walletAddress.trim();
+  if (!trimmed) {
+    await supabaseRest("wallets?member_id=eq." + encodeURIComponent(memberId), { method: "DELETE", headers: { prefer: "return=minimal" } });
+    return;
+  }
+  if (!BTC_ADDRESS_RE.test(trimmed)) throw new Error("Adresse Bitcoin publique invalide.");
+  await supabaseRest("wallets?on_conflict=member_id", {
+    method: "POST",
+    headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ member_id: memberId, member_name: memberName, label: "Ledger de " + memberName, custody: "Ledger", public_address: trimmed, network: "bitcoin-mainnet", asset_code: "BTC" }),
+  });
+}
+
 async function saveAccess(memberId: string, scope?: string, selectedIds?: unknown) {
   if (scope === undefined) return;
   if (scope !== "family" && scope !== "selected") throw new Error("Niveau de partage invalide.");
@@ -24,10 +40,10 @@ async function saveAccess(memberId: string, scope?: string, selectedIds?: unknow
 export async function GET(request: Request) {
   try {
     await requireAdmin(request);
-    const [users, grants, authResult] = await Promise.all([supabaseRest<Array<Record<string, unknown> & { id: string; auth_user_id?: string }>>("family_members?select=*&order=name.asc"), supabaseRest<Array<{ owner_member_id: string; viewer_member_id: string }>>("investment_access_grants?select=owner_member_id,viewer_member_id"), adminClient().auth.admin.listUsers({ page: 1, perPage: 1000 })]);
+    const [users, grants, authResult] = await Promise.all([supabaseRest<Array<Record<string, unknown> & { id: string; auth_user_id?: string; wallets: Array<{ public_address: string | null }> }>>("family_members?select=*,wallets(public_address)&order=name.asc"), supabaseRest<Array<{ owner_member_id: string; viewer_member_id: string }>>("investment_access_grants?select=owner_member_id,viewer_member_id"), adminClient().auth.admin.listUsers({ page: 1, perPage: 1000 })]);
     if (authResult.error) throw authResult.error;
     const authById = new Map(authResult.data.users.map((user) => [user.id, user]));
-    return Response.json({ users: users.map((member) => { const authUser = member.auth_user_id ? authById.get(String(member.auth_user_id)) : undefined; return { ...member, selected_viewer_ids: grants.filter((grant) => grant.owner_member_id === member.id).map((grant) => grant.viewer_member_id), auth: authUser ? { emailConfirmedAt: authUser.email_confirmed_at, lastSignInAt: authUser.last_sign_in_at } : null }; }) });
+    return Response.json({ users: users.map((member) => { const authUser = member.auth_user_id ? authById.get(String(member.auth_user_id)) : undefined; const { wallets, ...rest } = member; return { ...rest, wallet_address: wallets?.[0]?.public_address ?? null, selected_viewer_ids: grants.filter((grant) => grant.owner_member_id === member.id).map((grant) => grant.viewer_member_id), auth: authUser ? { emailConfirmedAt: authUser.email_confirmed_at, lastSignInAt: authUser.last_sign_in_at } : null }; }) });
   } catch (error) { return authErrorResponse(error); }
 }
 
@@ -48,7 +64,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await requireAdmin(request);
-    const body = await request.json() as { id?: string; name?: string; email?: string; role?: string; birthday?: string | null; isActive?: boolean; accessScope?: string; selectedViewerIds?: unknown };
+    const body = await request.json() as { id?: string; name?: string; email?: string; role?: string; birthday?: string | null; isActive?: boolean; accessScope?: string; selectedViewerIds?: unknown; walletAddress?: string };
     if (!body.id) return Response.json({ error: "Utilisateur manquant." }, { status: 400 });
     const member = await findMember(body.id); if (!member) return Response.json({ error: "Membre introuvable." }, { status: 404 });
     if (isPrimaryAdmin(member) && (body.role !== undefined || body.isActive !== undefined || body.email !== undefined)) return Response.json({ error: "Le compte administrateur principal est protege." }, { status: 403 });
@@ -60,6 +76,7 @@ export async function PATCH(request: Request) {
     if (body.isActive !== undefined) changes.is_active = body.isActive;
     if (Object.keys(changes).length) await supabaseRest("family_members?id=eq." + encodeURIComponent(body.id), { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify(changes) });
     await saveAccess(body.id, body.accessScope, body.selectedViewerIds);
+    await saveWallet(body.id, (changes.name as string | undefined) ?? member.name, body.walletAddress);
     return Response.json({ updated: true });
   } catch (error) { return authErrorResponse(error); }
 }

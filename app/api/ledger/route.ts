@@ -1,11 +1,14 @@
 import { authErrorResponse, requireAdmin } from "../../../lib/auth-server";
-const wallets = [
-  { member: "Thibault", address: "bc1qcy4jt8fh5dhj9fq9d4lu2hq6klvvdmlkeqcgks" },
-  { member: "Uhaina", address: "bc1qqkfmts27j07y8u7a6ap7wyczfhe5afyrkn7y2t" },
-  { member: "Paul", address: "bc1qxx7ve23aggf0596zf45kx0ppk5qjggpak82wd5" },
-  { member: "Aurore", address: "bc1qxs2uy67myzfx8z2vtzr6lm3cgrx808azqkt4pg" },
-  { member: "Thomas", address: "bc1qfwuze87xnhxjfdmr3wnfy3wguu5ymedk4qcwjr" },
-] as const;
+import { supabaseRest } from "../../../lib/supabase-rest";
+
+async function loadWallets() {
+  const rows = await supabaseRest<Array<{ member_name: string; public_address: string | null }>>(
+    "wallets?select=member_name,public_address&public_address=not.is.null",
+  );
+  return rows
+    .filter((row): row is { member_name: string; public_address: string } => Boolean(row.public_address))
+    .map((row) => ({ member: row.member_name, address: row.public_address }));
+}
 
 type AddressSummary = {
   chain_stats: { funded_txo_sum: number; spent_txo_sum: number; tx_count: number };
@@ -116,9 +119,10 @@ export async function GET(request: Request) {
         { headers: { "cache-control": "public, max-age=30, s-maxage=60" } },
       );
     }
-    const [tipResponse, bitcoinPrice] = await Promise.all([
+    const [tipResponse, bitcoinPrice, wallets] = await Promise.all([
       fetch("https://blockstream.info/api/blocks/tip/height"),
       getBitcoinEurPrice(),
+      loadWallets(),
     ]);
     if (!tipResponse.ok) throw new Error("Hauteur de chaîne indisponible");
     const tipHeight = Number(await tipResponse.text());

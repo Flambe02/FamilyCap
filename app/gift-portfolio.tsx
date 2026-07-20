@@ -43,13 +43,6 @@ const people: MemberInfo[] = [
   { name: "Aurore", initials: "AU", birthday: "27 août", day: 27, month: 8, color: "yellow" },
   { name: "Thomas", initials: "TO", birthday: "29 décembre", day: 29, month: 12, color: "purple" },
 ];
-const addresses: Record<string, string> = {
-  Thibault: "bc1qcy4jt8fh5dhj9fq9d4lu2hq6klvvdmlkeqcgks",
-  Uhaina: "bc1qqkfmts27j07y8u7a6ap7wyczfhe5afyrkn7y2t",
-  Paul: "bc1qxx7ve23aggf0596zf45kx0ppk5qjggpak82wd5",
-  Aurore: "bc1qxs2uy67myzfx8z2vtzr6lm3cgrx808azqkt4pg",
-  Thomas: "bc1qfwuze87xnhxjfdmr3wnfy3wguu5ymedk4qcwjr",
-};
 const historical: Omit<GiftRecord, "origin">[] = GIFT_HISTORY.map((gift) => ({
   member_name: gift.member,
   occasion: gift.occasion,
@@ -573,13 +566,13 @@ function TransferWorkbench({ member, wallet, giftRecords, transferCostsBtc, onSa
   </section>;
 }
 function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record: GiftRecord; wallets: LedgerWallet[]; giftRecords: GiftRecord[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
-  const [draft, setDraft] = useState({ member: record.member_name, occasion: record.occasion, giftDate: record.gift_date, purchaseDate: record.purchase_date || record.gift_date || new Date().toISOString().slice(0, 10), amountEur: String(record.amount_eur || 55), btcAmount: record.btc_amount ? String(record.btc_amount) : "", custody: record.custody, transferDate: record.transfer_date ?? "", ledgerAmount: record.ledger_amount ? String(record.ledger_amount) : "", forceLedgerAmount: Boolean(record.ledger_value_forced), forceReason: record.ledger_force_reason ?? "", publicAddress: record.public_address ?? addresses[record.member_name] ?? "", txid: record.txid ?? "", blockchainStatus: record.blockchain_status ?? "", confirmations: record.confirmations ?? 0, note: record.note ?? "" });
+  const [draft, setDraft] = useState({ member: record.member_name, occasion: record.occasion, giftDate: record.gift_date, purchaseDate: record.purchase_date || record.gift_date || new Date().toISOString().slice(0, 10), amountEur: String(record.amount_eur || 55), btcAmount: record.btc_amount ? String(record.btc_amount) : "", custody: record.custody, transferDate: record.transfer_date ?? "", ledgerAmount: record.ledger_amount ? String(record.ledger_amount) : "", forceLedgerAmount: Boolean(record.ledger_value_forced), forceReason: record.ledger_force_reason ?? "", publicAddress: record.public_address ?? wallets.find((w) => w.member === record.member_name)?.address ?? "", txid: record.txid ?? "", blockchainStatus: record.blockchain_status ?? "", confirmations: record.confirmations ?? 0, note: record.note ?? "" });
   const [busy, setBusy] = useState(false);
   const [verification, setVerification] = useState("");
   const dialogRef = useDialogA11y(true, onClose);
   function update(key: keyof typeof draft, value: string | number) { setDraft((current) => ({ ...current, [key]: value })); }
   function changeGiftDate(giftDate: string) { setDraft((current) => ({ ...current, giftDate, purchaseDate: giftDate })); }
-  function changeMember(member: string) { setDraft((current) => ({ ...current, member, publicAddress: addresses[member] ?? "", txid: "", confirmations: 0, blockchainStatus: "" })); }
+  function changeMember(member: string) { setDraft((current) => ({ ...current, member, publicAddress: wallets.find((w) => w.member === member)?.address ?? "", txid: "", confirmations: 0, blockchainStatus: "" })); }
 
   const candidateWallet = wallets.find((wallet) => wallet.member === draft.member);
   const allocatedByTxid = useMemo(() => {
