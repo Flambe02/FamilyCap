@@ -75,16 +75,34 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
 
 /* Mobile : menu portable (profil, paramètres, administration, déconnexion) — la sidebar reste la seule source sur desktop, ceci ne s'affiche jamais au-dessus de 780px. */
 .mobile-menu-trigger{display:none}
+.mobile-brand{display:none}
 .mobile-menu-backdrop{display:none}
 .mobile-menu-drawer{display:none}
 @media (max-width:780px) {
-  .mobile-menu-trigger{
-    display:grid;place-items:center;flex:0 0 auto;
-    width:40px;height:40px;margin-right:2px;
-    border:0;border-radius:12px 12px 12px 4px;
-    background:var(--amber);color:var(--ink);
-    font-size:11px;font-weight:900;cursor:pointer;
+  .mobile-brand{
+    display:flex;align-items:center;gap:9px;min-width:0;
   }
+  .mobile-brand-mark{
+    flex:0 0 auto;width:32px;height:32px;overflow:hidden;
+    border-radius:10px 10px 10px 4px;
+  }
+  .mobile-brand-mark img{width:100%;height:100%;object-fit:cover;display:block}
+  .mobile-brand strong{display:block;font-family:Georgia,'Times New Roman',serif;font-size:15px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mobile-brand small{display:block;margin-top:1px;font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mobile-menu-trigger{
+    display:flex;align-items:center;gap:7px;flex:0 0 auto;
+    border:0;background:transparent;padding:0;cursor:pointer;
+  }
+  .mobile-menu-trigger-avatar{
+    display:grid;place-items:center;flex:0 0 auto;
+    width:34px;height:34px;border-radius:50%;
+    background:var(--amber);color:var(--ink);
+    font-size:10.5px;font-weight:900;
+  }
+  .mobile-menu-trigger-info{min-width:0;text-align:left}
+  .mobile-menu-trigger-info strong{display:block;max-width:92px;font-size:12.5px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mobile-menu-trigger-info small{display:block;margin-top:1px;font-size:9.5px;color:var(--muted)}
+  .mobile-menu-trigger-chevron{flex:0 0 auto;font-style:normal;font-size:10px;color:var(--muted)}
   .mobile-menu-backdrop{
     display:block;position:fixed;inset:0;z-index:70;
     background:rgba(12,33,47,.5);opacity:0;pointer-events:none;
@@ -148,12 +166,13 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
 
   /* Barre du haut — une seule ligne épurée : avatar(menu) · date+titre · pastille BTC.
      Les outils admin (bascule de vue) vivent désormais dans le tiroir ; l'aperçu affiche une barre fine dédiée. */
-  .topbar{display:grid;height:auto;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"avatar title chip";align-items:center;gap:12px;padding:calc(14px + env(safe-area-inset-top)) 16px 12px}
-  .topbar>.mobile-menu-trigger{grid-area:avatar}
-  .topbar>div{grid-area:title;min-width:0}
+  .topbar{display:grid;height:auto;grid-template-columns:1fr auto;grid-template-areas:"brand profile";align-items:center;gap:12px;padding:calc(14px + env(safe-area-inset-top)) 16px 12px}
+  .topbar>.mobile-brand{grid-area:brand}
+  .topbar>.mobile-menu-trigger{grid-area:profile;justify-self:end}
+  .topbar>.topbar-heading{display:none}
   .topbar .eyebrow{display:block;margin:0 0 2px;font-size:9px;font-weight:800;letter-spacing:1px;color:var(--teal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .topbar h1{font-size:21px;font-weight:650;letter-spacing:-.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .topbar>.topbar-chip-group{grid-area:chip;justify-self:end;display:flex;align-items:center;gap:8px}
+  .topbar>.topbar-chip-group{display:none}
   .mobile-btc-chip{display:inline-flex;align-items:center;gap:5px;padding:7px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:11px;font-weight:750;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(23,50,77,.05);white-space:nowrap}
   .mobile-quick-switch{display:block;position:relative}
   .mobile-quick-switch-trigger{display:flex;align-items:center;gap:4px;min-height:34px;max-width:96px;padding:7px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:11px;font-weight:800;cursor:pointer}
@@ -247,6 +266,11 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
   /* Le bouton flottant se cale au-dessus de la nav réhaussée */
   .top-actions .primary-button{bottom:90px}
 }
+/* Icônes de navigation : SVG inline homogènes (sidebar, tiroir mobile, nav basse mobile) — taille fixe, couleur héritée du texte. */
+.nav-icon-svg{width:18px;height:18px;display:block;flex:0 0 auto}
+.mobile-menu-link-content{display:flex;align-items:center;gap:10px;min-width:0}
+.mobile-menu-link-content .nav-icon-svg{opacity:.85}
+
 /* Étape 3 — nouveau tableau de bord : rangée basse (Journal / Suggestion du mois / Vidéos souvenirs) + écrans "Bientôt disponible". */
 .dashboard-bottom-row{grid-column:1/-1;display:grid;grid-template-columns:1.3fr .85fr .85fr;gap:18px}
 .dashboard-mini-panel{padding:24px}
@@ -258,90 +282,3 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
 .coming-soon-panel p{max-width:480px;margin:0;color:var(--muted);font-size:12px;line-height:1.6}
 @media(max-width:1100px){.dashboard-bottom-row{grid-template-columns:1fr}}
 @media(max-width:780px){.coming-soon-panel{padding:28px 20px}.dashboard-bottom-row{grid-template-columns:1fr;gap:13px}}
-
-/* ============================================================
-   Mobile — thème sombre (suit le réglage du téléphone).
-   Scopé (max-width:780px) : le desktop reste clair même si l'OS est en sombre.
-   Même palette (teal/ambre/navy), posée sur fond sombre — façon prototype.
-   ============================================================ */
-@media (max-width:780px) and (prefers-color-scheme:dark) {
-  :root{
-    --ink:#e9f2ef;--muted:#9db2b6;--cream:#0a1720;--page:#0a1720;--paper:#15303d;
-    --surface:#15303d;--surface-subtle:#193846;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);
-    --teal:#54c9b8;--teal-soft:rgba(84,201,184,.16);--teal-strong:#6fd8c8;
-    --amber:#f3b649;--amber-soft:rgba(243,182,73,.16);--coral:#ff9c86;--navy:#0a1720;
-    --shadow:0 12px 30px rgba(0,0,0,.5);--shadow-sm:0 1px 2px rgba(0,0,0,.4),0 12px 28px rgba(0,0,0,.42);--shadow-lg:0 22px 55px rgba(0,0,0,.62);
-  }
-  html,body,.workspace{background:#0a1720}
-  .app-shell{background:radial-gradient(circle at 100% 0,rgba(84,201,184,.10) 0,transparent 32%),#0a1720}
-
-  /* Surfaces cartes / panneaux */
-  .panel,.stat-card,.lesson-card,.security-grid article,.export-card,.settings-content{background:#15303d;border-color:rgba(255,255,255,.10)}
-  .member-card{background:#132c39;border-color:rgba(255,255,255,.08)}
-  .mobile-btc-chip{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14);color:#e9f2ef;box-shadow:none}
-  .mobile-quick-switch-trigger{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14);color:#e9f2ef}
-  .mobile-quick-switch-menu{background:#15303d;border-color:rgba(255,255,255,.14);box-shadow:0 14px 34px rgba(0,0,0,.5)}
-  .mobile-quick-switch-menu button{color:#e9f2ef}
-  .mobile-quick-switch-menu button.active{background:rgba(84,201,184,.16);color:#7fe0d0}
-
-  /* Hero d'accueil */
-  .welcome-panel{background:linear-gradient(120deg,#163440,#0f2733 72%);border-color:rgba(255,255,255,.08)}
-  .welcome-panel p{color:#a7bcc0}
-  .soft-pill{background:rgba(255,255,255,.08);color:#7fe0d0}
-  .welcome-cta-mobile{background:linear-gradient(135deg,#54c9b8,#0e5d57);color:#052620;box-shadow:0 10px 22px rgba(0,0,0,.35)}
-
-  /* Indicateurs clés */
-  .stat-icon.navy{background:rgba(255,255,255,.08);color:var(--ink)}
-  .stat-icon.amber{background:rgba(243,182,73,.16);color:#f3c877}
-  .stat-icon.teal{background:rgba(84,201,184,.16);color:#7fe0d0}
-
-  /* Membres */
-  .status-dot{background:rgba(243,182,73,.16);color:#f3c877}
-  .progress{background:rgba(255,255,255,.10)}
-  .member-card footer b{color:#f3c877}
-  /* Avatars : fonds assombris + texte clair lisible (le texte clair sur pastel clair était invisible) */
-  .avatar.mint{background:#17423a;color:#8fe3c8}
-  .avatar.coral{background:#4f3227;color:#f3b9a3}
-  .avatar.blue{background:#213b52;color:#a9cdec}
-  .avatar.yellow{background:#463914;color:#f0d276}
-  .avatar.purple{background:#332a55;color:#d3c2f5}
-  .avatar.admin{color:#3b2703}
-  .mobile-menu-trigger{color:#3b2703}
-
-  /* Bandeau événement */
-  .family-calendar-notice,.next-birthday-notice{background:rgba(243,182,73,.10);border-color:rgba(243,182,73,.26);color:#e9cf95}
-  .next-birthday-notice strong{color:#f4dca8}
-  .next-birthday-notice>b{background:rgba(243,182,73,.2);color:#f3c877}
-
-  /* Mission / Apprendre */
-  .mission-score{border-color:rgba(84,201,184,.28)}
-  .learn-head>p{color:#a7bcc0}
-  .lesson-icon.navy{background:rgba(255,255,255,.08);color:var(--ink)}
-
-  /* Journal d'activité */
-  .activity-item{border-color:rgba(255,255,255,.08)}
-
-  /* Réglages */
-  .form-grid input,.form-grid select,.field-preview input{background:#0f2733;border-color:rgba(255,255,255,.14);color:var(--ink)}
-  .info-callout p{color:#a7bcc0}
-  .account-version strong{color:var(--ink)}
-
-  /* Modales affichées par-dessus le mobile */
-  .modal{background:#15303d;border-color:rgba(255,255,255,.10)}
-  .modal header button{background:rgba(255,255,255,.08);color:var(--ink)}
-  .modal-help{color:#a7bcc0}
-  .step-progress span{background:rgba(255,255,255,.12)}
-
-  /* Toast : fond inversé -> forcer un fond sombre lisible */
-  .toast{background:#1f4150;color:#eaf3f0}
-
-  /* Bascule de vue admin + aperçu */
-  .view-mode-switch{background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
-  .view-mode-switch button,.view-mode-switch select{color:#9fb4b8}
-  .view-mode-switch button.active{background:rgba(255,255,255,.16);color:#eaf3f0}
-  .view-mode-switch select option{background:#15303d;color:#eaf3f0}
-  .preview-pill{background:rgba(243,182,73,.14);border-color:rgba(243,182,73,.4);color:#f3d79a}
-  .preview-banner button{background:rgba(255,255,255,.1);color:#f3d79a}
-
-  :where(button,input,select,textarea,a):focus-visible{outline-color:rgba(84,201,184,.6)}
-}

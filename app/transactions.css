@@ -97,46 +97,6 @@ body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", 
   .transactions-table .transaction-actions{width:100%;justify-content:flex-start}
 }
 
-/* ============================================================
-   Mobile — thème sombre des transactions (suit le réglage du téléphone).
-   Scopé (max-width:780px) : le desktop reste clair même si l'OS est en sombre.
-   ============================================================ */
-@media (max-width:780px) and (prefers-color-scheme:dark){
-  .transactions-guide{background:linear-gradient(120deg,#173b46,#12303c 62%,#1b3a30);border-color:rgba(255,255,255,.08)}
-  .transactions-guide p{color:#9fb4b8}
-  .entry-steps b{background:rgba(84,201,184,.16);color:#7fe0d0}
-  .entry-steps small{color:#9fb4b8}
-  .entry-steps i{color:#5f757c}
-
-  .transaction-filters select{background:#0f2733;border-color:rgba(255,255,255,.16);color:#e9f2ef}
-  .transactions-toolbar{border-color:rgba(255,255,255,.10)}
-
-  /* Cartes de transactions (mobile) */
-  .transactions-table tr{background:#15303d;border-color:rgba(255,255,255,.10);box-shadow:0 6px 18px rgba(0,0,0,.4)}
-  .transactions-table tbody tr:hover,.transactions-table tr:hover{background:#15303d}
-  .transactions-table td{border-color:rgba(255,255,255,.08)}
-  .transactions-table td[data-label="Date"]{border-color:rgba(255,255,255,.12)}
-  .transactions-table td::before{color:#8ba0a5}
-  .transactions-table td:nth-child(3) small{color:#9fb4b8}
-
-  .author-chip{background:rgba(255,255,255,.09);color:#e9f2ef}
-  .author-chip.child{background:rgba(84,201,184,.16);color:#7fe0d0}
-  .blockchain-link{background:rgba(255,255,255,.09);color:#a9cdec}
-  .transaction-location.unclassified{background:rgba(255,255,255,.09);color:#9fb4b8}
-  .active-transaction-shortcut{background:rgba(84,201,184,.12);border-color:rgba(84,201,184,.35);color:#7fe0d0}
-  .active-transaction-shortcut span{color:#9fb4b8}
-  .empty-transactions{color:#9fb4b8}
-
-  /* Modale de saisie guidée */
-  .entry-review dl{border-color:rgba(255,255,255,.12)}
-  .entry-review dl>div{border-color:rgba(255,255,255,.08)}
-  .entry-review dt{color:#9fb4b8}
-  .entry-review textarea,.guided-modal input,.guided-modal select{background:#0f2733;border-color:rgba(255,255,255,.16);color:#e9f2ef}
-  .occasion-emoji{background:rgba(243,182,73,.16)}
-  .occasion-emoji.christmas{background:rgba(84,201,184,.16)}
-  .admin-work-button{color:#052620}
-  .request-transfer-button{color:#3b2703}
-}
 
 /* ============================================================
    Mouvements - nouvelles vues mobiles (membre en cartes personnelles, admin en cartes actionnables).
@@ -225,49 +185,4 @@ body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", 
   .amv-card-stats small.down{color:#c43e36;font-weight:800}
   .amv-card-actions{display:flex;gap:8px;margin-top:12px}
   .amv-card-actions button{flex:1;min-height:38px;justify-content:center}
-}
-
-@media (max-width:780px) and (prefers-color-scheme:dark){
-  .mmv-summary-icon{background:rgba(84,201,184,.16)}
-  .mmv-summary-head h2{color:#e9f2ef}
-  .mmv-summary-head p{color:#9fb4b8}
-  .mmv-summary-stats small{color:#9fb4b8}
-  .mmv-summary-stats strong{color:#e9f2ef}
-  .mmv-summary-stats span{color:#8ba0a5}
-  .mmv-summary-stats .gain.up{color:#7fe0d0}
-  .mmv-summary-stats .gain.down{color:#ff9c86}
-  .mmv-summary-stats .gain.neutral{color:#9fb4b8}
-
-  .mmv-chips button{background:#15303d;border-color:rgba(255,255,255,.14);color:#e9f2ef}
-  .mmv-chips button.active{background:#54c9b8;border-color:#54c9b8;color:#05271f}
-  .mmv-active-chip{border-color:rgba(84,201,184,.4);background:rgba(84,201,184,.14);color:#7fe0d0}
-
-  .mmv-history>header span{color:#7fe0d0}
-  .mmv-history>header h3{color:#e9f2ef}
-  .mmv-card,.amv-card{background:#15303d;border-color:rgba(255,255,255,.10);box-shadow:none}
-  .mmv-card-icon{background:rgba(243,182,73,.16)}
-  .mmv-card-icon.christmas{background:rgba(84,201,184,.16)}
-  .mmv-card-icon.transfer{background:rgba(255,255,255,.08)}
-  .mmv-card-title small,.mmv-card-title>span,.amv-card-title small:first-child,.amv-kind{color:#7fe0d0}
-  .mmv-card-title strong,.amv-card-title strong{color:#e9f2ef}
-  .mmv-pill.ledger{background:rgba(84,201,184,.16);color:#7fe0d0}
-  .mmv-pill.binance{background:rgba(243,182,73,.16);color:#f3c877}
-  .mmv-pill.missing{background:rgba(255,255,255,.08);color:#9fb4b8}
-  .mmv-status-caption,.amv-account{color:#9fb4b8}
-  .mmv-proof-link{color:#7fe0d0}
-  .mmv-request-button{background:#54c9b8;color:#05271f}
-  .mmv-card-stats,.amv-card-stats{border-color:rgba(255,255,255,.10)}
-  .mmv-card-stats small,.amv-card-stats small{color:#9fb4b8}
-  .mmv-card-stats strong,.amv-card-stats strong{color:#e9f2ef}
-  .mmv-card-stats strong.up,.amv-card-stats small.up{color:#7fe0d0}
-  .mmv-card-stats strong.down,.amv-card-stats small.down{color:#ff9c86}
-  .mmv-card-detail{border-color:rgba(255,255,255,.10)}
-  .mmv-card-detail small{color:#9fb4b8}
-  .mmv-card-detail strong{color:#e9f2ef}
-
-  .amv-sort-button{background:#15303d;border-color:rgba(255,255,255,.14);color:#e9f2ef}
-  .amv-card-status strong{color:#e9f2ef}
-  .amv-card-status strong small{color:#9fb4b8}
-  .admin-delete-button{background:rgba(255,141,114,.12);border-color:rgba(255,141,114,.4);color:#ff9c86}
-  .admin-delete-button:hover{background:rgba(255,141,114,.2);border-color:#ff9c86}
 }
