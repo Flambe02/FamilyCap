@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsView, type TransactionShortcut } from "./transactions";
+import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsView, type GiftSaveResult, type TransactionShortcut } from "./transactions";
 import { TransferRequest } from "./back-office";
 import { Administration } from "./administration";
 import { GiftPortfolio } from "./gift-portfolio";
@@ -136,7 +136,8 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [activity, setActivity] = useState([
     { member: "Thibault", label: "Cadeau anniversaire", detail: "55,00 € · Bitcoin", time: "15 mars" },
   ]);
-  const [transactions, setTransactions] = useState<TransactionRecord[]>(initialTransactions);
+  const [transactions] = useState<TransactionRecord[]>(initialTransactions);
+  const [transactionsReloadKey, setTransactionsReloadKey] = useState(0);
   const [transferRequests, setTransferRequests] = useState<TransferRequest[]>([]);
   const [familyRecords, setFamilyRecords] = useState<FamilyGiftRecord[]>([]);
   const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
@@ -151,6 +152,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const mobileMenuRef = useDialogA11y(mobileMenuOpen, () => setMobileMenuOpen(false));
   const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
+  const canManageGifts = viewer.role === "admin" && !isPreview;
   const memberNavItems = navItems.filter((item) => !ADMIN_ONLY_VIEW_IDS.includes(item.id));
   const adminNavItems = navItems.filter((item) => ADMIN_ONLY_VIEW_IDS.includes(item.id));
   const bottomNavItems = BOTTOM_NAV_VIEW_IDS.map((id) => navItems.find((item) => item.id === id)!);
@@ -166,6 +168,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     return () => controller.abort();
   }, []);
 
+  const [familyReloadToken, setFamilyReloadToken] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     async function loadFamilyMarketSummary() {
@@ -198,7 +201,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     }
     void loadFamilyMarketSummary();
     return () => controller.abort();
-  }, [viewer.role]);
+  }, [viewer.role, familyReloadToken]);
   useEffect(() => {
     if (viewer.role === "admin" || isPreview) return;
     const timer = window.setTimeout(() => setOnboardingOpen(window.localStorage.getItem(`cap-family-onboarding-v1:${viewer.id}`) !== "done"), 0);
@@ -245,15 +248,16 @@ function replayOnboarding() { setOnboardingOpen(true); }
     setView(next);
   }
 
-  function saveInvestment(transaction: TransactionRecord) {
-    setTransactions((current) => [transaction, ...current]);
+  function handleGiftSaved(result: GiftSaveResult) {
+    setModalOpen(false);
     setActivity((current) => [
-      { member: transaction.member, label: "Investissement saisi", detail: `${euro.format(transaction.amount)} · ${transaction.asset} · par ${transaction.author}`, time: "Aujourd’hui" },
+      { member: result.member, label: "Cadeau enregistré", detail: `${euro.format(result.amountEur)} · Bitcoin`, time: "Aujourd’hui" },
       ...current,
     ]);
-    setModalOpen(false);
-    setToast("Opération enregistrée et visible dans Transactions");
+    setToast(result.message);
     window.setTimeout(() => setToast(""), 3200);
+    setTransactionsReloadKey((key) => key + 1);
+    setFamilyReloadToken((key) => key + 1);
   }
 
   function requestTransfer(transaction: TransactionRecord) {
@@ -399,7 +403,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
               <span className="sr-only">Notifications</span>
               <span className="notification-dot" aria-hidden="true" />
             </button>
-            {isPreview ? <div className="preview-pill" role="status" aria-live="polite">Aperçu membre - lecture seule</div> : <button className="primary-button" aria-label="Ajouter une opération" onClick={() => setModalOpen(true)}><span aria-hidden="true"><b>+</b></span><span>Ajouter une opération</span></button>}
+            {viewer.role === "admin" && (isPreview ? <div className="preview-pill" role="status" aria-live="polite">Aperçu membre - lecture seule</div> : <button className="primary-button" aria-label="Ajouter une opération" onClick={() => setModalOpen(true)}><span aria-hidden="true"><b>+</b></span><span>Ajouter une opération</span></button>)}
           </div>
         </header>
 
@@ -410,10 +414,10 @@ function replayOnboarding() { setOnboardingOpen(true); }
         </div>}
 
         {view === "famille" && (
-          <Dashboard totalBtc={totalBtc} totalBitcoinValueEur={totalBitcoinValueEur} bitcoinEur={bitcoinEur} marketLoading={familyMarketLoading} memberBalances={memberBalances} activity={activity} transferRequests={transferRequests} openModal={() => setModalOpen(true)} navigate={navigate} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />
+          <Dashboard totalBtc={totalBtc} totalBitcoinValueEur={totalBitcoinValueEur} bitcoinEur={bitcoinEur} marketLoading={familyMarketLoading} memberBalances={memberBalances} activity={activity} transferRequests={transferRequests} canManageGifts={canManageGifts} openModal={() => setModalOpen(true)} navigate={navigate} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />
         )}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} previewReadOnly={isPreview} onOpenTransactions={openFilteredTransactions} />}
-        {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} onAdd={() => isPreview ? setToast("Apercu : aucune modification n est autorisee.") : setModalOpen(true)} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
+        {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "indicateurs" && <Indicators records={familyGiftRecords} bitcoinEur={bitcoinEur} />}
         {view === "comptes" && <ComingSoon eyebrow="COMPTES" title="Comptes (PEA / Titres)" description="Le suivi des comptes PEA et compte-titres arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." />}
         {view === "videos" && <ComingSoon eyebrow="SOUVENIRS" title="Vidéos souvenirs" description="Un espace pour retrouver les vidéos souvenirs d’Amatxi sera bientôt disponible ici." />}
@@ -484,13 +488,13 @@ function replayOnboarding() { setOnboardingOpen(true); }
       </aside>
 
       {onboardingOpen && !isPreview && effectiveViewer.role !== "admin" && <MemberOnboarding viewer={effectiveViewer} onComplete={completeOnboarding} onOpenPortfolio={() => setView("portefeuilles")} />}
-      {modalOpen && <InvestmentModal onClose={() => setModalOpen(false)} onSave={saveInvestment} />}
+      {modalOpen && canManageGifts && <InvestmentModal defaultMember={familyMember} onClose={() => setModalOpen(false)} onSaved={handleGiftSaved} />}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );
 }
 
-function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, memberBalances, activity, transferRequests, openModal, navigate, onOpenMember }: {
+function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, memberBalances, activity, transferRequests, canManageGifts, openModal, navigate, onOpenMember }: {
   totalBtc: number;
   totalBitcoinValueEur: number | null;
   bitcoinEur: number | null;
@@ -498,6 +502,7 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
   memberBalances: FamilyMemberBalance[];
   activity: { member: string; label: string; detail: string; time: string }[];
   transferRequests: TransferRequest[];
+  canManageGifts: boolean;
   openModal: () => void;
   navigate: (view: View) => void;
   onOpenMember: (member: string) => void;
@@ -514,10 +519,10 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
           <span className="soft-pill">● SITUATION AUJOURD’HUI</span>
           <h2>Bonjour 👋<br />La famille construit son avenir.</h2>
           <p>Les cadeaux d’Amatxi en Bitcoin et vos investissements réguliers progressent bien. Continuons à construire, ensemble, sereinement.</p>
-          <button type="button" className="welcome-cta-mobile" onClick={openModal}><b aria-hidden="true">+</b> Ajouter une opération</button>
+          {canManageGifts && <button type="button" className="welcome-cta-mobile" onClick={openModal}><b aria-hidden="true">+</b> Ajouter une opération</button>}
         </div>
         <div className="hero-orbit" aria-hidden="true"><span className="coin">₿</span><i /><b /></div>
-        <button className="primary-button welcome-action" onClick={openModal}>＋ Ajouter une opération</button>      </section>
+        {canManageGifts && <button className="primary-button welcome-action" onClick={openModal}>＋ Ajouter une opération</button>}      </section>
 
       <div className="next-birthday-notice family-calendar-notice" role="status"><span aria-hidden="true">&#127874;</span><span>{familyCalendarLabel(nextFamilyEvents)}</span><b>{daysUntilNextFamilyEvent === 0 ? "Ce jour" : "dans " + daysUntilNextFamilyEvent + " jours"}</b></div>
 
@@ -545,7 +550,7 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
 
       <div className="dashboard-bottom-row">
         <section className="panel activity-panel">
-          <PanelTitle eyebrow="JOURNAL" title="Activité récente" action="Ajouter" onAction={openModal} />
+          <PanelTitle eyebrow="JOURNAL" title="Activité récente" action={canManageGifts ? "Ajouter" : undefined} onAction={canManageGifts ? openModal : undefined} />
           <div className="activity-list">
             {activity.slice(0, 4).map((item, index) => (
               <div className="activity-item" key={`${item.label}-${index}`}><span className="activity-mark">{item.member.slice(0, 1)}</span><div><strong>{item.label}</strong><p>{item.member} · {item.detail}</p></div><time>{item.time}</time></div>

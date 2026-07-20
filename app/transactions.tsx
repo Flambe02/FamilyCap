@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
+import { saveGift } from "../lib/gifts-client";
 import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, MEMBER_NAMES, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
@@ -76,7 +77,7 @@ const memberBirthdays = FAMILY_MEMBERS.map((member) => ({ member: member.name, m
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 
-export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onTransferRequest, onOpenPortfolio, shortcut }: { transactions: TransactionRecord[]; isAdmin: boolean; viewerName: string; onAdd: () => void; onTransferRequest: (transaction: TransactionRecord) => void; onOpenPortfolio?: (member: string) => void; shortcut?: TransactionShortcut | null }) {
+export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onTransferRequest, onOpenPortfolio, shortcut, reloadKey }: { transactions: TransactionRecord[]; isAdmin: boolean; viewerName: string; onAdd: () => void; onTransferRequest: (transaction: TransactionRecord) => void; onOpenPortfolio?: (member: string) => void; shortcut?: TransactionShortcut | null; reloadKey?: number }) {
   const [memberFilter, setMemberFilter] = useState(shortcut?.member ?? "Tous");
   const [locationFilter, setLocationFilter] = useState<string>(shortcut?.location ?? "Tous");
   const [scopeFilter, setScopeFilter] = useState<TransactionShortcut["scope"]>(shortcut?.scope ?? "all");
@@ -157,7 +158,7 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
       if (!(error instanceof DOMException && error.name === "AbortError")) console.error(error);
     });
     return () => controller.abort();
-  }, [isAdmin]);
+  }, [isAdmin, reloadKey]);
 
   const detailedTransactions = useMemo(() => {
     const giftsByEvent = new Map<string, TransactionRecord>();
@@ -518,43 +519,73 @@ function AdminMovementsMobile({ transactions, bitcoinEur, sortDir, onToggleSort,
   </div>;
 }
 
-export function InvestmentModal({ onClose, onSave }: { onClose: () => void; onSave: (transaction: TransactionRecord) => void }) {
+export type GiftSaveResult = { message: string; member: string; amountEur: number };
+
+export function InvestmentModal({ defaultMember, onClose, onSaved }: { defaultMember?: string; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
   const [step, setStep] = useState(1);
-  const [draft, setDraft] = useState({ member: "Thibault", author: "Administrateur", kind: "Investissement mensuel", account: "Binance commun", asset: "Bitcoin", amount: "55", quantity: "", date: "2026-07-16", reference: "", note: "" });
-  const update = (key: keyof typeof draft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+  const [draft, setDraft] = useState({
+    member: defaultMember ?? memberNames[0],
+    occasion: "Anniversaire" as "Anniversaire" | "Noël" | "Autre cadeau",
+    custody: "Binance commun" as "Binance commun" | "Ledger",
+    amount: "55",
+    quantity: "",
+    date: new Date().toISOString().slice(0, 10),
+    txid: "",
+    note: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const update = <K extends keyof typeof draft>(key: K, value: typeof draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const dialogRef = useDialogA11y(true, onClose);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     if (step < 3) { setStep((current) => current + 1); return; }
-    onSave({
-      id: `manual-${Date.now()}`,
-      date: draft.date,
-      member: draft.member,
-      kind: draft.kind,
-      asset: draft.asset,
-      account: draft.account,
-      amount: Number(draft.amount),
-      quantity: draft.quantity ? Number(draft.quantity) : undefined,
-      author: draft.author,
-      authorRole: draft.author === "Administrateur" ? "Administrateur" : "Enfant",
-      status: draft.quantity ? "Confirmée" : "À compléter",
-      reference: draft.reference || undefined,
-      note: draft.note || undefined,
-    });
+    setBusy(true);
+    setError("");
+    try {
+      const amountEur = Number(draft.amount);
+      const btcAmount = Number(draft.quantity);
+      await saveGift({
+        member: draft.member,
+        occasion: draft.occasion,
+        giftDate: draft.date,
+        purchaseDate: draft.date,
+        amountEur,
+        btcAmount,
+        custody: draft.custody,
+        txid: draft.custody === "Ledger" && draft.txid.trim() ? draft.txid.trim() : null,
+        note: draft.note.trim() || null,
+      });
+      onSaved({ message: "Cadeau enregistré et visible dans Transactions.", member: draft.member, amountEur });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Enregistrement impossible.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="modal-backdrop" onMouseDown={(event) => !busy && event.target === event.currentTarget && onClose()}>
       <section ref={dialogRef} className="modal guided-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" tabIndex={-1}>
-        <header><div><span>SAISIE GUIDÉE · ÉTAPE {step} SUR 3</span><h2 id="entry-title">{stepTitle(step)}</h2></div><button onClick={onClose} aria-label="Fermer">×</button></header>
+        <header><div><span>SAISIE GUIDÉE · ÉTAPE {step} SUR 3</span><h2 id="entry-title">{stepTitle(step)}</h2></div><button onClick={onClose} aria-label="Fermer" disabled={busy}>×</button></header>
         <div className="step-progress"><span className={step >= 1 ? "done" : ""} /><span className={step >= 2 ? "done" : ""} /><span className={step >= 3 ? "done" : ""} /></div>
         <p className="modal-help">{stepHelp(step)}</p>
         <form onSubmit={submit}>
-          {step === 1 && <div className="form-grid"><label>Pour quel enfant ?<select value={draft.member} onChange={(event) => update("member", event.target.value)}>{memberNames.map((name) => <option key={name}>{name}</option>)}</select></label><label>Qui saisit l’opération ?<select value={draft.author} onChange={(event) => update("author", event.target.value)}><option>Administrateur</option>{memberNames.map((name) => <option key={name}>{name}</option>)}</select></label><label className="span-2">Nature de l’opération<select value={draft.kind} onChange={(event) => update("kind", event.target.value)}><option>Investissement mensuel</option><option>Anniversaire</option><option>Noël</option><option>Transfert vers Ledger</option><option>Achat PEA</option><option>Vente</option></select></label></div>}
-          {step === 2 && <div className="form-grid"><label>Compte / enveloppe<select value={draft.account} onChange={(event) => update("account", event.target.value)}><option>Binance commun</option><option>Ledger personnel</option><option>PEA</option><option>Compte-titres</option><option>Autre</option></select></label><label>Actif<input value={draft.asset} onChange={(event) => update("asset", event.target.value)} placeholder="Bitcoin, ETF World…" required /></label><label>Montant total, frais inclus (€)<input value={draft.amount} onChange={(event) => update("amount", event.target.value)} type="number" min="0" step="0.01" required /></label><label>Quantité reçue<input value={draft.quantity} onChange={(event) => update("quantity", event.target.value)} type="number" min="0" step="any" placeholder="Ex. 0,001234" /></label><label>Date<input value={draft.date} onChange={(event) => update("date", event.target.value)} type="date" required /></label><label>Référence / TxID<input value={draft.reference} onChange={(event) => update("reference", event.target.value)} placeholder="Optionnel" /></label></div>}
-          {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Bénéficiaire</dt><dd>{draft.member}</dd></div><div><dt>Saisie par</dt><dd>{draft.author}</dd></div><div><dt>Opération</dt><dd>{draft.kind}</dd></div><div><dt>Compte</dt><dd>{draft.account}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount))}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} ${draft.asset === "Bitcoin" ? "BTC" : ""}` : "À compléter plus tard"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label></div>}
-          <footer><button type="button" className="secondary-button" onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)}>{step === 1 ? "Annuler" : "← Retour"}</button><button type="submit" className="primary-button">{step === 3 ? "Enregistrer l’opération" : "Continuer →"}</button></footer>
+          {step === 1 && <div className="form-grid">
+            <label>Pour quel enfant ?<select value={draft.member} onChange={(event) => update("member", event.target.value)}>{memberNames.map((name) => <option key={name}>{name}</option>)}</select></label>
+            <label className="span-2">Occasion<select value={draft.occasion} onChange={(event) => update("occasion", event.target.value as typeof draft.occasion)}><option>Anniversaire</option><option>Noël</option><option>Autre cadeau</option></select></label>
+          </div>}
+          {step === 2 && <div className="form-grid">
+            <label>Montant total, frais inclus (€)<input value={draft.amount} onChange={(event) => update("amount", event.target.value)} type="number" min="0" step="0.01" required /></label>
+            <label>BTC achetés<input value={draft.quantity} onChange={(event) => update("quantity", event.target.value)} type="number" min="0" step="any" placeholder="Ex. 0,001234" required /></label>
+            <label>Date du cadeau<input value={draft.date} onChange={(event) => update("date", event.target.value)} type="date" required /></label>
+            <label>Où sont les bitcoins ?<select value={draft.custody} onChange={(event) => update("custody", event.target.value as typeof draft.custody)}><option value="Binance commun">Binance commun</option><option value="Ledger">Ledger personnel</option></select></label>
+            {draft.custody === "Ledger" && <label className="span-2">TxID (optionnel)<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} placeholder="Laisser vide si le virement n’a pas encore eu lieu" /></label>}
+          </div>}
+          {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Bénéficiaire</dt><dd>{draft.member}</dd></div><div><dt>Occasion</dt><dd>{draft.occasion}</dd></div><div><dt>Localisation</dt><dd>{draft.custody}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount) || 0)}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} BTC` : "—"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label>{error && <p className="editor-feedback" role="alert">{error}</p>}</div>}
+          <footer><button type="button" className="secondary-button" disabled={busy} onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)}>{step === 1 ? "Annuler" : "← Retour"}</button><button type="submit" className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : step === 3 ? "Enregistrer l’opération" : "Continuer →"}</button></footer>
         </form>
       </section>
     </div>
