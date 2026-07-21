@@ -229,16 +229,16 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
             <h2>Cadeaux d’Amatxi</h2>
             <p>Retrouvez tous les cadeaux offerts pour les anniversaires et Noël, ainsi que leur évolution en Bitcoin.</p>
           </div>
-          {canManage && <button type="button" className="primary-button amatxi-add-button" onClick={() => setModal("create")}>＋ Ajouter un cadeau</button>}
-          {!isAdmin && summary.count > 0 && (
+          {summary.count > 0 && (
             <p className="amatxi-member-summary">
               <span className="amatxi-member-summary-icon" aria-hidden="true">{ICONS.gift}</span>
               <span>
-                {summary.firstYear ? `Depuis ${summary.firstYear}, ` : ""}Amatxi t’a offert <strong>{euro.format(summary.totalEur)}</strong>.
+                {summary.firstYear ? `Depuis ${summary.firstYear}, ` : ""}Amatxi {isAdmin ? "a offert" : "t’a offert"} <strong>{euro.format(summary.totalEur)}</strong>.
                 {" "}Ces cadeaux représentent aujourd’hui {summary.currentValueEur === null ? <strong>{summary.totalBtc.toFixed(8)} BTC</strong> : <strong>{euro.format(summary.currentValueEur)}</strong>}.
               </span>
             </p>
           )}
+          {canManage && <button type="button" className="primary-button amatxi-add-button" onClick={() => setModal("create")}>＋ Ajouter un cadeau</button>}
         </div>
         <div className="amatxi-head-media" aria-hidden="true">
           <img src="/amatxi-hero.png" alt="" />
