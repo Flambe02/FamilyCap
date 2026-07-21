@@ -48,8 +48,8 @@ tsconfig.tsbuildinfo
 dev*.out
 dev*.err
 
-# oh-my-claudecode operational state
-/.omc/
+# oh-my-claudecode operational state (any depth)
+.omc/
 
 # temp / scratch
 _tmp_*.cjs
