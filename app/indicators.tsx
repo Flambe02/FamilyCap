@@ -150,7 +150,7 @@ function PriceChart({ categories, series, bitcoinEur, average, emptyNote }: { ca
   </div>;
 }
 
-export function Indicators({ records, bitcoinEur }: { records: PurchaseSourceRecord[]; bitcoinEur: number | null }) {
+export function Indicators({ records, bitcoinEur, embedded = false }: { records: PurchaseSourceRecord[]; bitcoinEur: number | null; embedded?: boolean }) {
   const [viewMode, setViewMode] = useState<"chart" | "monthly" | "table">("chart");
 
   const data = useMemo(() => computePurchasePriceData(records), [records]);
@@ -175,7 +175,7 @@ export function Indicators({ records, bitcoinEur }: { records: PurchaseSourceRec
   })), [data]);
 
   return <div className="page-stack indicators-page">
-    <section className="panel indicators-hero">
+    {!embedded && <section className="panel indicators-hero">
       <div>
         <span>INDICATEURS FAMILLE</span>
         <h2>Prix d’achat du bitcoin, cadeau par cadeau</h2>
@@ -192,7 +192,7 @@ export function Indicators({ records, bitcoinEur }: { records: PurchaseSourceRec
             : <><span className={totalGainEur >= 0 ? "indicators-stat-positive" : "indicators-stat-negative"}>{totalGainEur >= 0 ? "+" : ""}{euroCompact(totalGainEur)}</span><small>Plus-value totale {totalGainPct !== null ? `(${percent.format(totalGainPct)} %)` : ""}</small></>}
         </div>
       </div>
-    </section>
+    </section>}
 
     <section className="panel indicators-chart-panel">
       <header>

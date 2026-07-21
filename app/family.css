@@ -66,7 +66,7 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
   .content-grid, .page-stack { width: min(1104px, calc(100% - 48px)); }.content-grid { gap: 16px; }
   .welcome-panel { min-height: 218px; padding: 31px 34px; border: 0; border-radius: 24px; box-shadow: 0 12px 26px rgb(33 54 60 / 4%); }.welcome-panel h2 { margin: 12px 0 5px; font-size: 29px; letter-spacing: -1px; }.welcome-panel p { max-width: 510px; font-size: 12px; line-height: 1.38; }.welcome-panel .soft-pill { padding: 5px 9px; font-size: 8px; }
   .hero-orbit { width: 174px; height: 174px; top: -31px; right: -18px; border: 0; background: radial-gradient(circle at 32% 32%, #ffd586, #eca72e); }.hero-orbit::before, .hero-orbit .coin, .hero-orbit i, .hero-orbit b { display: none; }.welcome-action { position: absolute; z-index: 3; top: 32px; right: 34px; min-width: 187px; }
-  .stats-row { gap: 12px; }.stat-card { min-height: 68px; padding: 14px 16px; border: 0; border-radius: 14px; box-shadow: 0 7px 15px rgb(33 54 60 / 4%); }.stat-icon { display: none; }.stat-card strong { margin: 0 0 2px; font-family: inherit; font-size: 18px; font-weight: 750; }.stat-card p { font-size: 8px; }.stat-card small { font-size: 9px; }
+  .stats-row { gap: 12px; }.stat-card { min-height: 72px; padding: 14px 16px; border: 0; border-radius: 14px; box-shadow: 0 7px 15px rgb(33 54 60 / 4%); }.stat-icon { width: 38px; height: 38px; border-radius: 12px; }.stat-card strong { margin: 0 0 2px; font-family: inherit; font-size: 18px; font-weight: 750; }.stat-card p { font-size: 8px; }.stat-card small { font-size: 9px; }
   .panel { border: 0; border-radius: 20px; box-shadow: 0 10px 26px rgb(33 54 60 / 5%); }.family-panel { padding: 24px; }.member-grid { gap: 10px; }.member-card { padding: 15px; border: 0; border-radius: 15px; background: #f5f2e9; }.member-card h3 { margin: 10px 0 3px; font-size: 12px; }.member-value { margin: 10px 0 9px; }.member-value strong { font-family: inherit; font-size: 17px; font-weight: 750; }.mission-panel, .activity-panel { padding: 23px; }
 }
 @media (max-width: 780px) { .view-mode-switch { display: inline-flex; padding: 3px; border-radius: 999px; background: #e5e6e2; }.view-mode-switch button, .view-mode-switch select { min-height: 28px; border: 0; border-radius: 999px; background: transparent; font-size: 10px; }.view-mode-switch button.active { background: #fff; }.welcome-action { position: relative; margin-top: 18px; } }
@@ -285,3 +285,13 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:Inter,ui-sans
 .coming-soon-panel p{max-width:480px;margin:0;color:var(--muted);font-size:12px;line-height:1.6}
 @media(max-width:1100px){.dashboard-bottom-row{grid-template-columns:1fr}}
 @media(max-width:780px){.coming-soon-panel{padding:28px 20px}.dashboard-bottom-row{grid-template-columns:1fr;gap:13px}}
+
+/* Investissements : une seule liste "à venir", pour éviter de répéter le badge "Bientôt disponible" sur plusieurs cartes. */
+.roadmap-panel{padding:28px 30px}
+.roadmap-list{display:grid;gap:2px;margin:6px 0 18px}
+.roadmap-list li{display:grid;grid-template-columns:180px 1fr;gap:16px;padding:13px 0;border-bottom:1px solid #edf1f1}
+.roadmap-list li:last-child{border-bottom:0}
+.roadmap-list strong{color:var(--ink);font-size:12px;font-weight:800}
+.roadmap-list span{color:var(--muted);font-size:11px;line-height:1.55}
+.roadmap-panel .secondary-button{margin-top:4px}
+@media(max-width:780px){.roadmap-panel{padding:20px}.roadmap-list li{grid-template-columns:1fr;gap:4px;padding:12px 0}}

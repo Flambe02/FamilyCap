@@ -640,7 +640,7 @@ function BitcoinOverview({ records, bitcoinEur, totalBtc, totalBitcoinValueEur, 
         </div>
       </section>
 
-      <Indicators records={records} bitcoinEur={bitcoinEur} />
+      <Indicators records={records} bitcoinEur={bitcoinEur} embedded />
 
       <section className="panel activity-panel">
         <PanelTitle eyebrow="JOURNAL" title="Dernières opérations Bitcoin" action="Voir toutes les opérations Bitcoin" onAction={onOpenOperations} />
@@ -655,40 +655,28 @@ function BitcoinOverview({ records, bitcoinEur, totalBtc, totalBitcoinValueEur, 
 }
 
 function Investissements({ onOpenAccounts }: { onOpenAccounts: () => void }) {
+  const roadmap = [
+    { title: "Suggestion mensuelle", detail: "Une recommandation personnalisée de répartition PEA & Titres, une fois le partage familial actif côté serveur." },
+    { title: "Objectif par enfant", detail: "Un montant mensuel recommandé, propre à chaque enfant." },
+    { title: "Suivi des versements", detail: "Effectué, reporté ou à faire, visible en un coup d’œil." },
+    { title: "Historique mensuel", detail: "L’ensemble des versements PEA et compte-titres, une fois le suivi actif." },
+  ];
   return (
     <div className="page-stack">
       <section className="panel coming-soon-panel">
         <span className="soft-pill">INVESTISSEMENTS</span>
         <h2>PEA, compte-titres et ETF</h2>
-        <p>Cet espace regroupera les investissements réguliers de la famille (PEA, compte-titres, ETF), une fois le partage familial appliqué côté serveur.</p>
+        <p>Cet espace répond à une question simple : que dois-je investir ce mois-ci, et où en suis-je ? Il regroupera les investissements réguliers de la famille (PEA, compte-titres, ETF), une fois le partage familial appliqué côté serveur.</p>
         <span className="coming-soon-badge">Bientôt disponible</span>
       </section>
 
-      <div className="dashboard-bottom-row">
-        <section className="panel dashboard-mini-panel">
-          <PanelTitle eyebrow="SUGGESTION DU MOIS" title="Investir régulièrement" />
-          <p className="dashboard-mini-copy">Investir régulièrement compte souvent plus que choisir le « moment parfait ». Les recommandations personnalisées (PEA &amp; Titres) arrivent bientôt.</p>
-          <span className="coming-soon-badge">Bientôt disponible</span>
-        </section>
-
-        <section className="panel dashboard-mini-panel">
-          <PanelTitle eyebrow="OBJECTIF" title="Montant mensuel recommandé" />
-          <p className="dashboard-mini-copy">Un objectif d’investissement mensuel personnalisé pour chaque enfant sera calculé ici.</p>
-          <span className="coming-soon-badge">Bientôt disponible</span>
-        </section>
-
-        <section className="panel dashboard-mini-panel">
-          <PanelTitle eyebrow="STATUT" title="Effectué, reporté ou à faire" />
-          <p className="dashboard-mini-copy">Le suivi mensuel des versements (effectué, reporté ou à faire) apparaîtra ici.</p>
-          <span className="coming-soon-badge">Bientôt disponible</span>
-        </section>
-      </div>
-
-      <section className="panel coming-soon-panel">
-        <span className="soft-pill">HISTORIQUE</span>
-        <h2>Historique mensuel des investissements</h2>
-        <p>L’historique des versements PEA et compte-titres sera disponible dès que le suivi mensuel sera actif.</p>
-        <span className="coming-soon-badge">Bientôt disponible</span>
+      <section className="panel roadmap-panel">
+        <PanelTitle eyebrow="À VENIR DANS CET ESPACE" title="Objectif, suivi et historique" />
+        <ul className="roadmap-list">
+          {roadmap.map((item) => (
+            <li key={item.title}><strong>{item.title}</strong><span>{item.detail}</span></li>
+          ))}
+        </ul>
         <button type="button" className="secondary-button" onClick={onOpenAccounts}>Voir les comptes PEA / Titres →</button>
       </section>
     </div>
