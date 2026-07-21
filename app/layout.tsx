@@ -1,7 +1,21 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import { Cormorant_Garamond, Inter } from "next/font/google";
 import { RegisterServiceWorker } from "./register-service-worker";
 import "./globals.css";
+
+const cormorantGaramond = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: ["500", "600"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -55,7 +69,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="fr">
-      <body className="antialiased">
+      <body className={`antialiased ${cormorantGaramond.variable} ${inter.variable}`}>
         <a href="#main-content" className="skip-link">
           Aller au contenu principal
         </a>

@@ -114,6 +114,8 @@ function NavIcon({ id }: { id: NavIconId }) {
   return NAV_ICONS[id];
 }
 const ADMIN_ONLY_VIEW_IDS: View[] = ["transactions", "suggestions", "administration-globale"];
+// "Portefeuille" reste une vue à part entière (accessible depuis les cartes membres) mais n'a pas d'entrée dédiée dans la barre latérale — voir audit fidélité visuelle.
+const HIDDEN_FROM_SIDEBAR_VIEW_IDS: View[] = ["portefeuilles"];
 const BOTTOM_NAV_VIEW_IDS: View[] = ["famille", "cadeaux-amatxi", "indicateurs", "videos", "famille-roster"];
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -156,7 +158,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const mobileMenuRef = useDialogA11y(mobileMenuOpen, () => setMobileMenuOpen(false));
   const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
   const canManageGifts = viewer.role === "admin" && !isPreview;
-  const memberNavItems = navItems.filter((item) => !ADMIN_ONLY_VIEW_IDS.includes(item.id));
+  const memberNavItems = navItems.filter((item) => !ADMIN_ONLY_VIEW_IDS.includes(item.id) && !HIDDEN_FROM_SIDEBAR_VIEW_IDS.includes(item.id));
   const adminNavItems = navItems.filter((item) => ADMIN_ONLY_VIEW_IDS.includes(item.id));
   const bottomNavItems = BOTTOM_NAV_VIEW_IDS.map((id) => navItems.find((item) => item.id === id)!);
 
@@ -518,7 +520,7 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
     <div className="content-grid">
       <section className="welcome-panel">
         <div>
-          <span className="soft-pill">● SITUATION AUJOURD’HUI</span>
+          <span className="soft-pill welcome-panel-eyebrow">● SITUATION AUJOURD’HUI</span>
           <h2>Bonjour 👋<br />La famille construit son avenir.</h2>
           <p>Les cadeaux d’Amatxi en Bitcoin et vos investissements réguliers progressent bien. Continuons à construire, ensemble, sereinement.</p>
           {canManageGifts && <button type="button" className="welcome-cta-mobile" onClick={openModal}><b aria-hidden="true">+</b> Ajouter une opération</button>}
@@ -526,17 +528,26 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
         <div className="hero-orbit" aria-hidden="true"><span className="coin">₿</span><i /><b /></div>
         {canManageGifts && <button className="primary-button welcome-action" onClick={openModal}>＋ Ajouter une opération</button>}      </section>
 
-      <div className="next-birthday-notice family-calendar-notice" role="status"><span aria-hidden="true">&#127874;</span><span>{familyCalendarLabel(nextFamilyEvents)}</span><b>{daysUntilNextFamilyEvent === 0 ? "Ce jour" : "dans " + daysUntilNextFamilyEvent + " jours"}</b></div>
+      <div className="next-birthday-notice family-calendar-notice" role="status">
+        <span aria-hidden="true">&#127874;</span>
+        <span>{familyCalendarLabel(nextFamilyEvents)}</span>
+        <b>{daysUntilNextFamilyEvent === 0 ? "Ce jour" : "dans " + daysUntilNextFamilyEvent + " jours"}</b>
+        <button type="button" className="family-calendar-notice-action" onClick={() => navigate("videos")}>Préparer la vidéo</button>
+      </div>
 
       <section className="stats-row" aria-label="Indicateurs clés">
         <Stat label="Valeur totale BTC cadeaux" value={totalBitcoinValueEur === null ? (marketLoading ? "Mise à jour…" : "Cours indisponible") : euro.format(totalBitcoinValueEur)} note={bitcoinEur ? `${totalBtc.toFixed(8)} BTC attribués · 1 BTC = ${euro.format(bitcoinEur)}` : "Bitcoin uniquement · PEA et compte-titres bientôt"} tone="amber" icon="bitcoin" />
         <Stat label="À transférer vers Ledger" value={`${pendingTransfers.length} transfert${pendingTransfers.length > 1 ? "s" : ""}`} note={pendingTransferBtc > 0 ? `${pendingTransferBtc.toFixed(8)} BTC en attente` : "Aucun transfert en attente"} tone="teal" icon="shield-check" />
-        <Stat label="Suggestions mensuelles" value="Bientôt" note="Répartition PEA & Titres — à venir" tone="teal" icon="trending-up" />
+        <Stat label="Suggestions mensuelles" value="Bientôt" note="Répartition PEA & Titres — à venir" tone="teal" icon="trending-up" action="Voir la suggestion" onAction={() => navigate("indicateurs")} />
         <Stat label={"Prochain \u00e9v\u00e8nement"} value={nextFamilyEvent.day + " " + new Intl.DateTimeFormat("fr-FR", { month: "long" }).format(nextFamilyEvent.date)} note={nextFamilyEvent.kind === "christmas" ? "No\u00ebl" : "Anniversaire de " + nextFamilyEvent.name} tone="amber" icon="calendar" />
       </section>
 
       <section className="panel family-panel">
         <PanelTitle eyebrow="LES MEMBRES" title="Vue d’ensemble de la famille" action="Voir la famille" onAction={() => navigate("famille-roster")} />
+        <div className="family-panel-compact-title">
+          <span>VUE D’ENSEMBLE DE LA FAMILLE</span>
+          <button type="button" onClick={() => navigate("famille-roster")}>Gérer la famille →</button>
+        </div>
         <div className="member-grid">
           {members.map((member) => { const documentedProgress = Math.max(18, 100 - member.missing * 12); const balance = memberBalances.find((item) => item.name === member.name); const btc = balance?.btc ?? 0; const currentValueEur = balance?.currentValueEur ?? null; return (
             <button className="member-card member-card-button" key={member.name} onClick={() => onOpenMember(member.name)} aria-label={`Voir le portefeuille et les transactions de ${member.name}`}>
@@ -561,15 +572,22 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
         </section>
 
         <section className="panel dashboard-mini-panel">
+          <span className="dashboard-mini-icon" aria-hidden="true">📈</span>
           <PanelTitle eyebrow="SUGGESTION DU MOIS" title="Investir régulièrement" />
           <p className="dashboard-mini-copy">Investir régulièrement compte souvent plus que choisir le « moment parfait ». Les recommandations personnalisées (PEA &amp; Titres) arrivent bientôt.</p>
           <span className="coming-soon-badge">Bientôt disponible</span>
+          <button type="button" className="dashboard-mini-link" onClick={() => navigate("apprendre")}>Comprendre pourquoi →</button>
         </section>
 
         <section className="panel dashboard-mini-panel">
           <PanelTitle eyebrow="VIDÉOS SOUVENIRS" title="Souvenirs d’Amatxi" />
+          <div className="videos-empty-state">
+            <span className="videos-empty-state-play" aria-hidden="true">▶</span>
+            <p>Aucune vidéo souvenir pour l’instant.</p>
+          </div>
           <p className="dashboard-mini-copy">Un espace pour retrouver les vidéos souvenirs d’Amatxi sera bientôt disponible ici.</p>
           <span className="coming-soon-badge">Bientôt disponible</span>
+          <button type="button" className="dashboard-mini-link" onClick={() => navigate("videos")}>Voir toutes →</button>
         </section>
       </div>
     </div>
@@ -712,12 +730,12 @@ function FamilyRoster({ memberBalances, onOpenMember }: { memberBalances: Family
   );
 }
 
-function Stat({ label, value, note, tone, icon }: { label: string; value: string; note: string; tone: string; icon: NavIconId }) {
-  return <article className="stat-card"><span className={`stat-icon ${tone}`}><NavIcon id={icon} /></span><div><p>{label}</p><strong>{value}</strong><small>{note}</small></div></article>;
+function Stat({ label, value, note, tone, icon, action, onAction }: { label: string; value: string; note: string; tone: string; icon: NavIconId; action?: string; onAction?: () => void }) {
+  return <article className="stat-card"><span className={`stat-icon ${tone}`}><NavIcon id={icon} /></span><div><p>{label}</p><strong>{value}</strong><small>{note}</small>{action && <button type="button" className="stat-card-link" onClick={onAction}>{action} →</button>}</div></article>;
 }
 
-export function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow: string; title: string; action?: string; onAction?: () => void }) {
-  return <header className="panel-title"><div><span>{eyebrow}</span><h2>{title}</h2></div>{action && <button onClick={onAction}>{action} →</button>}</header>;
+export function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow?: string; title: string; action?: string; onAction?: () => void }) {
+  return <header className="panel-title"><div>{eyebrow && <span>{eyebrow}</span>}<h2>{title}</h2></div>{action && <button onClick={onAction}>{action} →</button>}</header>;
 }
 
 function titleFor(view: View) {
