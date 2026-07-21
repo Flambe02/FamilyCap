@@ -241,7 +241,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
           {canManage && <button type="button" className="primary-button amatxi-add-button" onClick={() => setModal("create")}>＋ Ajouter un cadeau</button>}
         </div>
         <div className="amatxi-head-media" aria-hidden="true">
-          <img src="/amatxi-hero.png" alt="" />
+          <img src="/amatxi-hero.webp" alt="" />
         </div>
       </section>
 
