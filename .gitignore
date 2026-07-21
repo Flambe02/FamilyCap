@@ -47,3 +47,9 @@ tsconfig.tsbuildinfo
 # local development logs
 dev*.out
 dev*.err
+
+# oh-my-claudecode operational state
+/.omc/
+
+# temp / scratch
+_tmp_*.cjs

@@ -38,40 +38,39 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const viewer = isSupabaseConfigured() ? await requireFamilyMember(request) : null;
+    // Fail-closed : sans Supabase configuré on ne peut pas authentifier l'appelant.
+    // On refuse la demande AVANT tout effet de bord (persistance, email Resend).
+    if (!isSupabaseConfigured()) {
+      return Response.json({ error: "Service indisponible : authentification requise." }, { status: 503 });
+    }
+    const viewer = await requireFamilyMember(request);
     const payload = await request.json() as { id?: string; member?: string; transactionId?: string; btcAmount?: number; requestedAt?: string };
     const id = payload.id?.trim() || crypto.randomUUID();
-    const member = viewer?.name ?? payload.member?.trim() ?? "";
+    const member = viewer.name || payload.member?.trim() || "";
     const transactionId = payload.transactionId?.trim() ?? "";
     const btcAmount = payload.btcAmount === undefined ? null : Number(payload.btcAmount);
     const requestedAt = payload.requestedAt ?? new Date().toISOString();
     if (!member || !transactionId) return Response.json({ error: "Membre et transaction obligatoires." }, { status: 400 });
-    if (viewer && payload.member?.trim() && payload.member.trim() !== viewer.name) {
+    if (payload.member?.trim() && payload.member.trim() !== viewer.name) {
       return Response.json({ error: "Une demande ne peut concerner que votre propre portefeuille." }, { status: 403 });
     }
 
-    let persisted = false;
-    let persistence = "unavailable";
-    if (isSupabaseConfigured()) {
-      await supabaseRest("transfer_requests", {
-        method: "POST",
-        headers: { prefer: "resolution=ignore-duplicates,return=minimal" },
-        body: JSON.stringify({
-          id,
-          member_id: viewer?.id ?? null,
-          member_name: member,
-          transaction_id: transactionId,
-          btc_amount: btcAmount,
-          requested_at: requestedAt,
-          status: "Nouvelle",
-        }),
-      });
-      persisted = true;
-      persistence = "supabase";
-    }
+    await supabaseRest("transfer_requests", {
+      method: "POST",
+      headers: { prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        id,
+        member_id: viewer.id,
+        member_name: member,
+        transaction_id: transactionId,
+        btc_amount: btcAmount,
+        requested_at: requestedAt,
+        status: "Nouvelle",
+      }),
+    });
 
     const email = await sendAlertEmail({ id, member, transactionId, btcAmount, requestedAt });
-    return Response.json({ request: { id, member, transactionId, btcAmount, requestedAt, status: "Nouvelle" }, persisted, persistence, email }, { status: 201 });
+    return Response.json({ request: { id, member, transactionId, btcAmount, requestedAt, status: "Nouvelle" }, persisted: true, persistence: "supabase", email }, { status: 201 });
   } catch (error) {
     if (error instanceof Response) return error;
     return Response.json({ error: error instanceof Error ? error.message : "Demande impossible." }, { status: 500 });

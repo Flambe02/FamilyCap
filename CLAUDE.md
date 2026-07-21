@@ -78,7 +78,7 @@ The app navigates entirely via React state, **not URL routes**:
 
 ## Known Security Gaps (Step 1 audit)
 
-- **`POST /api/transfer-requests` fail-open**: currently has a fail-open path when Supabase environment variables are missing or misnamed. In that case, it may accept an unauthenticated request and still send a real Resend email. Fix this before further production releases.
+- ~~**`POST /api/transfer-requests` fail-open**~~: **Fixed** — the route is now fail-closed. When Supabase is not configured it returns `503` before any side effect (no DB write, no Resend email); every accepted request is authenticated via `requireFamilyMember()`.
 - **Admin preview is UI-only**: the admin member preview is UI-only. API calls still use the real admin Supabase token and retain admin permissions. Hidden buttons are not a server-side read-only guarantee.
 - **Partage familial not enforced**: `investment_access_scope` and `investment_access_grants` exist in Supabase but are not enforced by current API read routes. Server-side API calls use the service-role key and bypass RLS. Do not expose PEA/CTO data to members until access rules are enforced in application code or through a JWT/RLS-based route.
 - **`viewer` role**: not currently enforced as a dedicated read-only role by the API, and the Amatxi screen remains admin-only.
