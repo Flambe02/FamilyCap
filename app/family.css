@@ -329,12 +329,29 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:var(--font-sa
   .videos-empty-state { display: flex; }
 }
 
-/* Investissements : une seule liste "à venir", pour éviter de répéter le badge "Bientôt disponible" sur plusieurs cartes. */
-.roadmap-panel{padding:28px 30px}
-.roadmap-list{display:grid;gap:2px;margin:6px 0 18px}
-.roadmap-list li{display:grid;grid-template-columns:180px 1fr;gap:16px;padding:13px 0;border-bottom:1px solid #edf1f1}
-.roadmap-list li:last-child{border-bottom:0}
-.roadmap-list strong{color:var(--ink);font-size:12px;font-weight:800}
-.roadmap-list span{color:var(--muted);font-size:11px;line-height:1.55}
-.roadmap-panel .secondary-button{margin-top:4px}
-@media(max-width:780px){.roadmap-panel{padding:20px}.roadmap-list li{grid-template-columns:1fr;gap:4px;padding:12px 0}}
+/* Réorganisation de la navigation : accordéon "Investissements" dans la sidebar desktop + sous-onglets horizontaux sur mobile. */
+.nav-item-parent{justify-content:space-between}
+.nav-chevron{margin-left:auto;font-style:normal;font-size:11px;opacity:.7;flex:0 0 auto}
+.nav-subgroup{display:grid;gap:1px;margin:2px 0 4px;padding-left:14px;border-left:1px solid rgba(255,255,255,.14)}
+.nav-subitem{width:100%;border:0;background:transparent;color:rgba(255,255,255,.62);padding:9px 11px;margin:1px 0;display:flex;align-items:center;gap:10px;border-radius:9px;cursor:pointer;font-size:12px;font-weight:650;text-align:left;transition:.18s}
+.nav-subitem>span[aria-hidden]{width:18px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
+.nav-subitem .nav-icon-svg{width:16px;height:16px}
+.nav-subitem:hover{color:#fff;background:rgba(255,255,255,.06)}
+.nav-subitem.active{color:#eafcf6;background:rgba(139,224,204,.2);box-shadow:inset 0 0 0 1px rgba(139,224,204,.26)}
+
+.invest-subnav{display:none}
+@media(max-width:780px){
+  .invest-subnav{
+    display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;
+    margin:0 auto 14px;padding:0 4px;width:calc(100% - 28px);
+    -webkit-overflow-scrolling:touch;
+  }
+  .invest-subnav::-webkit-scrollbar{display:none}
+  .invest-subnav button{
+    flex:0 0 auto;white-space:nowrap;min-height:38px;padding:8px 15px;
+    border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);
+    font-size:11.5px;font-weight:750;cursor:pointer;
+  }
+  .invest-subnav button.active{background:var(--teal);border-color:var(--teal);color:#fff}
+  .invest-subnav button:focus-visible{outline:3px solid #f3b649;outline-offset:2px}
+}

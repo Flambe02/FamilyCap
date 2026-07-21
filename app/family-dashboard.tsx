@@ -1,21 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsView, type GiftSaveResult, type TransactionShortcut } from "./transactions";
 import { TransferRequest } from "./back-office";
 import { Administration } from "./administration";
 import { GiftPortfolio } from "./gift-portfolio";
 import { AmatxiGifts } from "./amatxi-gifts";
 import { Settings, PreviewSettings } from "./settings";
-import { Indicators } from "./indicators";
+import { AdminUsers } from "./admin-users";
+import { BitcoinInvestmentPage } from "./bitcoin-investments";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { MemberOnboarding } from "./member-onboarding";
-import { GIFT_HISTORY, computePurchasePriceData } from "../lib/gift-history";
+import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
+import { NavIcon, Stat, PanelTitle } from "./dashboard-ui";
+import {
+  BOTTOM_NAV_ITEMS,
+  INVESTMENT_VIEW_IDS,
+  adminNavigation,
+  familyNavigation,
+  investmentGroupMeta,
+  investmentSubNavigation,
+  titleForView,
+  type View,
+} from "../lib/navigation";
 
-type View = "famille" | "cadeaux-amatxi" | "portefeuilles" | "bitcoin" | "transactions" | "indicateurs" | "comptes" | "videos" | "famille-roster" | "suggestions" | "administration-globale" | "apprendre" | "parametres";
+export { PanelTitle };
 
 type FamilyGiftRecord = {
   member_name: string;
@@ -73,51 +85,6 @@ function familyCalendarLabel(events: FamilyCalendarEvent[]) {
   if (!christmas) return birthdayLabel;
   return birthdays.length > 0 ? birthdayLabel + " + No\u00ebl le 25 d\u00e9cembre" : "Prochain \u00e9v\u00e8nement : No\u00ebl le 25 " + dateLabel;
 }
-type NavIconId = "house" | "gift" | "wallet" | "bitcoin" | "trending-up" | "landmark" | "square-play" | "users" | "book-open" | "settings" | "list-checks" | "star" | "shield-check" | "calendar";
-
-const navItems: { id: View; label: string; icon: NavIconId; iconLabel: string; short?: string }[] = [
-  { id: "famille", label: "Tableau de bord", icon: "house", iconLabel: "Tableau de bord", short: "Accueil" },
-  { id: "cadeaux-amatxi", label: "Cadeaux d’Amatxi", icon: "gift", iconLabel: "Cadeaux d’Amatxi", short: "Cadeaux" },
-  { id: "portefeuilles", label: "Portefeuille", icon: "wallet", iconLabel: "Portefeuille" },
-  { id: "bitcoin", label: "Bitcoin", icon: "bitcoin", iconLabel: "Bitcoin" },
-  { id: "indicateurs", label: "Investissements", icon: "trending-up", iconLabel: "Investissements", short: "Investir" },
-  { id: "comptes", label: "Comptes (PEA / Titres)", icon: "landmark", iconLabel: "Comptes PEA et titres" },
-  { id: "videos", label: "Vidéos souvenirs", icon: "square-play", iconLabel: "Vidéos souvenirs", short: "Vidéos" },
-  { id: "famille-roster", label: "Famille", icon: "users", iconLabel: "Famille", short: "Famille" },
-  { id: "apprendre", label: "Apprendre", icon: "book-open", iconLabel: "Apprendre" },
-  { id: "parametres", label: "Paramètres", icon: "settings", iconLabel: "Paramètres" },
-  { id: "transactions", label: "Opérations", icon: "list-checks", iconLabel: "Opérations" },
-  { id: "suggestions", label: "Suggestions mensuelles", icon: "star", iconLabel: "Suggestions mensuelles" },
-  { id: "administration-globale", label: "Administration", icon: "shield-check", iconLabel: "Administration" },
-];
-
-const NAV_ICON_COMMON = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className: "nav-icon-svg" };
-
-const NAV_ICONS: Record<NavIconId, ReactElement> = {
-  house: <svg {...NAV_ICON_COMMON}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" /></svg>,
-  gift: <svg {...NAV_ICON_COMMON}><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5" /></svg>,
-  wallet: <svg {...NAV_ICON_COMMON}><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><path d="M3 10h16.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H17a2 2 0 0 1 0-4h3.5" /></svg>,
-  bitcoin: <svg {...NAV_ICON_COMMON}><path d="M11.8 19.1c4.9.9 6.1-6 1.2-6.9m-1.2 6.9L5.9 18m5.9 1.1-.3 2m1.6-8.9c4.9.9 6.1-6 1.2-6.9m-1.2 6.9-3.9-.7m5.1-6.2L8.3 4.3m5.9 1-.3-2M7.5 20.4l3.1-17.7" /></svg>,
-  "trending-up": <svg {...NAV_ICON_COMMON}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>,
-  landmark: <svg {...NAV_ICON_COMMON}><line x1="3" y1="22" x2="21" y2="22" /><line x1="6" y1="18" x2="6" y2="11" /><line x1="10" y1="18" x2="10" y2="11" /><line x1="14" y1="18" x2="14" y2="11" /><line x1="18" y1="18" x2="18" y2="11" /><polygon points="12 2 20 7 4 7" /></svg>,
-  "square-play": <svg {...NAV_ICON_COMMON}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="m10 8 6 4-6 4Z" /></svg>,
-  users: <svg {...NAV_ICON_COMMON}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>,
-  "book-open": <svg {...NAV_ICON_COMMON}><path d="M12 7v14" /><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" /></svg>,
-  settings: <svg {...NAV_ICON_COMMON}><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg>,
-  "list-checks": <svg {...NAV_ICON_COMMON}><path d="m3 17 2 2 4-4" /><path d="m3 7 2 2 4-4" /><path d="M13 6h8" /><path d="M13 12h8" /><path d="M13 18h8" /></svg>,
-  star: <svg {...NAV_ICON_COMMON}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>,
-  "shield-check": <svg {...NAV_ICON_COMMON}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" /></svg>,
-  calendar: <svg {...NAV_ICON_COMMON}><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4" /><path d="M8 2v4" /><path d="M3 10h18" /></svg>,
-};
-
-function NavIcon({ id }: { id: NavIconId }) {
-  return NAV_ICONS[id];
-}
-const ADMIN_ONLY_VIEW_IDS: View[] = ["transactions", "suggestions", "administration-globale"];
-// "Portefeuille" reste une vue à part entière (accessible depuis les cartes membres) mais n'a pas d'entrée dédiée dans la barre latérale — voir audit fidélité visuelle.
-const HIDDEN_FROM_SIDEBAR_VIEW_IDS: View[] = ["portefeuilles"];
-const BOTTOM_NAV_VIEW_IDS: View[] = ["famille", "cadeaux-amatxi", "indicateurs", "videos", "famille-roster"];
-
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const euroCompact = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
@@ -158,9 +125,9 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const mobileMenuRef = useDialogA11y(mobileMenuOpen, () => setMobileMenuOpen(false));
   const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
   const canManageGifts = viewer.role === "admin" && !isPreview;
-  const memberNavItems = navItems.filter((item) => !ADMIN_ONLY_VIEW_IDS.includes(item.id) && !HIDDEN_FROM_SIDEBAR_VIEW_IDS.includes(item.id));
-  const adminNavItems = navItems.filter((item) => ADMIN_ONLY_VIEW_IDS.includes(item.id));
-  const bottomNavItems = BOTTOM_NAV_VIEW_IDS.map((id) => navItems.find((item) => item.id === id)!);
+  const [investmentsOpen, setInvestmentsOpen] = useState(false);
+  const investmentsActive = INVESTMENT_VIEW_IDS.includes(view);
+  const investmentsExpanded = investmentsActive || investmentsOpen;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -311,7 +278,44 @@ function replayOnboarding() { setOnboardingOpen(true); }
         <nav className="sidebar-nav" aria-label="Navigation principale">
           <div className="nav-group">
             <p className="nav-kicker" id="nav-membre-label">ESPACE FAMILLE</p>
-            {memberNavItems.map((item) => (
+            {familyNavigation.slice(0, 2).map((item) => (
+              <button
+                key={item.id}
+                className={view === item.id ? "nav-item active" : "nav-item"}
+                onClick={() => navigate(item.id)}
+                aria-current={view === item.id ? "page" : undefined}
+              >
+                <span aria-hidden="true"><NavIcon id={item.icon} /></span>
+                <span className="sr-only">{item.iconLabel} :</span>{item.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={investmentsActive ? "nav-item nav-item-parent active" : "nav-item nav-item-parent"}
+              aria-expanded={investmentsExpanded}
+              aria-controls="investissements-subnav"
+              onClick={() => setInvestmentsOpen((open) => !open)}
+            >
+              <span aria-hidden="true"><NavIcon id={investmentGroupMeta.icon} /></span>
+              <span className="sr-only">{investmentGroupMeta.iconLabel} :</span>{investmentGroupMeta.label}
+              <b className="nav-chevron" aria-hidden="true">{investmentsExpanded ? "⌃" : "⌄"}</b>
+            </button>
+            {investmentsExpanded && (
+              <div id="investissements-subnav" className="nav-subgroup">
+                {investmentSubNavigation.map((item) => (
+                  <button
+                    key={item.id}
+                    className={view === item.id ? "nav-subitem active" : "nav-subitem"}
+                    onClick={() => navigate(item.id)}
+                    aria-current={view === item.id ? "page" : undefined}
+                  >
+                    <span aria-hidden="true"><NavIcon id={item.icon} /></span>
+                    <span className="sr-only">{item.iconLabel} :</span>{item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {familyNavigation.slice(2).map((item) => (
               <button
                 key={item.id}
                 className={view === item.id ? "nav-item active" : "nav-item"}
@@ -325,7 +329,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
           </div>
           {effectiveViewer.role === "admin" && <div className="nav-group nav-group-admin">
             <p className="nav-kicker" id="nav-admin-label">ADMINISTRATION</p>
-            {adminNavItems.map((item) => (
+            {adminNavigation.map((item) => (
               <button
                 key={item.id}
                 className={view === item.id ? "nav-item active" : "nav-item"}
@@ -373,7 +377,7 @@ function replayOnboarding() { setOnboardingOpen(true); }
           </button>
           <div className="topbar-heading">
             <p className="eyebrow" aria-label="Date du jour">{todayLabel}</p>
-            <h1 className="topbar-title">{titleFor(view)}</h1>
+            <h1 className="topbar-title">{titleForView(view)}</h1>
           </div>
           <div className="topbar-chip-group">
             {viewer.role === "admin" && (
@@ -416,29 +420,66 @@ function replayOnboarding() { setOnboardingOpen(true); }
           <button type="button" onClick={() => changePreview(null)}>Quitter</button>
         </div>}
 
+        {INVESTMENT_VIEW_IDS.includes(view) && (
+          <nav className="invest-subnav" aria-label="Sections Investissements">
+            {investmentSubNavigation.map((item) => (
+              <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)} aria-current={view === item.id ? "page" : undefined}>
+                {item.short ?? item.label}
+              </button>
+            ))}
+          </nav>
+        )}
+
         {view === "famille" && (
           <Dashboard totalBtc={totalBtc} totalBitcoinValueEur={totalBitcoinValueEur} bitcoinEur={bitcoinEur} marketLoading={familyMarketLoading} memberBalances={memberBalances} activity={activity} transferRequests={transferRequests} canManageGifts={canManageGifts} openModal={() => setModalOpen(true)} navigate={navigate} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />
         )}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} previewReadOnly={isPreview} onOpenTransactions={openFilteredTransactions} />}
-        {view === "bitcoin" && <BitcoinOverview records={familyGiftRecords} bitcoinEur={bitcoinEur} totalBtc={totalBtc} totalBitcoinValueEur={totalBitcoinValueEur} marketLoading={familyMarketLoading} activity={activity} onOpenOperations={() => navigate("transactions")} />}
+        {view === "bitcoin" && (
+          <BitcoinInvestmentPage
+            records={familyGiftRecords}
+            bitcoinEur={bitcoinEur}
+            totalBtc={totalBtc}
+            totalBitcoinValueEur={totalBitcoinValueEur}
+            marketLoading={familyMarketLoading}
+            memberBalances={memberBalances}
+            transferRequests={transferRequests}
+            transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)}
+            transactionShortcut={transactionShortcut}
+            transactionsReloadKey={transactionsReloadKey}
+            viewer={effectiveViewer}
+            isPreview={isPreview}
+            canManageGifts={canManageGifts}
+            openModal={() => setModalOpen(true)}
+            onOpenMemberDetail={(member) => { setFamilyMember(member); setView("portefeuilles"); }}
+            onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer}
+            onRequestStatus={updateRequestStatus}
+            onOpenTransactions={openFilteredTransactions}
+          />
+        )}
         {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
-        {view === "indicateurs" && <Investissements onOpenAccounts={() => navigate("comptes")} />}
-        {view === "comptes" && <ComingSoon eyebrow="COMPTES" title="Comptes (PEA / Titres)" description="Le suivi des comptes PEA et compte-titres arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." />}
-        {view === "videos" && <ComingSoon eyebrow="SOUVENIRS" title="Vidéos souvenirs" description="Un espace pour retrouver les vidéos souvenirs d’Amatxi sera bientôt disponible ici." />}
+        {view === "investissements-pea" && <ComingSoon eyebrow="PEA" title="PEA" description="Cette section sera connectée aux données existantes. Le suivi du PEA arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." />}
+        {view === "investissements-comptetitres" && <ComingSoon eyebrow="COMPTE-TITRES" title="Compte-titres" description="Cette section sera connectée aux données existantes. Le suivi du compte-titres arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." />}
+        {view === "investissements-suggestions" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Suggestions mensuelles" description="Cette section sera connectée aux données existantes. Un futur outil de recommandation d’investissement mensuel (répartition PEA & titres) sera piloté depuis cet écran." />}
+        {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
+        {view === "videos" && <ComingSoon eyebrow="SOUVENIRS" title="Souvenirs" description="Un espace pour retrouver les vidéos souvenirs d’Amatxi sera bientôt disponible ici." />}
         {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
-        {view === "suggestions" && effectiveViewer.role === "admin" && <ComingSoon eyebrow="ADMINISTRATION" title="Suggestions mensuelles" description="Un futur outil de recommandation d’investissement mensuel (répartition PEA & titres) sera piloté depuis cet écran." />}
+        {view === "famille-acces" && effectiveViewer.role === "admin" && <AdminUsers />}
+        {view === "administration-suggestions" && effectiveViewer.role === "admin" && <ComingSoon eyebrow="ADMINISTRATION" title="Suggestions" description="Cette section sera connectée aux données existantes. Un futur outil de création et de suivi des suggestions mensuelles (répartition PEA & titres) sera piloté depuis cet écran." />}
         {view === "administration-globale" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "apprendre" && <Learn />}
         {view === "parametres" && (isPreview ? <PreviewSettings member={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} />)}
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
-        {bottomNavItems.map((item) => (
-          <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)} aria-current={view === item.id ? "page" : undefined}>
-            <span aria-hidden="true"><NavIcon id={item.icon} /></span><small>{item.short ?? item.label.split(" ")[0]}</small>
-          </button>
-        ))}
+        {BOTTOM_NAV_ITEMS.map((item) => {
+          const active = item.groupIds ? item.groupIds.includes(view) : view === item.id;
+          return (
+            <button key={item.id} className={active ? "active" : ""} onClick={() => navigate(item.id)} aria-current={active ? "page" : undefined}>
+              <span aria-hidden="true"><NavIcon id={item.icon} /></span><small>{item.short}</small>
+            </button>
+          );
+        })}
       </nav>
 
       <div className={mobileMenuOpen ? "mobile-menu-backdrop open" : "mobile-menu-backdrop"} onMouseDown={(event) => event.target === event.currentTarget && setMobileMenuOpen(false)} />
@@ -468,8 +509,8 @@ function replayOnboarding() { setOnboardingOpen(true); }
           <>
             <div className="mobile-menu-section">
               <p>Espace famille</p>
-              <button type="button" className="mobile-menu-link" onClick={() => { setView("bitcoin"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="bitcoin" /></span><span>Bitcoin</span></span><span>›</span></button>
-              <button type="button" className="mobile-menu-link" onClick={() => { setView("comptes"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="landmark" /></span><span>Comptes (PEA / Titres)</span></span><span>›</span></button>
+              <button type="button" className="mobile-menu-link" onClick={() => { setView("cadeaux-amatxi"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="gift" /></span><span>Cadeaux d’Amatxi</span></span><span>›</span></button>
+              <button type="button" className="mobile-menu-link" onClick={() => { setView("famille-roster"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille</span></span><span>›</span></button>
             </div>
             <div className="mobile-menu-section">
               <p>Réglages</p>
@@ -479,7 +520,8 @@ function replayOnboarding() { setOnboardingOpen(true); }
               <div className="mobile-menu-section">
                 <p>Administration</p>
                 <button type="button" className="mobile-menu-link" onClick={() => { setView("transactions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="list-checks" /></span><span>Opérations</span></span>{transferRequests.length > 0 ? <em>{transferRequests.length}</em> : <span>›</span>}</button>
-                <button type="button" className="mobile-menu-link" onClick={() => { setView("suggestions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="star" /></span><span>Suggestions mensuelles</span></span><span>›</span></button>
+                <button type="button" className="mobile-menu-link" onClick={() => { setView("famille-acces"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille &amp; accès</span></span><span>›</span></button>
+                <button type="button" className="mobile-menu-link" onClick={() => { setView("administration-suggestions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="star" /></span><span>Suggestions</span></span><span>›</span></button>
                 <button type="button" className="mobile-menu-link" onClick={() => { setView("administration-globale"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="shield-check" /></span><span>Administration</span></span><span>›</span></button>
               </div>
             )}
@@ -538,7 +580,7 @@ function Dashboard({ totalBtc, totalBitcoinValueEur, bitcoinEur, marketLoading, 
       <section className="stats-row" aria-label="Indicateurs clés">
         <Stat label="Valeur totale BTC cadeaux" value={totalBitcoinValueEur === null ? (marketLoading ? "Mise à jour…" : "Cours indisponible") : euro.format(totalBitcoinValueEur)} note={bitcoinEur ? `${totalBtc.toFixed(8)} BTC attribués · 1 BTC = ${euro.format(bitcoinEur)}` : "Bitcoin uniquement · PEA et compte-titres bientôt"} tone="amber" icon="bitcoin" />
         <Stat label="À transférer vers Ledger" value={`${pendingTransfers.length} transfert${pendingTransfers.length > 1 ? "s" : ""}`} note={pendingTransferBtc > 0 ? `${pendingTransferBtc.toFixed(8)} BTC en attente` : "Aucun transfert en attente"} tone="teal" icon="shield-check" />
-        <Stat label="Suggestions mensuelles" value="Bientôt" note="Répartition PEA & Titres — à venir" tone="teal" icon="trending-up" action="Voir la suggestion" onAction={() => navigate("indicateurs")} />
+        <Stat label="Suggestions mensuelles" value="Bientôt" note="Répartition PEA & Titres — à venir" tone="teal" icon="trending-up" action="Voir la suggestion" onAction={() => navigate("investissements-suggestions")} />
         <Stat label={"Prochain \u00e9v\u00e8nement"} value={nextFamilyEvent.day + " " + new Intl.DateTimeFormat("fr-FR", { month: "long" }).format(nextFamilyEvent.date)} note={nextFamilyEvent.kind === "christmas" ? "No\u00ebl" : "Anniversaire de " + nextFamilyEvent.name} tone="amber" icon="calendar" />
       </section>
 
@@ -622,85 +664,6 @@ function ComingSoon({ eyebrow, title, description }: { eyebrow: string; title: s
   );
 }
 
-function BitcoinOverview({ records, bitcoinEur, totalBtc, totalBitcoinValueEur, marketLoading, activity, onOpenOperations }: {
-  records: FamilyGiftRecord[];
-  bitcoinEur: number | null;
-  totalBtc: number;
-  totalBitcoinValueEur: number | null;
-  marketLoading: boolean;
-  activity: { member: string; label: string; detail: string; time: string }[];
-  onOpenOperations: () => void;
-}) {
-  const purchase = useMemo(() => computePurchasePriceData(records), [records]);
-  const custody = useMemo(() => records.reduce((acc, record) => {
-    const effectiveBtc = record.custody === "Ledger" && Number(record.ledger_amount) > 0 ? Number(record.ledger_amount) : Number(record.btc_amount);
-    const amount = Math.max(0, effectiveBtc || 0);
-    if (record.custody === "Ledger") acc.ledgerBtc += amount; else acc.binanceBtc += amount;
-    return acc;
-  }, { ledgerBtc: 0, binanceBtc: 0 }), [records]);
-  const totalGainEur = totalBitcoinValueEur === null ? null : totalBitcoinValueEur - purchase.totalInvestedEur;
-  const totalGainPct = totalGainEur === null || purchase.totalInvestedEur <= 0 ? null : (totalGainEur / purchase.totalInvestedEur) * 100;
-
-  return (
-    <div className="page-stack">
-      <section className="panel">
-        <PanelTitle eyebrow="SUIVI BITCOIN" title="Vue d’ensemble Bitcoin" />
-        <div className="stats-row stats-row-wide" aria-label="Indicateurs Bitcoin">
-          <Stat label="Quantité totale BTC" value={`${totalBtc.toFixed(8)} BTC`} note="Cadeaux attribués à la famille" tone="amber" icon="bitcoin" />
-          <Stat label="Valeur actuelle" value={totalBitcoinValueEur === null ? (marketLoading ? "Mise à jour…" : "Cours indisponible") : euro.format(totalBitcoinValueEur)} note={bitcoinEur ? `1 BTC = ${euro.format(bitcoinEur)}` : "Cours indisponible"} tone="teal" icon="trending-up" />
-          <Stat label="Montant investi" value={euro.format(purchase.totalInvestedEur)} note="Coût d’achat historique" tone="amber" icon="wallet" />
-          <Stat label="Plus / moins-value" value={totalGainEur === null ? "—" : `${totalGainEur >= 0 ? "+" : ""}${euro.format(totalGainEur)}`} note={totalGainPct !== null ? `${totalGainPct >= 0 ? "+" : ""}${totalGainPct.toFixed(1)} %` : "Cours indisponible"} tone="teal" icon="trending-up" />
-        </div>
-        <div className="stats-row stats-row-wide" aria-label="Prix moyen et répartition de garde">
-          <Stat label="Prix moyen d’achat" value={purchase.totalBtc > 0 ? `${euro.format(purchase.average)} / BTC` : "—"} note="Moyenne pondérée famille" tone="teal" icon="landmark" />
-          <Stat label="Sur Ledger" value={`${custody.ledgerBtc.toFixed(8)} BTC`} note="Transférés et verrouillés" tone="teal" icon="shield-check" />
-          <Stat label="Sur Binance commun" value={`${custody.binanceBtc.toFixed(8)} BTC`} note="En attente de transfert" tone="amber" icon="wallet" />
-        </div>
-      </section>
-
-      <Indicators records={records} bitcoinEur={bitcoinEur} embedded />
-
-      <section className="panel activity-panel">
-        <PanelTitle eyebrow="JOURNAL" title="Dernières opérations Bitcoin" action="Voir toutes les opérations Bitcoin" onAction={onOpenOperations} />
-        <div className="activity-list">
-          {activity.slice(0, 4).map((item, index) => (
-            <div className="activity-item" key={`${item.label}-${index}`}><span className="activity-mark">{item.member.slice(0, 1)}</span><div><strong>{item.label}</strong><p>{item.member} · {item.detail}</p></div><time>{item.time}</time></div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Investissements({ onOpenAccounts }: { onOpenAccounts: () => void }) {
-  const roadmap = [
-    { title: "Suggestion mensuelle", detail: "Une recommandation personnalisée de répartition PEA & Titres, une fois le partage familial actif côté serveur." },
-    { title: "Objectif par enfant", detail: "Un montant mensuel recommandé, propre à chaque enfant." },
-    { title: "Suivi des versements", detail: "Effectué, reporté ou à faire, visible en un coup d’œil." },
-    { title: "Historique mensuel", detail: "L’ensemble des versements PEA et compte-titres, une fois le suivi actif." },
-  ];
-  return (
-    <div className="page-stack">
-      <section className="panel coming-soon-panel">
-        <span className="soft-pill">INVESTISSEMENTS</span>
-        <h2>PEA, compte-titres et ETF</h2>
-        <p>Cet espace répond à une question simple : que dois-je investir ce mois-ci, et où en suis-je ? Il regroupera les investissements réguliers de la famille (PEA, compte-titres, ETF), une fois le partage familial appliqué côté serveur.</p>
-        <span className="coming-soon-badge">Bientôt disponible</span>
-      </section>
-
-      <section className="panel roadmap-panel">
-        <PanelTitle eyebrow="À VENIR DANS CET ESPACE" title="Objectif, suivi et historique" />
-        <ul className="roadmap-list">
-          {roadmap.map((item) => (
-            <li key={item.title}><strong>{item.title}</strong><span>{item.detail}</span></li>
-          ))}
-        </ul>
-        <button type="button" className="secondary-button" onClick={onOpenAccounts}>Voir les comptes PEA / Titres →</button>
-      </section>
-    </div>
-  );
-}
-
 function FamilyRoster({ memberBalances, onOpenMember }: { memberBalances: FamilyMemberBalance[]; onOpenMember: (member: string) => void }) {
   return (
     <div className="page-stack">
@@ -730,28 +693,4 @@ function FamilyRoster({ memberBalances, onOpenMember }: { memberBalances: Family
   );
 }
 
-function Stat({ label, value, note, tone, icon, action, onAction }: { label: string; value: string; note: string; tone: string; icon: NavIconId; action?: string; onAction?: () => void }) {
-  return <article className="stat-card"><span className={`stat-icon ${tone}`}><NavIcon id={icon} /></span><div><p>{label}</p><strong>{value}</strong><small>{note}</small>{action && <button type="button" className="stat-card-link" onClick={onAction}>{action} →</button>}</div></article>;
-}
 
-export function PanelTitle({ eyebrow, title, action, onAction }: { eyebrow?: string; title: string; action?: string; onAction?: () => void }) {
-  return <header className="panel-title"><div>{eyebrow && <span>{eyebrow}</span>}<h2>{title}</h2></div>{action && <button onClick={onAction}>{action} →</button>}</header>;
-}
-
-function titleFor(view: View) {
-  return {
-    famille: "Tableau de bord",
-    "cadeaux-amatxi": "Cadeaux d’Amatxi",
-    portefeuilles: "Portefeuille",
-    bitcoin: "Bitcoin",
-    transactions: "Opérations",
-    indicateurs: "Investissements",
-    comptes: "Comptes (PEA / Titres)",
-    videos: "Vidéos souvenirs",
-    "famille-roster": "Famille",
-    suggestions: "Suggestions mensuelles",
-    "administration-globale": "Administration",
-    apprendre: "Apprendre",
-    parametres: "Paramètres",
-  }[view];
-}

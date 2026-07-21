@@ -1,0 +1,70 @@
+/* Page Bitcoin — en-tête, onglets internes et blocs propres à cet écran.
+   Tout le reste (.panel, .stat-card, .page-stack, .lesson-card, .progress, .info-callout, table…) vient de family.css. */
+
+.bitcoin-page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.bitcoin-page-header-copy h1{margin:8px 0 6px;font-family:var(--font-display-stack);font-size:clamp(26px,3vw,34px);font-weight:500;letter-spacing:-.8px}
+.bitcoin-page-header-copy p{margin:0;max-width:560px;color:var(--muted);font-size:12px;line-height:1.6}
+.bitcoin-page-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:flex-end}
+.bitcoin-transfer-badge{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;background:var(--amber-soft);color:#9d6a00;font-size:10px;font-weight:800;white-space:nowrap}
+
+.bitcoin-tabs{display:flex;gap:7px;padding:6px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow-x:auto;scrollbar-width:none}
+.bitcoin-tabs::-webkit-scrollbar{display:none}
+.bitcoin-tabs button{flex:0 0 auto;border:0;border-radius:9px;padding:10px 15px;background:transparent;color:var(--muted);font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer}
+.bitcoin-tabs button.active{background:var(--color-teal,var(--teal));color:#fff}
+.bitcoin-tabs button:focus-visible{outline:3px solid #f3b649;outline-offset:2px}
+
+.bitcoin-origin-grid{display:grid;gap:12px}
+.bitcoin-origin-row{display:flex;align-items:flex-start;gap:12px;padding:13px 0;border-bottom:1px solid #edf1f1}
+.bitcoin-origin-row:last-child{border-bottom:0;padding-bottom:0}
+.bitcoin-origin-row strong{display:block;font-size:12px}
+.bitcoin-origin-row small{display:block;margin-top:3px;color:var(--muted);font-size:10px;line-height:1.5}
+.bitcoin-origin-row.empty strong{color:var(--muted)}
+.bitcoin-origin-dot{flex:0 0 auto;width:12px;height:12px;margin-top:3px;border-radius:50%;background:#e7edec}
+.bitcoin-origin-dot.amber{background:var(--amber)}
+
+.bitcoin-member-mini-list{display:grid;gap:14px}
+.bitcoin-member-mini-row{display:grid;grid-template-columns:100px 1fr;gap:6px 14px;align-items:center}
+.bitcoin-member-mini-row strong{font-size:12px}
+.bitcoin-member-mini-row .progress{grid-column:2}
+.bitcoin-member-mini-row small{grid-column:2;color:var(--muted);font-size:9px}
+
+.bitcoin-teaching-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.bitcoin-teaching-list li{position:relative;padding-left:20px;color:var(--muted);font-size:11px;line-height:1.6}
+.bitcoin-teaching-list li:before{content:"✓";position:absolute;left:0;color:var(--teal);font-weight:900}
+
+.bitcoin-member-cards{display:none;gap:12px}
+.bitcoin-member-card{padding:16px;border:1px solid var(--line);border-radius:15px;background:#fff}
+.bitcoin-member-card header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.bitcoin-member-card header strong{font-size:13px}
+.bitcoin-member-card header button{border:0;background:none;color:var(--color-teal,var(--teal));font-size:10px;font-weight:800;cursor:pointer;padding:0}
+.bitcoin-member-card-value{margin:8px 0 12px;font-family:var(--font-display-stack);font-size:19px;font-weight:500}
+.bitcoin-member-card dl{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin:0}
+.bitcoin-member-card dl div{display:flex;justify-content:space-between;gap:6px;padding-bottom:6px;border-bottom:1px solid #edf1f1;font-size:10px}
+.bitcoin-member-card dt{color:var(--muted)}
+.bitcoin-member-card dd{margin:0;font-weight:700;color:var(--ink)}
+
+.bitcoin-custody-grid{display:grid;gap:16px}
+.bitcoin-custody-row-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:7px}
+.bitcoin-custody-row-head span{font-size:11px;font-weight:800;color:var(--ink)}
+.bitcoin-custody-row-head strong{font-size:12px;font-weight:700}
+.bitcoin-custody-row small{display:block;margin-top:6px;color:var(--muted);font-size:9px}
+
+.bitcoin-transfers-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.bitcoin-transfers-list li{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 0;border-bottom:1px solid #edf1f1}
+.bitcoin-transfers-list li:last-child{border-bottom:0;padding-bottom:0}
+.bitcoin-transfers-list strong{display:block;font-size:11px}
+.bitcoin-transfers-list small{display:block;margin-top:3px;color:var(--muted);font-size:9px}
+.bitcoin-transfers-list select{border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:10px;color:var(--ink);background:#fff}
+.bitcoin-last-transfer{margin:14px 0 0;color:var(--muted);font-size:10px}
+
+@media (max-width:780px){
+  .bitcoin-page-header{gap:14px}
+  .bitcoin-page-actions{width:100%;justify-content:flex-start}
+  .bitcoin-page-actions .primary-button,.bitcoin-page-actions .secondary-button{flex:1 1 auto}
+  .bitcoin-member-table-wrap{display:none}
+  .bitcoin-member-cards{display:grid}
+  .bitcoin-member-mini-row{grid-template-columns:80px 1fr}
+}
+@media (min-width:781px){
+  .bitcoin-member-cards{display:none}
+}

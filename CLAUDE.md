@@ -67,8 +67,8 @@ The app navigates entirely via React state, **not URL routes**:
 ### Mobile-only responsive work
 **Never modify desktop layout** when doing mobile/responsive work. Breakpoint is `max-width: 780px`. All mobile-specific changes must be scoped to that breakpoint.
 
-### Two write paths (known issue)
-`InvestmentModal` (Add transaction flow) writes to **local React state only** — not persisted to the DB. The Portfolio editor writes to `/api/gifts`. Do not confuse the two.
+### Gift write paths
+`InvestmentModal` (quick-add flow) and the Portfolio's `GiftEditor` both persist for real: both call `saveGift()` (`lib/gifts-client.ts`), which POSTs/PATCHes `/api/gifts` (Supabase `gift_records`). Neither is local-state-only — verified against current code 2026-07-21. Only the "Activité récente"/"Dernières opérations" activity feed in `family-dashboard.tsx` is session-local (seeded with one hardcoded row, never fetched from an API); don't mistake that for the gift write path itself.
 
 ### Hard-coded member lists
 5 children are hard-coded in multiple files (`family-dashboard.tsx`, `gift-portfolio.tsx`, `transactions.tsx`, `administration.tsx`, `amatxi-report.tsx`). These have already diverged (e.g., Aurore's birthday). Fix the source table, not the UI constants.
