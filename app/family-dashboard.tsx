@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsView, type GiftSaveResult, type GiftSource, type TransactionShortcut } from "./transactions";
 import { TransferRequest } from "./back-office";
 import { Administration } from "./administration";
@@ -10,9 +10,17 @@ import { Settings } from "./settings";
 import { AdminMemberSettings } from "./settings-admin-member";
 import { AdminUsers } from "./admin-users";
 import { BitcoinInvestmentPage } from "./bitcoin-investments";
+import { PeaInvestmentPage } from "./pea-investments";
+import { SouvenirsPage } from "./souvenirs";
+import type { AccountOperation } from "../lib/portfolio-account";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
-import { MemberOnboarding } from "./member-onboarding";
+import { OnboardingFlow } from "./onboarding/onboarding-flow";
+import { OnboardingChecklist } from "./onboarding/onboarding-checklist";
+import { ContextualTip } from "./onboarding/contextual-tips";
+import { loadOnboardingState } from "../lib/onboarding/onboarding-client";
+import { onboardingCopy } from "../lib/onboarding/onboarding-copy";
+import type { OnboardingState } from "../lib/onboarding/onboarding-types";
 import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
@@ -45,8 +53,9 @@ type FamilyGiftRecord = {
 };
 type FamilyMemberBalance = { name: string; btc: number; currentValueEur: number | null };
 type LedgerQuote = { bitcoinEur?: number | null };
-type PortfolioAccount = { id: string; accountType: string; currency: string; memberName: string | null };
-type PortfolioHolding = { account_id: string; quantity: number; average_cost: number | null; last_price: number | null; currency: string };
+type PortfolioAccount = { id: string; name: string; institution?: string | null; accountType: string; currency: string; memberId?: string; memberName: string | null };
+type PortfolioHolding = { account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string };
+type PortfolioOperation = AccountOperation;
 
 function familyGiftKey(record: Pick<FamilyGiftRecord, "member_name" | "occasion" | "gift_date">) {
   return `${record.member_name}|${record.occasion}|${record.gift_date}`;
@@ -81,10 +90,16 @@ async function authenticatedFetch(url: string, init: RequestInit) {
 export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignOut: () => void }) {
   // Restaure la section Bitcoin depuis l'URL (#bitcoin/<onglet>) au chargement : un
   // rafraîchissement ne renvoie plus systématiquement à l'accueil ni au Résumé.
-  const [view, setView] = useState<View>(() => (typeof window !== "undefined" && window.location.hash.startsWith("#bitcoin") ? "bitcoin" : "famille"));
+  const [view, setView] = useState<View>(() => {
+    if (typeof window === "undefined") return "famille";
+    if (window.location.hash.startsWith("#bitcoin")) return "bitcoin";
+    if (window.location.hash.startsWith("#pea")) return "investissements-pea";
+    return "famille";
+  });
   const todayLabel = useMemo(() => new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date()).toUpperCase(), []);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalSource, setModalSource] = useState<GiftSource | undefined>(undefined);
+  const [personalModalOpen, setPersonalModalOpen] = useState(false);
   const [toast, setToast] = useState("");
   function openGiftModal(source?: GiftSource) { setModalSource(source); setModalOpen(true); }
   function closeGiftModal() { setModalOpen(false); setModalSource(undefined); }
@@ -95,19 +110,24 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [familyRecords, setFamilyRecords] = useState<FamilyGiftRecord[]>([]);
   const [portfolioAccounts, setPortfolioAccounts] = useState<PortfolioAccount[]>([]);
   const [portfolioHoldings, setPortfolioHoldings] = useState<PortfolioHolding[]>([]);
+  const [portfolioOperations, setPortfolioOperations] = useState<PortfolioOperation[]>([]);
   const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
   const [familyMarketLoading, setFamilyMarketLoading] = useState(true);
   const [familyMember, setFamilyMember] = useState("Thibault");
   const [transactionShortcut, setTransactionShortcut] = useState<TransactionShortcut | null>(null);
   const [previewMember, setPreviewMember] = useState<string | null>(null);
   const isPreview = previewMember !== null;
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingOverlay, setOnboardingOverlay] = useState<null | { mode: "tour" | "required"; state?: OnboardingState }>(null);
+  const [checklistToken, setChecklistToken] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const mobileMenuRef = useDialogA11y(mobileMenuOpen, () => setMobileMenuOpen(false));
   const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
   const canManageGifts = viewer.role === "admin" && !isPreview;
+  // Un membre (hors admin et hors aperçu) enregistre lui-même ses achats Bitcoin
+  // personnels ; l'identité et l'origine sont forcées côté serveur.
+  const canRecordPersonalBtc = viewer.role !== "admin" && !isPreview;
   const [investmentsOpen, setInvestmentsOpen] = useState(true);
   const investmentsActive = INVESTMENT_VIEW_IDS.includes(view);
   const investmentsExpanded = investmentsActive || investmentsOpen;
@@ -150,12 +170,14 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
           setBitcoinEur(null);
         }
         if (portfolioResponse.ok) {
-          const portfolioResult = await portfolioResponse.json() as { accounts?: PortfolioAccount[]; holdings?: PortfolioHolding[] };
+          const portfolioResult = await portfolioResponse.json() as { accounts?: PortfolioAccount[]; holdings?: PortfolioHolding[]; operations?: PortfolioOperation[] };
           setPortfolioAccounts(portfolioResult.accounts ?? []);
           setPortfolioHoldings(portfolioResult.holdings ?? []);
+          setPortfolioOperations(portfolioResult.operations ?? []);
         } else {
           setPortfolioAccounts([]);
           setPortfolioHoldings([]);
+          setPortfolioOperations([]);
         }
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) console.error(error);
@@ -166,12 +188,6 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     void loadFamilyMarketSummary();
     return () => controller.abort();
   }, [viewer.role, familyReloadToken]);
-  useEffect(() => {
-    if (viewer.role === "admin" || isPreview) return;
-    const timer = window.setTimeout(() => setOnboardingOpen(window.localStorage.getItem(`cap-family-onboarding-v1:${viewer.id}`) !== "done"), 0);
-    return () => window.clearTimeout(timer);
-  }, [isPreview, viewer.id, viewer.role]);
-
   const familyGiftRecords = useMemo(() => {
     const storedByKey = new Map(familyRecords.map((record) => [familyGiftKey(record), record]));
     const historyKeys = new Set(GIFT_HISTORY.map((gift) => familyGiftKey({ member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate })));
@@ -263,11 +279,10 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     return { btc, bitcoinValueEur, valueEur, gainEur, gainPct, investedMonth, operations, repartition, birthday, hasAssets };
   }, [familyGiftRecords, bitcoinEur, portfolioAccounts, portfolioHoldings, viewer.role, isPreview, effectiveViewer.name]);
 
-  function completeOnboarding() {
-    window.localStorage.setItem(`cap-family-onboarding-v1:${viewer.id}`, "done");
-    setOnboardingOpen(false);
-  }
-function replayOnboarding() { setOnboardingOpen(true); }
+  // Relance volontaire (visite, sans écriture) et reprise d'un parcours reporté (mode obligatoire).
+  function replayOnboarding() { setOnboardingOverlay({ mode: "tour" }); }
+  function resumeOnboarding() { void loadOnboardingState(viewer.id).then(({ state }) => setOnboardingOverlay({ mode: "required", state })); }
+  function closeOnboardingOverlay() { setOnboardingOverlay(null); setChecklistToken((token) => token + 1); setFamilyReloadToken((token) => token + 1); }
   function changePreview(next: string | null) {
     setPreviewMember(next);
     setFamilyMember(next ?? familyMember);
@@ -290,6 +305,14 @@ function replayOnboarding() { setOnboardingOpen(true); }
 
   function handleGiftSaved(result: GiftSaveResult) {
     closeGiftModal();
+    setToast(result.message);
+    window.setTimeout(() => setToast(""), 3200);
+    setTransactionsReloadKey((key) => key + 1);
+    setFamilyReloadToken((key) => key + 1);
+  }
+
+  function handlePersonalInvestmentSaved(result: GiftSaveResult) {
+    setPersonalModalOpen(false);
     setToast(result.message);
     window.setTimeout(() => setToast(""), 3200);
     setTransactionsReloadKey((key) => key + 1);
@@ -517,11 +540,13 @@ function replayOnboarding() { setOnboardingOpen(true); }
           </nav>
         )}
 
-        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} />}
+        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} checklist={(viewer.role === "adult" || viewer.role === "child") && !isPreview ? <OnboardingChecklist key={checklistToken} viewer={viewer} navigate={navigate} onResume={resumeOnboarding} /> : null} />}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} previewReadOnly={isPreview} onOpenTransactions={openFilteredTransactions} />}
         {view === "bitcoin" && (
-          <BitcoinInvestmentPage
+          <>
+            {canRecordPersonalBtc && <ContextualTip tipId="bitcoin" memberId={viewer.id} title={onboardingCopy.tips.bitcoin.title} body={onboardingCopy.tips.bitcoin.body} cta={onboardingCopy.tips.bitcoin.cta} />}
+            <BitcoinInvestmentPage
             records={familyGiftRecords}
             bitcoinEur={bitcoinEur}
             totalBtc={totalBtc}
@@ -535,25 +560,43 @@ function replayOnboarding() { setOnboardingOpen(true); }
             viewer={effectiveViewer}
             isPreview={isPreview}
             canManageGifts={canManageGifts}
+            canRecordPersonalBtc={canRecordPersonalBtc}
             openModal={(source) => openGiftModal(source)}
+            openPersonalModal={() => setPersonalModalOpen(true)}
             onOpenMemberDetail={(member) => { setFamilyMember(member); setView("portefeuilles"); }}
             onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer}
             onRequestStatus={updateRequestStatus}
             onOpenTransactions={openFilteredTransactions}
           />
+          </>
         )}
         {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
-        {view === "investissements-pea" && <ComingSoon eyebrow="PEA" title="PEA" description="Cette section sera connectée aux données existantes. Le suivi du PEA arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." />}
-        {view === "investissements-comptetitres" && <ComingSoon eyebrow="COMPTE-TITRES" title="Compte-titres" description="Cette section sera connectée aux données existantes. Le suivi du compte-titres arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." />}
+        {view === "investissements-pea" && (
+          <>
+            {canRecordPersonalBtc && <ContextualTip tipId="pea" memberId={viewer.id} title={onboardingCopy.tips.pea.title} body={onboardingCopy.tips.pea.body} cta={onboardingCopy.tips.pea.cta} />}
+            <PeaInvestmentPage
+            accounts={portfolioAccounts}
+            holdings={portfolioHoldings}
+            operations={portfolioOperations}
+            marketLoading={familyMarketLoading}
+            viewer={effectiveViewer}
+            isPreview={isPreview}
+            canManage={canManageGifts}
+            onReload={() => setFamilyReloadToken((token) => token + 1)}
+            onConfigure={() => setView("administration-globale")}
+          />
+          </>
+        )}
+        {view === "investissements-comptetitres" && <>{canRecordPersonalBtc && <ContextualTip tipId="cto" memberId={viewer.id} title={onboardingCopy.tips.cto.title} body={onboardingCopy.tips.cto.body} cta={onboardingCopy.tips.cto.cta} />}<ComingSoon eyebrow="COMPTE-TITRES" title="Compte-titres" description="Cette section sera connectée aux données existantes. Le suivi du compte-titres arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." /></>}
         {view === "investissements-suggestions" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Suggestions mensuelles" description="Cette section sera connectée aux données existantes. Un futur outil de recommandation d’investissement mensuel (répartition PEA & titres) sera piloté depuis cet écran." />}
         {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
-        {view === "videos" && <ComingSoon eyebrow="SOUVENIRS" title="Souvenirs" description="Un espace pour retrouver les vidéos souvenirs d’Amatxi sera bientôt disponible ici." />}
+        {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={viewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}
         {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "famille-acces" && effectiveViewer.role === "admin" && <AdminUsers />}
         {view === "administration-suggestions" && effectiveViewer.role === "admin" && <ComingSoon eyebrow="ADMINISTRATION" title="Suggestions" description="Cette section sera connectée aux données existantes. Un futur outil de création et de suivi des suggestions mensuelles (répartition PEA & titres) sera piloté depuis cet écran." />}
         {view === "administration-globale" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "apprendre" && <Learn />}
-        {view === "parametres" && (isPreview ? <AdminMemberSettings memberName={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} onNavigate={navigate} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} onNavigate={navigate} />)}
+        {view === "parametres" && (isPreview ? <AdminMemberSettings memberName={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} onNavigate={navigate} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} onNavigate={navigate} />)}
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
@@ -618,8 +661,9 @@ function replayOnboarding() { setOnboardingOpen(true); }
         )}
       </aside>
 
-      {onboardingOpen && !isPreview && effectiveViewer.role !== "admin" && <MemberOnboarding viewer={effectiveViewer} onComplete={completeOnboarding} onOpenPortfolio={() => setView("portefeuilles")} />}
+      {onboardingOverlay && !isPreview && <OnboardingFlow viewer={viewer} mode={onboardingOverlay.mode} initialState={onboardingOverlay.state} onDone={closeOnboardingOverlay} onDefer={closeOnboardingOverlay} onExitTour={closeOnboardingOverlay} />}
       {modalOpen && canManageGifts && <InvestmentModal defaultMember={familyMember} defaultSource={modalSource} onClose={closeGiftModal} onSaved={handleGiftSaved} />}
+      {personalModalOpen && canRecordPersonalBtc && <InvestmentModal personalMode memberInvestor={effectiveViewer.name} onClose={() => setPersonalModalOpen(false)} onSaved={handlePersonalInvestmentSaved} />}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );
@@ -703,7 +747,7 @@ function homeDonutGradient(assets: HomeAsset[]): string {
 // Seul le Bitcoin existe aujourd'hui (cadeaux réels + cours en direct) ; le PEA et le
 // compte-titres n'apparaissent que lorsque des comptes (public.financial_accounts) et des
 // positions (public.holdings) sont réellement saisis dans Supabase. Aucune donnée fictive.
-function Dashboard({ name, navigate, home, marketLoading }: { name: string; navigate: (view: View) => void; home: HomeData; marketLoading: boolean }) {
+function Dashboard({ name, navigate, home, marketLoading, checklist }: { name: string; navigate: (view: View) => void; home: HomeData; marketLoading: boolean; checklist?: ReactNode }) {
   const valueLabel = home.valueEur !== null ? euro.format(home.valueEur) : marketLoading ? "Mise à jour…" : "Valeur indisponible";
   const donutLabel = home.repartition.map((asset) => `${asset.key} ${asset.pct.toFixed(0)} %`).join(", ");
   const showGain = home.gainEur !== null && home.gainPct !== null;
@@ -757,6 +801,8 @@ function Dashboard({ name, navigate, home, marketLoading }: { name: string; navi
         </div>
         <button type="button" className="home-birthday-cta" onClick={() => navigate("cadeaux-amatxi")}>Voir mes cadeaux →</button>
       </div>
+
+      {checklist && <div className="home-row">{checklist}</div>}
 
       <div className="home-row home-row-split">
         <section className="panel home-card home-repartition">

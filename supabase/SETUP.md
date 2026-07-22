@@ -21,4 +21,13 @@
 15. Dans **Authentication** → **Providers** → **Google**, activer Google et renseigner le Client ID et le Client Secret Google.
 16. Dans **Authentication** → **Email**, laisser e-mail/mot de passe et Magic Link activés.
 
+## Migrations additionnelles (à jouer dans l’ordre chronologique)
+
+Les migrations suivantes sont additives et rejouables. Les exécuter dans le **SQL Editor** après les précédentes :
+
+- `migrations/20260721_gift_source.sql`, `migrations/20260721_notification_preferences.sql`
+- `migrations/20260722_account_operations.sql`
+- `migrations/20260723_user_onboarding.sql`
+- `migrations/20260724_family_videos.sql` : espace **Souvenirs**. Crée `family_videos`, `family_video_recipients`, `family_video_views`, la RLS et la fonction `public.can_view_video()`. **Aucune vidéo n’est stockée** : seules les métadonnées YouTube et les droits d’accès le sont. **Aucune variable d’environnement supplémentaire n’est nécessaire** (pas de clé YouTube Data API : l’identifiant vidéo et la miniature sont dérivés de l’URL ; la durée est facultative et saisie à la main).
+
 La clé secrète reste uniquement dans `.env.local`. Elle ne doit jamais être ajoutée au SQL, au navigateur, à Git ou à un message.

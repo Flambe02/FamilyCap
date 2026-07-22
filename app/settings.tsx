@@ -8,6 +8,7 @@ import { SecuritySettings } from "./settings-security";
 import { AccountsSettings } from "./settings-accounts";
 import { NotificationsSettings } from "./settings-notifications";
 import { PrivacySettings } from "./settings-privacy";
+import { HelpSettings } from "./settings-help";
 import { SettingsSection } from "./settings-ui";
 import { NavIcon } from "./dashboard-ui";
 import type { NavIconId, View } from "../lib/navigation";
@@ -16,7 +17,7 @@ import { supabaseBrowser } from "../lib/supabase-browser";
 import "./settings.css";
 
 type SectionId =
-  | "compte" | "securite" | "comptes" | "partage" | "notifications" | "confidentialite"
+  | "compte" | "securite" | "comptes" | "partage" | "notifications" | "confidentialite" | "aide"
   | "admin-utilisateurs" | "admin-cadeaux" | "admin-wallets" | "admin-donnees";
 
 type NavSection = { id: SectionId; label: string; icon: NavIconId };
@@ -40,6 +41,9 @@ const GROUPS: NavGroup[] = [
   { title: "Confidentialité", items: [
     { id: "confidentialite", label: "Données et confidentialité", icon: "book-open" },
   ] },
+  { title: "Aide et découverte", items: [
+    { id: "aide", label: "Aide et découverte", icon: "book-open" },
+  ] },
   { title: "Administration", adminOnly: true, items: [
     { id: "admin-utilisateurs", label: "Utilisateurs & accès", icon: "users" },
     { id: "admin-cadeaux", label: "Règles des cadeaux", icon: "gift" },
@@ -54,7 +58,7 @@ const GROUPS: NavGroup[] = [
  * section active. Sur mobile : un index de sections, chaque catégorie ouvrant son propre écran
  * avec un bouton retour.
  */
-export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding, onNavigate }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void; onNavigate?: (view: View) => void }) {
+export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding, onResumeOnboarding, onNavigate }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void; onResumeOnboarding?: () => void; onNavigate?: (view: View) => void }) {
   const groups = GROUPS.filter((group) => !group.adminOnly || viewer.role === "admin");
   const allowed = groups.flatMap((group) => group.items.map((item) => item.id));
   const [active, setActive] = useState<SectionId>("compte");
@@ -97,12 +101,13 @@ export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboardi
         <div className="settings-panel-wrap">
           <button type="button" className="settings-back" onClick={() => setMobileView("index")} aria-label="Retour aux sections">‹ Sections</button>
 
-          {activeSection === "compte" && <AccountSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={onReplayOnboarding} />}
+          {activeSection === "compte" && <AccountSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />}
           {activeSection === "securite" && <SecuritySettings viewer={viewer} />}
           {activeSection === "comptes" && <AccountsSettings viewer={viewer} onNavigate={onNavigate} />}
           {activeSection === "partage" && <InvestmentAccessSettings />}
           {activeSection === "notifications" && <NotificationsSettings />}
           {activeSection === "confidentialite" && <PrivacySettings viewer={viewer} onGoToSection={selectSection} onSignOut={onSignOut} />}
+          {activeSection === "aide" && <HelpSettings viewer={viewer} onReplay={onReplayOnboarding} onResume={onResumeOnboarding} onNavigate={onNavigate} onGoToSection={selectSection} />}
           {activeSection === "admin-utilisateurs" && viewer.role === "admin" && <div className="set-section"><AdminUsers /></div>}
           {activeSection === "admin-cadeaux" && viewer.role === "admin" && <GiftSettings />}
           {activeSection === "admin-wallets" && viewer.role === "admin" && <WalletSettings />}

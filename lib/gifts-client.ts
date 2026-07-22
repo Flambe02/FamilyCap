@@ -44,3 +44,21 @@ export async function saveGift(payload: GiftSavePayload) {
     body: JSON.stringify(id ? { id, ...body } : body),
   });
 }
+
+export type PersonalInvestmentPayload = {
+  amountEur: number;
+  btcAmount: number;
+  custody: "Binance commun" | "Ledger";
+  date: string;
+  note?: string | null;
+};
+
+// Écriture membre : un investissement personnel enregistré par le membre lui-même.
+// Passe par /api/personal-investment (requireFamilyMember), qui force l'identité de
+// l'appelant et l'origine « investissement_personnel » côté serveur.
+export async function savePersonalInvestment(payload: PersonalInvestmentPayload) {
+  return requestGiftsApi<{ saved?: boolean; id?: string; error?: string }>("/api/personal-investment", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

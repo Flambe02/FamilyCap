@@ -46,8 +46,8 @@ const PERIOD_OPTIONS: { id: "1M" | "6M" | "1A" | "TOUT"; label: string }[] = [
 
 export function BitcoinInvestmentPage({
   records, bitcoinEur, totalBtc, totalBitcoinValueEur, marketLoading, memberBalances, transferRequests,
-  transactions, transactionShortcut, transactionsReloadKey, viewer, isPreview, canManageGifts,
-  openModal, onOpenMemberDetail, onTransferRequest, onRequestStatus, onOpenTransactions,
+  transactions, transactionShortcut, transactionsReloadKey, viewer, isPreview, canManageGifts, canRecordPersonalBtc,
+  openModal, openPersonalModal, onOpenMemberDetail, onTransferRequest, onRequestStatus, onOpenTransactions,
 }: {
   records: FamilyGiftRecord[];
   bitcoinEur: number | null;
@@ -62,7 +62,9 @@ export function BitcoinInvestmentPage({
   viewer: Viewer;
   isPreview: boolean;
   canManageGifts: boolean;
+  canRecordPersonalBtc: boolean;
   openModal: (source?: OriginKey) => void;
+  openPersonalModal: () => void;
   onOpenMemberDetail: (member: string) => void;
   onTransferRequest: (transaction: TransactionRecord) => void;
   onRequestStatus: (id: string, status: TransferRequest["status"]) => void;
@@ -119,12 +121,12 @@ export function BitcoinInvestmentPage({
 
   const tabs: { id: BitcoinTab; label: string }[] = [
     { id: "resume", label: "Résumé" },
-    { id: "membres", label: isAdmin ? "Mes BTC" : "Mes BTC" },
-    { id: "investir", label: "Investir" },
+    { id: "membres", label: "Mes BTC" },
     { id: "conservation", label: "Conservation" },
     { id: "performance", label: "Performance" },
     { id: "historique", label: "Historique" },
     { id: "comprendre", label: "Comprendre" },
+    { id: "investir", label: "Investir" },
   ];
 
   const valueLabel = model.valueEur === null ? (marketLoading ? "Mise à jour…" : "Cours indisponible") : euro.format(model.valueEur);
@@ -181,7 +183,7 @@ export function BitcoinInvestmentPage({
       ))}
 
       {tab === "investir" && (
-        <InvestirTab model={model} bitcoinEur={bitcoinEur} canManageGifts={canManageGifts} isPreview={isPreview} openModal={openModal} onGoto={setTab} />
+        <InvestirTab model={model} bitcoinEur={bitcoinEur} canManageGifts={canManageGifts} canRecordPersonalBtc={canRecordPersonalBtc} isPreview={isPreview} openModal={openModal} openPersonalModal={openPersonalModal} onGoto={setTab} />
       )}
 
       {tab === "conservation" && (
@@ -439,11 +441,14 @@ function MemberCard({ member, onOpen }: { member: MemberSummary; onOpen: () => v
 // ======================================================================================
 // INVESTIR
 // ======================================================================================
-function InvestirTab({ model, bitcoinEur, canManageGifts, isPreview, openModal, onGoto }: {
+function InvestirTab({ model, bitcoinEur, canManageGifts, canRecordPersonalBtc, isPreview, openModal, openPersonalModal, onGoto }: {
   model: ReturnType<typeof computeBitcoinModel>; bitcoinEur: number | null;
-  canManageGifts: boolean; isPreview: boolean; openModal: (source?: OriginKey) => void; onGoto: (tab: BitcoinTab) => void;
+  canManageGifts: boolean; canRecordPersonalBtc: boolean; isPreview: boolean;
+  openModal: (source?: OriginKey) => void; openPersonalModal: () => void; onGoto: (tab: BitcoinTab) => void;
 }) {
-  if (!canManageGifts) {
+  // Ni l'admin (registre famille), ni un membre autorisé à saisir son propre achat
+  // (aperçu / rôle en lecture seule) → écran verrouillé.
+  if (!canManageGifts && !canRecordPersonalBtc) {
     return (
       <section className="panel">
         <EmptyState icon="🔒" title={isPreview ? "Aperçu en lecture seule" : "Les achats sont gérés par l’administrateur"}
@@ -453,6 +458,8 @@ function InvestirTab({ model, bitcoinEur, canManageGifts, isPreview, openModal, 
     );
   }
 
+  // L'admin gère les trois origines du registre familial ; le membre n'enregistre
+  // que ses propres achats personnels (origine forcée côté serveur).
   const parcours: { source: OriginKey; icon: string; title: string; desc: string }[] = [
     { source: "investissement_personnel", icon: "📈", title: "Achat personnel", desc: "Un achat financé par le membre lui-même, suivi séparément des cadeaux." },
     { source: "cadeau_amatxi", icon: "🎁", title: "Cadeau d’Amatxi", desc: "Un cadeau offert par la famille (anniversaire, Noël)." },
@@ -464,29 +471,38 @@ function InvestirTab({ model, bitcoinEur, canManageGifts, isPreview, openModal, 
       <section className="panel btc-invest-head">
         <div className="btc-invest-intro">
           <span className="soft-pill">INVESTIR</span>
-          <h2>Enregistrer une opération Bitcoin</h2>
-          <p>Choisissez le type d’opération : le formulaire guidé s’adapte et écrit directement dans le registre familial. Aucun faux succès : l’enregistrement n’est confirmé qu’après réponse du serveur.</p>
+          <h2>{canManageGifts ? "Enregistrer une opération Bitcoin" : "Enregistrer mon investissement"}</h2>
+          <p>{canManageGifts
+            ? "Choisissez le type d’opération : le formulaire guidé s’adapte et écrit directement dans le registre familial. Aucun faux succès : l’enregistrement n’est confirmé qu’après réponse du serveur."
+            : "Enregistrez vous-même un achat de Bitcoin que vous avez financé. Il est suivi séparément (origine : personnel) et rejoint votre portefeuille « Mes BTC ». L’enregistrement n’est confirmé qu’après réponse du serveur."}</p>
         </div>
         <div className="btc-invest-price">
           <div><small>Prix actuel du BTC</small><strong>{bitcoinEur ? euro.format(bitcoinEur) : "—"}</strong></div>
-          <div><small>Prix moyen d’achat famille</small><strong>{model.purchasedBtc > 0 ? euro.format(model.averagePrice) : "—"}</strong></div>
+          <div><small>{canManageGifts ? "Prix moyen d’achat famille" : "Mon prix moyen d’achat"}</small><strong>{model.purchasedBtc > 0 ? euro.format(model.averagePrice) : "—"}</strong></div>
         </div>
       </section>
 
       <div className="btc-parcours-grid">
-        {parcours.map((item) => (
+        {canManageGifts ? parcours.map((item) => (
           <button key={item.source} type="button" className="btc-parcours-card" onClick={() => openModal(item.source)}>
             <span className="btc-parcours-icon" aria-hidden="true">{item.icon}</span>
             <strong>{item.title}</strong>
             <p>{item.desc}</p>
             <span className="btc-parcours-cta">Enregistrer →</span>
           </button>
-        ))}
+        )) : (
+          <button type="button" className="btc-parcours-card" onClick={openPersonalModal}>
+            <span className="btc-parcours-icon" aria-hidden="true">📈</span>
+            <strong>Achat personnel</strong>
+            <p>Un achat de Bitcoin que vous avez financé vous-même : valeur d’achat, prix du BTC, quantité et lieu de conservation (Ledger ou non).</p>
+            <span className="btc-parcours-cta">Enregistrer →</span>
+          </button>
+        )}
       </div>
 
       <section className="panel btc-ops-card">
         <header className="btc-ops-head">
-          <h3 className="btc-panel-kicker">DERNIÈRES OPÉRATIONS ENREGISTRÉES</h3>
+          <h3 className="btc-panel-kicker">{canManageGifts ? "DERNIÈRES OPÉRATIONS ENREGISTRÉES" : "MES DERNIÈRES OPÉRATIONS"}</h3>
           <button type="button" className="btc-link" onClick={() => onGoto("historique")}>Voir l’historique →</button>
         </header>
         <OperationList operations={model.operations.slice(0, 5)} />

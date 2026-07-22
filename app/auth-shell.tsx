@@ -5,6 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import type { Viewer } from "../lib/auth-types";
 import { FamilyDashboard } from "./family-dashboard";
+import { OnboardingGate } from "./onboarding/onboarding-gate";
 import { useDialogA11y } from "./use-dialog-a11y";
 import "./auth.css";
 
@@ -63,7 +64,9 @@ export function AuthShell() {
   if (setupMode) return <FamilyDashboard viewer={{ id: "local-admin", email: "florent.lambert@gmail.com", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
   if (accessError) return <AccessDenied message={accessError} onSignOut={() => void supabaseBrowser.auth.signOut()} />;
   if (!session || !viewer) return <LoginScreen />;
-  return <FamilyDashboard viewer={viewer} onSignOut={() => void supabaseBrowser.auth.signOut()} />;
+  // La garde d'onboarding décide, avant tout rendu du dashboard, entre le tunnel obligatoire
+  // (membre non encore onboardé) et l'application. Admin & lecteur familial ne sont jamais gardés.
+  return <OnboardingGate viewer={viewer} onSignOut={() => void supabaseBrowser.auth.signOut()} />;
 }
 
 function LoginScreen() {

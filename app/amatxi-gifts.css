@@ -114,12 +114,15 @@
   .amatxi-summary-grid { grid-template-columns: repeat(2, 1fr); }
   .amatxi-stat { padding: 13px 14px; }
   .amatxi-stat-body strong { font-size: 17px; }
-  .amatxi-filters { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
-  .amatxi-filters::-webkit-scrollbar { display: none; }
-  .amatxi-filter-field { flex: 0 0 auto; min-width: 132px; }
-  .amatxi-filter-location { flex: 0 0 auto; }
-  .amatxi-filter-chips { flex-wrap: nowrap; }
-  .amatxi-filter-clear { margin-left: 0; flex: 0 0 auto; }
+  .amatxi-filters { flex-wrap: wrap; align-items: stretch; row-gap: 14px; }
+  .amatxi-filter-field { flex: 1 1 calc(50% - 6px); min-width: 0; }
+  .amatxi-filter-field select { width: 100%; }
+  .amatxi-filter-location { flex: 1 1 100%; }
+  .amatxi-filter-chips { flex-wrap: wrap; gap: 8px; }
+  .amatxi-filter-chips button { min-height: 40px; }
+  .amatxi-filter-clear { flex: 0 0 auto; }
+  .amatxi-list-head span { display: none; }
+  .amatxi-list-head h3 { margin: 0; font-size: 18px; font-weight: 700; }
   .amatxi-grid, .amatxi-skeleton-grid { grid-template-columns: 1fr; }
   .amatxi-view-toggle { flex: 0 0 auto; }
   .amatxi-row { grid-template-columns: 36px 1fr; grid-template-rows: auto auto auto; row-gap: 8px; column-gap: 12px; }

@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
-import { saveGift } from "../lib/gifts-client";
+import { saveGift, savePersonalInvestment } from "../lib/gifts-client";
 import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, MEMBER_NAMES, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
@@ -542,11 +542,12 @@ const SOURCE_LABELS: Record<GiftSource, string> = {
   achat_groupe: "Achat groupé / autre",
 };
 
-export function InvestmentModal({ defaultMember, defaultSource, editing, onClose, onSaved }: { defaultMember?: string; defaultSource?: GiftSource; editing?: GiftEditingInput; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
+export function InvestmentModal({ defaultMember, defaultSource, editing, personalMode, memberInvestor, onClose, onSaved }: { defaultMember?: string; defaultSource?: GiftSource; editing?: GiftEditingInput; personalMode?: boolean; memberInvestor?: string; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
   const [step, setStep] = useState(1);
-  const initialSource: GiftSource = editing?.source ?? defaultSource ?? "cadeau_amatxi";
+  // Mode personnel (membre) : origine et bénéficiaire verrouillés sur l'appelant.
+  const initialSource: GiftSource = personalMode ? "investissement_personnel" : editing?.source ?? defaultSource ?? "cadeau_amatxi";
   const [draft, setDraft] = useState({
-    member: editing?.member ?? defaultMember ?? memberNames[0],
+    member: memberInvestor ?? editing?.member ?? defaultMember ?? memberNames[0],
     source: initialSource,
     occasion: editing?.occasion ?? (initialSource === "cadeau_amatxi" ? "Anniversaire" : "Autre cadeau") as "Anniversaire" | "Noël" | "Autre cadeau",
     custody: editing?.custody ?? ("Binance commun" as "Binance commun" | "Ledger"),
@@ -591,22 +592,28 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, onClose
     try {
       const amountEur = Number(draft.amount);
       const btcAmount = Number(draft.quantity);
-      await saveGift({
-        id: editing?.id,
-        member: draft.member,
-        occasion: draft.occasion,
-        giftDate: draft.date,
-        purchaseDate: draft.date,
-        amountEur,
-        btcAmount,
-        custody: draft.custody,
-        txid: draft.custody === "Ledger" && draft.txid.trim() ? draft.txid.trim() : null,
-        note: draft.note.trim() || null,
-        // Sur une création, on enregistre l'origine choisie ; sur une modification, on ne
-        // l'envoie pas pour préserver l'origine déjà stockée côté serveur.
-        source: isEditing ? undefined : draft.source,
-      });
-      onSaved({ message: isEditing ? "Cadeau modifié et visible dans Cadeaux d’Amatxi." : "Cadeau enregistré et visible dans Transactions.", member: draft.member, amountEur });
+      if (personalMode) {
+        // Écriture membre : l'identité et l'origine sont forcées côté serveur.
+        await savePersonalInvestment({ amountEur, btcAmount, custody: draft.custody, date: draft.date, note: draft.note.trim() || null });
+        onSaved({ message: "Investissement enregistré et visible dans « Mes BTC ».", member: draft.member, amountEur });
+      } else {
+        await saveGift({
+          id: editing?.id,
+          member: draft.member,
+          occasion: draft.occasion,
+          giftDate: draft.date,
+          purchaseDate: draft.date,
+          amountEur,
+          btcAmount,
+          custody: draft.custody,
+          txid: draft.custody === "Ledger" && draft.txid.trim() ? draft.txid.trim() : null,
+          note: draft.note.trim() || null,
+          // Sur une création, on enregistre l'origine choisie ; sur une modification, on ne
+          // l'envoie pas pour préserver l'origine déjà stockée côté serveur.
+          source: isEditing ? undefined : draft.source,
+        });
+        onSaved({ message: isEditing ? "Cadeau modifié et visible dans Cadeaux d’Amatxi." : "Cadeau enregistré et visible dans Transactions.", member: draft.member, amountEur });
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Enregistrement impossible.");
     } finally {
@@ -617,15 +624,17 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, onClose
   return (
     <div className="modal-backdrop" onMouseDown={(event) => !busy && event.target === event.currentTarget && onClose()}>
       <section ref={dialogRef} className="modal guided-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" tabIndex={-1}>
-        <header><div><span>{isEditing ? "MODIFIER LE CADEAU" : "SAISIE GUIDÉE"} · ÉTAPE {step} SUR 3</span><h2 id="entry-title">{stepTitle(step)}</h2></div><button onClick={onClose} aria-label="Fermer" disabled={busy}>×</button></header>
+        <header><div><span>{personalMode ? "INVESTISSEMENT PERSONNEL" : isEditing ? "MODIFIER LE CADEAU" : "SAISIE GUIDÉE"} · ÉTAPE {step} SUR 3</span><h2 id="entry-title">{stepTitle(step)}</h2></div><button onClick={onClose} aria-label="Fermer" disabled={busy}>×</button></header>
         <div className="step-progress"><span className={step >= 1 ? "done" : ""} /><span className={step >= 2 ? "done" : ""} /><span className={step >= 3 ? "done" : ""} /></div>
         <p className="modal-help">{stepHelp(step)}</p>
         <form onSubmit={submit}>
-          {step === 1 && <div className="form-grid">
+          {step === 1 && (personalMode ? <div className="form-grid">
+            <div className="entry-review span-2"><span className="review-icon">📈</span><h3>Investissement personnel</h3><dl><div><dt>Type</dt><dd>Investissement personnel</dd></div><div><dt>À votre nom</dt><dd>{draft.member}</dd></div></dl><p className="modal-help">Un achat que vous avez financé vous-même. Il est suivi séparément des cadeaux et rejoint votre portefeuille « Mes BTC ».</p></div>
+          </div> : <div className="form-grid">
             <label className="span-2">Type d’opération<select value={draft.source} onChange={(event) => changeSource(event.target.value as GiftSource)}><option value="cadeau_amatxi">Cadeau d’Amatxi</option><option value="investissement_personnel">Investissement personnel</option><option value="achat_groupe">Achat groupé / autre</option></select></label>
             <label className={draft.source === "cadeau_amatxi" ? "" : "span-2"}>{draft.source === "investissement_personnel" ? "Pour quel membre ?" : "Pour quel bénéficiaire ?"}<select value={draft.member} onChange={(event) => update("member", event.target.value)}>{memberNames.map((name) => <option key={name}>{name}</option>)}</select></label>
             {draft.source === "cadeau_amatxi" && <label>Occasion<select value={draft.occasion} onChange={(event) => update("occasion", event.target.value as typeof draft.occasion)}><option>Anniversaire</option><option>Noël</option><option>Autre cadeau</option></select></label>}
-          </div>}
+          </div>)}
           {step === 2 && <div className="form-grid">
             <label>Montant total, frais inclus (€)<input value={draft.amount} onChange={(event) => changeAmount(event.target.value)} type="number" min="0" step="0.01" required /></label>
             <label>Prix du BTC (€)<input value={draft.price} onChange={(event) => changePrice(event.target.value)} type="number" min="0" step="any" placeholder="Cours au moment de l’achat" /></label>
@@ -635,7 +644,7 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, onClose
             <label>Où sont les bitcoins ?<select value={draft.custody} onChange={(event) => update("custody", event.target.value as typeof draft.custody)}><option value="Binance commun">Binance commun</option><option value="Ledger">Ledger personnel</option></select></label>
             {draft.custody === "Ledger" && <label>TxID (optionnel)<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} placeholder="Laisser vide si le virement n’a pas encore eu lieu" /></label>}
           </div>}
-          {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Type</dt><dd>{SOURCE_LABELS[draft.source]}</dd></div><div><dt>Bénéficiaire</dt><dd>{draft.member}</dd></div><div><dt>Occasion</dt><dd>{draft.occasion}</dd></div><div><dt>Localisation</dt><dd>{draft.custody}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount) || 0)}</dd></div><div><dt>Prix du BTC</dt><dd>{draft.price ? euro.format(Number(draft.price)) : "—"}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} BTC` : "—"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label>{error && <p className="editor-feedback" role="alert">{error}</p>}</div>}
+          {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Type</dt><dd>{SOURCE_LABELS[draft.source]}</dd></div><div><dt>{personalMode ? "À votre nom" : "Bénéficiaire"}</dt><dd>{draft.member}</dd></div>{!personalMode && <div><dt>Occasion</dt><dd>{draft.occasion}</dd></div>}<div><dt>Localisation</dt><dd>{draft.custody}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount) || 0)}</dd></div><div><dt>Prix du BTC</dt><dd>{draft.price ? euro.format(Number(draft.price)) : "—"}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} BTC` : "—"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label>{error && <p className="editor-feedback" role="alert">{error}</p>}</div>}
           <footer><button type="button" className="secondary-button" disabled={busy} onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)}>{step === 1 ? "Annuler" : "← Retour"}</button><button type="submit" className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : step === 3 ? (isEditing ? "Enregistrer les modifications" : "Enregistrer l’opération") : "Continuer →"}</button></footer>
         </form>
       </section>

@@ -1,0 +1,230 @@
+/* Espace « Souvenirs » — styles scopés (.souvenirs-*), aucun impact sur les autres écrans.
+   Réutilise les jetons du shell (.panel, .primary-button, .soft-pill, .modal, .toast). */
+
+.souvenirs-page { gap: 18px; }
+
+.souvenirs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 26px 28px;
+}
+.souvenirs-head-main h2 { margin: 10px 0 6px; font-size: 1.7rem; color: #0f2a24; }
+.souvenirs-head-main p { margin: 0; color: #5a6b66; max-width: 60ch; line-height: 1.5; }
+.souvenirs-add { flex-shrink: 0; white-space: nowrap; }
+
+/* Contrôles : filtres + onglets */
+.souvenirs-controls { display: flex; flex-direction: column; gap: 18px; padding: 20px 24px; }
+.souvenirs-filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
+.souvenirs-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.78rem; color: #5a6b66; font-weight: 600; }
+.souvenirs-field select,
+.souvenirs-field input {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #d8e2de;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 0.92rem;
+  color: #17342c;
+  min-width: 160px;
+}
+.souvenirs-field-search { flex: 1 1 220px; }
+.souvenirs-field-search input { width: 100%; }
+.souvenirs-field select:focus-visible,
+.souvenirs-field input:focus-visible { outline: 2px solid #1f8a70; outline-offset: 1px; }
+
+.souvenirs-tabs { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #eef3f1; padding-top: 16px; }
+.souvenirs-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: #f0f5f3;
+  color: #3c4f4a;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.souvenirs-tabs button em { font-style: normal; font-size: 0.78rem; background: rgba(0,0,0,0.08); border-radius: 999px; padding: 1px 8px; }
+.souvenirs-tabs button.active { background: #146854; color: #fff; }
+.souvenirs-tabs button.active em { background: rgba(255,255,255,0.24); }
+.souvenirs-tabs button:focus-visible { outline: 2px solid #1f8a70; outline-offset: 2px; }
+
+/* Galerie */
+.souvenirs-gallery-panel { padding: 22px 24px; }
+.souvenirs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.souvenirs-skeleton { aspect-ratio: 16 / 12; border-radius: 16px; background: linear-gradient(100deg, #eef3f1 30%, #f7faf9 50%, #eef3f1 70%); background-size: 200% 100%; animation: souvenirs-shimmer 1.3s infinite; }
+@keyframes souvenirs-shimmer { to { background-position: -200% 0; } }
+
+.souvenirs-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e7efeb;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 42, 36, 0.04);
+}
+.souvenirs-card.draft { border-style: dashed; opacity: 0.92; }
+
+.souvenirs-card-media {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: #0f2a24;
+  overflow: hidden;
+}
+.souvenirs-card-thumb, .souvenirs-player-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.souvenirs-card-media:focus-visible { outline: 3px solid #1f8a70; outline-offset: -3px; }
+
+.souvenirs-thumb-fallback {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; text-align: center;
+  background: #12332b; color: #cfe3dd; font-size: 0.85rem;
+}
+
+.souvenirs-badge {
+  position: absolute; top: 10px; left: 10px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
+  color: #fff; background: rgba(15, 42, 36, 0.82);
+}
+.souvenirs-badge.birthday { background: #14806a; }
+.souvenirs-badge.christmas { background: #c0392b; }
+.souvenirs-badge.general { background: #6c5ce7; }
+.souvenirs-badge.other { background: #7a6a53; }
+
+.souvenirs-new {
+  position: absolute; top: 10px; right: 10px;
+  padding: 3px 9px; border-radius: 999px;
+  background: #f0a63a; color: #2a1c05; font-size: 0.7rem; font-weight: 800; text-transform: uppercase;
+}
+.souvenirs-play {
+  position: absolute; inset: 0; margin: auto;
+  width: 52px; height: 52px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.92); color: #146854; font-size: 1.1rem;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28); pointer-events: none;
+}
+.souvenirs-play.big { width: 76px; height: 76px; font-size: 1.6rem; }
+.souvenirs-duration {
+  position: absolute; bottom: 10px; right: 10px;
+  padding: 2px 7px; border-radius: 6px;
+  background: rgba(15, 42, 36, 0.85); color: #fff; font-size: 0.74rem; font-weight: 600;
+}
+.souvenirs-draft-flag {
+  position: absolute; bottom: 10px; left: 10px;
+  padding: 2px 8px; border-radius: 6px; background: #f0a63a; color: #2a1c05; font-size: 0.72rem; font-weight: 700;
+}
+
+.souvenirs-card-body { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 16px; }
+.souvenirs-card-title {
+  border: 0; background: none; padding: 0; text-align: left; cursor: pointer;
+  font-size: 1rem; font-weight: 700; color: #10302a; line-height: 1.3;
+}
+.souvenirs-card-title:hover { text-decoration: underline; }
+.souvenirs-card-title:focus-visible { outline: 2px solid #1f8a70; outline-offset: 2px; border-radius: 4px; }
+.souvenirs-card-recipient { margin: 0; color: #5a6b66; font-size: 0.86rem; }
+.souvenirs-card-gift { margin: 0; color: #146854; font-size: 0.84rem; font-weight: 600; }
+.souvenirs-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; color: #8a9793; font-size: 0.8rem; }
+.souvenirs-scope-chip { background: #eef3f1; color: #3c4f4a; border-radius: 999px; padding: 1px 8px; font-size: 0.72rem; font-weight: 600; }
+.souvenirs-card-admin { display: flex; gap: 8px; margin-top: 10px; }
+.souvenirs-card-admin button {
+  flex: 1; min-height: 36px; border: 1px solid #d8e2de; border-radius: 10px; background: #fff; color: #146854; font-weight: 600; font-size: 0.82rem; cursor: pointer;
+}
+.souvenirs-card-admin button:hover { background: #f0f5f3; }
+
+.souvenirs-more { display: flex; justify-content: center; margin-top: 22px; }
+.souvenirs-ghost-button {
+  min-height: 44px; padding: 0 22px; border: 1px solid #cdddd7; border-radius: 12px;
+  background: #fff; color: #146854; font-weight: 600; cursor: pointer;
+}
+.souvenirs-ghost-button:hover { background: #f0f5f3; }
+.souvenirs-danger-button {
+  min-height: 44px; padding: 0 18px; border: 1px solid #e6c4bf; border-radius: 12px;
+  background: #fff; color: #c0392b; font-weight: 600; cursor: pointer;
+}
+.souvenirs-danger-button:hover { background: #fbeeec; }
+
+.souvenirs-state { text-align: center; padding: 48px 20px; color: #5a6b66; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.souvenirs-state p { margin: 0; }
+.souvenirs-empty-state h3 { margin: 0; color: #10302a; }
+.souvenirs-empty-icon { font-size: 2.4rem; }
+.souvenirs-empty { padding: 40px 28px; text-align: center; }
+.souvenirs-empty code { background: #f0f5f3; padding: 2px 6px; border-radius: 6px; }
+
+/* Modale lecteur */
+.souvenirs-player-modal { width: min(760px, 96vw); max-height: 92vh; overflow: auto; padding: 0; }
+.souvenirs-player-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; }
+.souvenirs-player-head > button { border: 0; background: #eef3f1; width: 36px; height: 36px; border-radius: 50%; font-size: 1.3rem; cursor: pointer; color: #3c4f4a; }
+.souvenirs-player-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+.souvenirs-player-frame { width: 100%; height: 100%; border: 0; display: block; }
+.souvenirs-player-poster { position: relative; width: 100%; height: 100%; border: 0; padding: 0; cursor: pointer; background: #000; }
+.souvenirs-player-poster:focus-visible { outline: 3px solid #1f8a70; outline-offset: -3px; }
+.souvenirs-player-details { padding: 18px 22px 24px; }
+.souvenirs-player-details h2 { margin: 0 0 14px; color: #10302a; font-size: 1.3rem; }
+.souvenirs-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; margin: 0; }
+.souvenirs-detail-grid .span-2 { grid-column: 1 / -1; }
+.souvenirs-detail-grid dt { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; color: #8a9793; font-weight: 700; margin-bottom: 2px; }
+.souvenirs-detail-grid dd { margin: 0; color: #21403a; font-size: 0.95rem; }
+.souvenirs-gift-link { display: inline-block; margin-left: 10px; border: 0; background: none; color: #146854; font-weight: 600; cursor: pointer; }
+.souvenirs-admin-note { margin: 14px 0 0; font-size: 0.82rem; color: #8a6d1f; background: #fdf5e3; border: 1px solid #f2e2b8; border-radius: 10px; padding: 10px 12px; }
+.souvenirs-player-actions { display: flex; gap: 10px; margin-top: 16px; }
+
+/* Modale admin */
+.souvenirs-admin-modal { width: min(680px, 96vw); max-height: 92vh; overflow: auto; padding: 0; }
+.souvenirs-admin-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid #eef3f1; position: sticky; top: 0; background: #fff; z-index: 1; }
+.souvenirs-admin-head h2 { margin: 0; font-size: 1.25rem; color: #10302a; }
+.souvenirs-admin-head > button { border: 0; background: #eef3f1; width: 36px; height: 36px; border-radius: 50%; font-size: 1.3rem; cursor: pointer; color: #3c4f4a; }
+.souvenirs-admin-form { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 20px; }
+.souvenirs-admin-form fieldset { border: 1px solid #e7efeb; border-radius: 14px; padding: 14px 16px; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.souvenirs-admin-form legend { font-size: 0.8rem; font-weight: 800; color: #146854; text-transform: uppercase; letter-spacing: 0.03em; padding: 0 6px; }
+.souvenirs-admin-form label { display: flex; flex-direction: column; gap: 5px; font-size: 0.82rem; font-weight: 600; color: #3c4f4a; }
+.souvenirs-admin-form input,
+.souvenirs-admin-form textarea,
+.souvenirs-admin-form select {
+  min-height: 44px; padding: 10px 12px; border: 1px solid #d8e2de; border-radius: 12px; font-size: 0.92rem; color: #17342c; background: #fff; font-family: inherit;
+}
+.souvenirs-admin-form textarea { min-height: 76px; resize: vertical; }
+.souvenirs-admin-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.souvenirs-admin-preview { display: flex; align-items: center; gap: 12px; font-size: 0.82rem; color: #5a6b66; }
+.souvenirs-admin-preview img { width: 120px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; border: 1px solid #e7efeb; }
+.souvenirs-admin-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.souvenirs-admin-chips button {
+  min-height: 42px; padding: 0 14px; border: 1px solid #d8e2de; border-radius: 999px; background: #fff; color: #3c4f4a; font-weight: 600; cursor: pointer; font-size: 0.86rem;
+}
+.souvenirs-admin-chips button.active { background: #146854; color: #fff; border-color: #146854; }
+.souvenirs-admin-chips button:focus-visible { outline: 2px solid #1f8a70; outline-offset: 2px; }
+.souvenirs-admin-recipients { display: flex; flex-wrap: wrap; gap: 8px; }
+.souvenirs-admin-recipients label { flex-direction: row; align-items: center; gap: 7px; border: 1px solid #d8e2de; border-radius: 12px; padding: 8px 12px; min-height: 44px; cursor: pointer; }
+.souvenirs-admin-recipients label.active { border-color: #146854; background: #eef7f4; }
+.souvenirs-admin-warn { margin: 0; font-size: 0.82rem; color: #8a6d1f; }
+.souvenirs-admin-error { margin: 0; color: #c0392b; font-weight: 600; }
+.souvenirs-admin-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.souvenirs-admin-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ------ Mobile (max-width: 780px) : une colonne, tactile, sans débordement ------ */
+@media (max-width: 780px) {
+  .souvenirs-head { flex-direction: column; padding: 20px; }
+  .souvenirs-add { width: 100%; justify-content: center; }
+  .souvenirs-controls { padding: 16px; }
+  .souvenirs-filters { flex-direction: column; align-items: stretch; }
+  .souvenirs-field select, .souvenirs-field input { min-width: 0; width: 100%; }
+  .souvenirs-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 6px; }
+  .souvenirs-tabs button { flex: 0 0 auto; }
+  .souvenirs-gallery-panel { padding: 16px; }
+  .souvenirs-grid { grid-template-columns: 1fr; gap: 16px; }
+  .souvenirs-detail-grid { grid-template-columns: 1fr; }
+  .souvenirs-admin-row { grid-template-columns: 1fr; }
+  .souvenirs-player-modal, .souvenirs-admin-modal { width: 100vw; max-height: 100vh; height: 100vh; border-radius: 0; }
+}

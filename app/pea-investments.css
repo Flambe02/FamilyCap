@@ -1,0 +1,104 @@
+/* Écran PEA — réutilise au maximum le design system de la section Bitcoin (classes .btc-*,
+   définies globalement par bitcoin-investments.css) et n'ajoute que le spécifique PEA.
+   Desktop + mobile ; aucun scroll horizontal involontaire. Consigne : ne pas toucher le
+   rendu desktop existant des autres écrans. */
+
+.pea-page {
+  /* Tokens repris de .btc-page (sinon les composants Bitcoin réutilisés perdent leurs variables). */
+  --btc-track: #eef2f1;
+  --btc-up: #1d7a5f;
+  --btc-down: #d9544d;
+  --btc-card-radius: 18px;
+  gap: 18px;
+}
+.pea-page .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pea-page .up { color: var(--btc-up); }
+.pea-page .down { color: var(--btc-down); }
+.pea-page .pea-out { color: var(--btc-down); }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---- En-tête PEA ---- */
+.pea-logo { background: linear-gradient(135deg, #4f9d92, #1d706b); box-shadow: 0 8px 18px rgba(29, 112, 107, .3); font-size: 22px; }
+.pea-account-select select {
+  border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink);
+  font-size: 11px; font-weight: 800; padding: 6px 12px; cursor: pointer; max-width: 220px;
+}
+.pea-account-select select:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+
+/* ---- Principales positions (résumé) ---- */
+.pea-alloc-grid { align-items: start; }
+.pea-top-list { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 12px; }
+.pea-top-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 12px; align-items: center; padding-bottom: 11px; border-bottom: 1px solid #f0f3f3; }
+.pea-top-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.pea-top-id { min-width: 0; }
+.pea-top-id strong { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pea-top-id small { color: var(--muted); font-size: 10px; }
+.pea-top-weight { font-size: 11px; font-weight: 800; color: var(--teal); font-variant-numeric: tabular-nums; }
+.pea-top-value { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ---- Investissement régulier ---- */
+.pea-regular { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.pea-regular-head { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.pea-regular-head small { display: block; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; }
+.pea-regular-head strong { font-family: var(--font-display-stack); font-size: 18px; font-weight: 600; }
+.pea-regular-status { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.pea-regular-status small { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.pea-status { align-self: flex-start; display: inline-flex; padding: 5px 12px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+.pea-status-investi { background: var(--teal-soft); color: var(--teal); }
+.pea-status-partiellement_investi { background: #fff2cf; color: #9d6a00; }
+.pea-status-reporté { background: #eef3fb; color: #3f6ea5; }
+.pea-status-à_investir { background: #eef1f1; color: #748088; }
+.pea-regular-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: auto; }
+.pea-regular-actions button { flex: 1 1 auto; }
+
+/* ---- Investir (parcours) ---- */
+.pea-parcours-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* ---- Comprendre ---- */
+.pea-faq { display: grid; gap: 16px; }
+.pea-faq-item { padding-bottom: 14px; border-bottom: 1px solid #f0f3f3; }
+.pea-faq-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.pea-faq-item strong { display: block; font-size: 13px; color: var(--ink); margin-bottom: 5px; }
+.pea-faq-item p { margin: 0; color: #4f6f70; font-size: 12px; line-height: 1.6; }
+
+/* ---- Skeleton ---- */
+.pea-skeleton { display: grid; gap: 16px; }
+.pea-skeleton-hero { height: 210px; border-radius: 18px; }
+.pea-skeleton-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.pea-skeleton-card { height: 78px; border-radius: 15px; }
+.pea-skeleton-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.pea-skeleton-block { height: 220px; border-radius: 18px; }
+.pea-skeleton-hero, .pea-skeleton-card, .pea-skeleton-block { background: linear-gradient(100deg, #f1f4f3 30%, #e7ecea 50%, #f1f4f3 70%); background-size: 200% 100%; animation: pea-shimmer 1.3s ease-in-out infinite; }
+@keyframes pea-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* ---- Modale d'opération (réutilise le chrome partagé .modal / .modal-backdrop) ---- */
+.pea-modal.modal { width: min(560px, 100%); }
+.pea-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pea-modal-head h2 { margin: 8px 0 0; font-family: var(--font-display-stack); font-size: 22px; font-weight: 600; }
+.pea-modal-close { flex: 0 0 auto; }
+.pea-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.pea-field { display: flex; flex-direction: column; gap: 5px; }
+.pea-field-wide { grid-column: 1 / -1; }
+.pea-field span { font-size: 10px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; color: var(--muted); }
+.pea-field input, .pea-field select { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; background: #fff; color: var(--ink); }
+.pea-field input:focus-visible, .pea-field select:focus-visible { outline: 3px solid var(--amber); outline-offset: 1px; }
+.pea-form-error { grid-column: 1 / -1; margin: 0; color: #c0392b; font-size: 12px; font-weight: 600; }
+.pea-form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ============ RESPONSIVE ============ */
+@media (max-width: 1024px) {
+  .pea-parcours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pea-skeleton-kpis { grid-template-columns: repeat(2, 1fr); }
+  .pea-skeleton-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 780px) {
+  .pea-page { gap: 14px; }
+  .btc-header.pea-header .btc-header-actions { width: 100%; }
+  .pea-parcours-grid { grid-template-columns: 1fr; }
+  .pea-skeleton-kpis { grid-template-columns: repeat(2, 1fr); }
+  .pea-account-select { width: 100%; }
+  .pea-account-select select { max-width: none; width: 100%; }
+  .pea-form { grid-template-columns: 1fr; }
+  .pea-regular-actions button { flex: 1 1 100%; }
+}
