@@ -12,7 +12,7 @@
 .amatxi-member-summary strong { color: var(--amber-strong); }
 
 .amatxi-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.amatxi-stat { display: flex; align-items: center; gap: 14px; padding: 17px 19px; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm); }
+.amatxi-stat { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 14px; row-gap: 11px; padding: 17px 19px; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm); }
 .amatxi-stat-icon { flex: 0 0 auto; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; font-size: 17px; font-weight: 800; }
 .amatxi-stat-icon svg { width: 19px; height: 19px; }
 .amatxi-stat-icon.teal { background: var(--teal-soft); color: var(--teal); }
@@ -23,6 +23,8 @@
 .amatxi-stat-body p { margin: 0; font-size: 9.5px; font-weight: 800; letter-spacing: .6px; color: var(--muted); text-transform: uppercase; }
 .amatxi-stat-body strong { font-size: 20px; font-weight: 800; color: var(--ink); overflow-wrap: break-word; font-variant-numeric: tabular-nums; }
 .amatxi-stat-body small { font-size: 10px; color: var(--muted); }
+.amatxi-stat-progress { grid-column: 1 / -1; height: 6px; border-radius: 999px; background: #e7edec; overflow: hidden; }
+.amatxi-stat-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--teal); transition: width .4s ease; }
 .amatxi-stat.amber { border-color: rgba(243, 182, 73, .45); }
 .amatxi-stat.teal { border-color: rgba(29, 112, 107, .28); }
 .amatxi-stat.coral { border-color: rgba(167, 67, 51, .22); }
@@ -30,11 +32,13 @@
 
 .amatxi-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .amatxi-filter-field { display: flex; flex-direction: column; gap: 4px; font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
-.amatxi-filter-field select { min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 600; }
+.amatxi-filter-field select { appearance: none; -webkit-appearance: none; min-height: 44px; padding: 0 36px 0 12px; border: 1px solid var(--line); border-radius: 10px; background-color: var(--paper); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2317324d' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 15px; color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+.amatxi-filter-location { display: flex; flex-direction: column; gap: 4px; }
+.amatxi-filter-location > span { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
 .amatxi-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .amatxi-filter-chips button { min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 12px; font-weight: 700; color: var(--ink); cursor: pointer; }
 .amatxi-filter-chips button.active { background: var(--teal); border-color: var(--teal); color: #fff; }
-.amatxi-filter-clear { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--coral); font-size: 12px; font-weight: 700; cursor: pointer; }
+.amatxi-filter-clear { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
 .amatxi-filter-clear svg { width: 14px; height: 14px; }
 
 .amatxi-list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
@@ -113,6 +117,7 @@
   .amatxi-filters { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
   .amatxi-filters::-webkit-scrollbar { display: none; }
   .amatxi-filter-field { flex: 0 0 auto; min-width: 132px; }
+  .amatxi-filter-location { flex: 0 0 auto; }
   .amatxi-filter-chips { flex-wrap: nowrap; }
   .amatxi-filter-clear { margin-left: 0; flex: 0 0 auto; }
   .amatxi-grid, .amatxi-skeleton-grid { grid-template-columns: 1fr; }

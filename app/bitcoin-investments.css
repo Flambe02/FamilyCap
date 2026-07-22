@@ -1,70 +1,333 @@
-/* Page Bitcoin — en-tête, onglets internes et blocs propres à cet écran.
-   Tout le reste (.panel, .stat-card, .page-stack, .lesson-card, .progress, .info-callout, table…) vient de family.css. */
+/* Section Bitcoin — design system dédié. Réutilise les tokens de family.css
+   (--ink, --teal, --amber, --muted, --line, --teal-soft) et n'ajoute que ce qui manque.
+   Conçu desktop + mobile (testé 375 → 1440). Aucun scroll horizontal involontaire. */
 
-.bitcoin-page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
-.bitcoin-page-header-copy h1{margin:8px 0 6px;font-family:var(--font-display-stack);font-size:clamp(26px,3vw,34px);font-weight:500;letter-spacing:-.8px}
-.bitcoin-page-header-copy p{margin:0;max-width:560px;color:var(--muted);font-size:12px;line-height:1.6}
-.bitcoin-page-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:flex-end}
-.bitcoin-transfer-badge{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;background:var(--amber-soft);color:#9d6a00;font-size:10px;font-weight:800;white-space:nowrap}
-
-.bitcoin-tabs{display:flex;gap:7px;padding:6px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow-x:auto;scrollbar-width:none}
-.bitcoin-tabs::-webkit-scrollbar{display:none}
-.bitcoin-tabs button{flex:0 0 auto;border:0;border-radius:9px;padding:10px 15px;background:transparent;color:var(--muted);font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer}
-.bitcoin-tabs button.active{background:var(--color-teal,var(--teal));color:#fff}
-.bitcoin-tabs button:focus-visible{outline:3px solid #f3b649;outline-offset:2px}
-
-.bitcoin-origin-grid{display:grid;gap:12px}
-.bitcoin-origin-row{display:flex;align-items:flex-start;gap:12px;padding:13px 0;border-bottom:1px solid #edf1f1}
-.bitcoin-origin-row:last-child{border-bottom:0;padding-bottom:0}
-.bitcoin-origin-row strong{display:block;font-size:12px}
-.bitcoin-origin-row small{display:block;margin-top:3px;color:var(--muted);font-size:10px;line-height:1.5}
-.bitcoin-origin-row.empty strong{color:var(--muted)}
-.bitcoin-origin-dot{flex:0 0 auto;width:12px;height:12px;margin-top:3px;border-radius:50%;background:#e7edec}
-.bitcoin-origin-dot.amber{background:var(--amber)}
-
-.bitcoin-member-mini-list{display:grid;gap:14px}
-.bitcoin-member-mini-row{display:grid;grid-template-columns:100px 1fr;gap:6px 14px;align-items:center}
-.bitcoin-member-mini-row strong{font-size:12px}
-.bitcoin-member-mini-row .progress{grid-column:2}
-.bitcoin-member-mini-row small{grid-column:2;color:var(--muted);font-size:9px}
-
-.bitcoin-teaching-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
-.bitcoin-teaching-list li{position:relative;padding-left:20px;color:var(--muted);font-size:11px;line-height:1.6}
-.bitcoin-teaching-list li:before{content:"✓";position:absolute;left:0;color:var(--teal);font-weight:900}
-
-.bitcoin-member-cards{display:none;gap:12px}
-.bitcoin-member-card{padding:16px;border:1px solid var(--line);border-radius:15px;background:#fff}
-.bitcoin-member-card header{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.bitcoin-member-card header strong{font-size:13px}
-.bitcoin-member-card header button{border:0;background:none;color:var(--color-teal,var(--teal));font-size:10px;font-weight:800;cursor:pointer;padding:0}
-.bitcoin-member-card-value{margin:8px 0 12px;font-family:var(--font-display-stack);font-size:19px;font-weight:500}
-.bitcoin-member-card dl{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin:0}
-.bitcoin-member-card dl div{display:flex;justify-content:space-between;gap:6px;padding-bottom:6px;border-bottom:1px solid #edf1f1;font-size:10px}
-.bitcoin-member-card dt{color:var(--muted)}
-.bitcoin-member-card dd{margin:0;font-weight:700;color:var(--ink)}
-
-.bitcoin-custody-grid{display:grid;gap:16px}
-.bitcoin-custody-row-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:7px}
-.bitcoin-custody-row-head span{font-size:11px;font-weight:800;color:var(--ink)}
-.bitcoin-custody-row-head strong{font-size:12px;font-weight:700}
-.bitcoin-custody-row small{display:block;margin-top:6px;color:var(--muted);font-size:9px}
-
-.bitcoin-transfers-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
-.bitcoin-transfers-list li{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 0;border-bottom:1px solid #edf1f1}
-.bitcoin-transfers-list li:last-child{border-bottom:0;padding-bottom:0}
-.bitcoin-transfers-list strong{display:block;font-size:11px}
-.bitcoin-transfers-list small{display:block;margin-top:3px;color:var(--muted);font-size:9px}
-.bitcoin-transfers-list select{border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:10px;color:var(--ink);background:#fff}
-.bitcoin-last-transfer{margin:14px 0 0;color:var(--muted);font-size:10px}
-
-@media (max-width:780px){
-  .bitcoin-page-header{gap:14px}
-  .bitcoin-page-actions{width:100%;justify-content:flex-start}
-  .bitcoin-page-actions .primary-button,.bitcoin-page-actions .secondary-button{flex:1 1 auto}
-  .bitcoin-member-table-wrap{display:none}
-  .bitcoin-member-cards{display:grid}
-  .bitcoin-member-mini-row{grid-template-columns:80px 1fr}
+.btc-page{
+  --btc-track:#eef2f1;
+  --btc-up:#1d7a5f;
+  --btc-down:#d9544d;
+  --btc-card-radius:18px;
+  --btc-member-mint:#3aa17e;--btc-member-coral:#ef8b72;--btc-member-blue:#5a9bd4;--btc-member-yellow:#f0a63a;--btc-member-purple:#9b7fd4;
+  gap:18px;
 }
-@media (min-width:781px){
-  .bitcoin-member-cards{display:none}
+.btc-page .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.btc-link{border:0;background:none;padding:0;color:var(--teal);font-size:11px;font-weight:800;cursor:pointer;text-align:left}
+.btc-link:hover{text-decoration:underline}
+.btc-page .up{color:var(--btc-up)}
+.btc-page .down{color:var(--btc-down)}
+.btc-panel-kicker{margin:0 0 14px;color:var(--teal);font-size:9px;font-weight:900;letter-spacing:1.4px}
+
+/* ---- Header commun ---- */
+.btc-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.btc-header-lead{display:flex;gap:14px;align-items:center;min-width:0}
+.btc-logo{flex:0 0 auto;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#f7b34a,#f0932f);color:#fff;font-size:24px;font-weight:800;box-shadow:0 8px 18px rgba(240,147,47,.32)}
+.btc-header-titleline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.btc-header-copy h1{margin:0;font-family:var(--font-display-stack);font-size:clamp(24px,3vw,32px);font-weight:600;letter-spacing:-.6px}
+.btc-header-copy p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.5;max-width:560px}
+.btc-role-pill{padding:4px 10px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.4px}
+.btc-role-pill.admin{background:var(--teal-soft);color:var(--teal)}
+.btc-role-pill.member{background:#eef3fb;color:#3f6ea5}
+.btc-header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.btc-alert{display:inline-flex;align-items:center;gap:8px;border:1px solid #f4d9a6;background:#fff7e8;color:#9d6a00;border-radius:999px;padding:8px 14px;font-size:11px;font-weight:800;cursor:pointer}
+.btc-alert-dot{width:8px;height:8px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 3px rgba(239,139,114,.25)}
+.btc-cta{white-space:nowrap}
+
+/* ---- Onglets ---- */
+.btc-tabs{display:flex;gap:4px;padding:6px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow-x:auto;scrollbar-width:none;box-shadow:0 5px 18px rgba(23,50,77,.04)}
+.btc-tabs::-webkit-scrollbar{display:none}
+.btc-tabs button{flex:0 0 auto;border:0;border-radius:10px;padding:11px 18px;background:transparent;color:var(--muted);font-size:12px;font-weight:800;white-space:nowrap;cursor:pointer;transition:.15s}
+.btc-tabs button:hover{color:var(--ink);background:#f4f7f6}
+.btc-tabs button.active{background:var(--teal);color:#fff;box-shadow:0 6px 14px rgba(29,112,107,.24)}
+.btc-tabs button:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+
+/* ---- Hero + KPI ---- */
+.btc-hero-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px}
+.btc-hero{position:relative;overflow:hidden;border-radius:var(--btc-card-radius);border:1px solid var(--line);background:linear-gradient(120deg,#fbfaf6,#f4efe4);min-height:210px;display:flex;box-shadow:0 8px 26px rgba(23,50,77,.05)}
+.btc-hero-copy{position:relative;z-index:2;padding:24px}
+.btc-eyebrow{display:block;color:var(--muted);font-size:9px;font-weight:900;letter-spacing:1.2px}
+.btc-hero-value{display:block;margin:10px 0 4px;font-family:var(--font-display-stack);font-size:clamp(30px,4.4vw,44px);font-weight:600;color:var(--ink);letter-spacing:-1px}
+.btc-hero-btc{margin:0;font-size:15px;font-weight:700;color:#5b6f6c;letter-spacing:.2px}
+.btc-hero-gain{margin-top:14px}
+.btc-hero-note{display:block;margin-top:6px;color:var(--muted);font-size:11px}
+.btc-hero-scene{position:absolute;inset:0;left:38%;background:
+  radial-gradient(120% 90% at 80% 20%,#fdf1d8 0%,rgba(253,241,216,0) 55%),
+  linear-gradient(180deg,#eaf3f2 0%,#dfeeea 45%,#cfe6df 100%);
+  clip-path:polygon(22% 0,100% 0,100% 100%,0 100%);opacity:.9}
+.btc-hero-scene::after{content:"";position:absolute;right:8%;top:24%;width:58px;height:58px;border-radius:50%;background:radial-gradient(circle,#ffe8b0,#f7c76a);box-shadow:0 0 40px rgba(247,199,106,.7)}
+
+.btc-kpi-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.btc-kpi{display:flex;gap:12px;align-items:flex-start;padding:15px 16px;border:1px solid var(--line);border-radius:15px;background:#fff;box-shadow:0 4px 14px rgba(23,50,77,.035)}
+.btc-kpi-icon{flex:0 0 auto;width:34px;height:34px;border-radius:10px;display:grid;place-items:center}
+.btc-kpi-icon svg{width:17px;height:17px}
+.btc-kpi-icon.amber{background:var(--amber-soft);color:#b9791a}
+.btc-kpi-icon.teal{background:var(--teal-soft);color:var(--teal)}
+.btc-kpi-icon.navy{background:#e7eef6;color:#2f5680}
+.btc-kpi-icon.coral{background:#fdece6;color:#c9603f}
+.btc-kpi-icon.blue{background:#eaf2fb;color:#3f6ea5}
+.btc-kpi-body{min-width:0}
+.btc-kpi-body p{margin:0;color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.5px;text-transform:uppercase}
+.btc-kpi-body strong{display:block;margin:5px 0 3px;font-family:var(--font-display-stack);font-size:18px;font-weight:600;color:var(--ink);overflow-wrap:break-word}
+.btc-kpi-body small{display:block;color:var(--muted);font-size:10px}
+.btc-kpi-body .btc-link{margin-top:4px}
+
+/* ---- Répartitions ---- */
+.btc-allocation-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.btc-alloc-card{padding:20px}
+.btc-alloc-body{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.btc-donut{position:relative;flex:0 0 auto;display:grid;place-items:center}
+.btc-donut svg{display:block;width:150px;height:150px}
+.btc-donut-center{position:absolute;text-align:center}
+.btc-donut-center strong{display:block;font-size:13px;font-weight:800;color:var(--ink);letter-spacing:-.2px}
+.btc-donut-center small{font-size:9px;color:var(--muted)}
+.btc-legend{list-style:none;margin:0;padding:0;display:grid;gap:11px;flex:1 1 150px;min-width:0}
+.btc-legend-row{display:grid;grid-template-columns:12px 1fr;gap:4px 8px;align-items:center}
+.btc-legend-dot{width:11px;height:11px;border-radius:3px}
+.btc-legend-name{font-size:11px;font-weight:700;color:var(--ink)}
+.btc-legend-val{grid-column:2;font-size:10px;color:var(--muted)}
+.btc-legend-val em{font-style:normal;font-weight:700;color:var(--ink)}
+.btc-alloc-card>.btc-link{margin-top:16px}
+
+.btc-member-mini{list-style:none;margin:0 0 4px;padding:0;display:grid;gap:12px}
+.btc-member-mini li{display:grid;grid-template-columns:30px 78px 1fr auto auto;gap:8px 10px;align-items:center}
+.btc-member-mini-name{font-size:12px;font-weight:700}
+.btc-member-mini-bar{height:6px;border-radius:6px;background:var(--btc-track);overflow:hidden}
+.btc-member-mini-bar i{display:block;height:100%;border-radius:inherit;background:var(--teal)}
+.btc-member-mini-btc{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.btc-member-mini-pct{font-size:11px;font-weight:800;color:var(--ink)}
+
+/* ---- Avatars membres ---- */
+.btc-avatar{flex:0 0 auto;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:800;color:#fff}
+.btc-avatar-mint{background:#3aa17e}.btc-avatar-coral{background:#ef8b72}.btc-avatar-blue{background:#5a9bd4}.btc-avatar-yellow{background:#e0a52f}.btc-avatar-purple{background:#9b7fd4}
+
+/* ---- Gains / status ---- */
+.btc-gain{font-size:14px;font-weight:800}
+.btc-gain.up{color:var(--btc-up)}.btc-gain.down{color:var(--btc-down)}.btc-gain.neutral{color:var(--muted);font-weight:700;font-size:12px}
+.btc-gain em{font-style:normal;font-size:.85em;opacity:.9}
+.btc-status{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:10px;font-weight:800;white-space:nowrap}
+.btc-status-prepare{background:#fff2cf;color:#9d6a00}
+.btc-status-pending{background:#eef3fb;color:#3f6ea5}
+.btc-status-sent{background:#e7eef6;color:#2f5680}
+.btc-status-done{background:var(--teal-soft);color:var(--teal)}
+.btc-status-cancelled{background:#eef1f1;color:#748088}
+.btc-status-error{background:#fdece6;color:#c9603f}
+
+/* ---- Courbe + opérations ---- */
+.btc-lower-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px}
+.btc-chart-card,.btc-ops-card{padding:20px}
+.btc-chart-head,.btc-ops-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap}
+.btc-chart-head .btc-panel-kicker,.btc-ops-head .btc-panel-kicker{margin:0}
+.btc-chart-scroll{overflow-x:auto;scrollbar-width:thin}
+.btc-chart{width:100%;height:auto;display:block}
+.btc-chart-grid{stroke:#eef2f1;stroke-width:1}
+.btc-chart-axis{fill:var(--muted);font-size:10px}
+.btc-chart-empty{padding:40px 16px;text-align:center;color:var(--muted);font-size:12px}
+.btc-chart-source{margin:10px 0 0;color:var(--muted);font-size:10px;line-height:1.5}
+.btc-chart-foot{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.btc-chart-foot small{display:block;color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}
+.btc-chart-foot strong{font-family:var(--font-display-stack);font-size:16px;font-weight:600}
+.btc-chart-foot .btc-gain{font-size:14px}
+.btc-period{display:inline-flex;gap:3px;padding:4px;background:#f2f5f4;border-radius:10px}
+.btc-period button{border:0;background:transparent;border-radius:7px;padding:6px 11px;font-size:10px;font-weight:800;color:var(--muted);cursor:pointer}
+.btc-period button.active{background:#fff;color:var(--teal);box-shadow:0 2px 6px rgba(23,50,77,.1)}
+
+.btc-ops{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.btc-ops li{display:grid;grid-template-columns:34px minmax(0,1.3fr) auto auto;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid #f0f3f3}
+.btc-ops li:last-child{border-bottom:0}
+.btc-ops li.clickable{cursor:pointer}
+.btc-ops-mark{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:#f5f2ea;font-size:16px}
+.btc-ops-info{min-width:0}
+.btc-ops-info strong{display:block;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btc-ops-info small{color:var(--muted);font-size:10px}
+.btc-ops-amount{text-align:right}
+.btc-ops-amount b{display:block;font-size:12px;color:var(--btc-up);font-variant-numeric:tabular-nums}
+.btc-ops-amount small{color:var(--muted);font-size:10px}
+.btc-ops-meta{text-align:right;min-width:64px}
+.btc-ops-meta span{display:block;font-size:10px;font-weight:700;color:var(--ink)}
+.btc-ops-meta time{color:var(--muted);font-size:9px}
+
+/* ---- Note / empty ---- */
+.btc-note{display:flex;align-items:center;gap:14px;padding:16px 18px;background:var(--teal-soft);border:1px solid #cfe6df;border-radius:14px}
+.btc-note-icon{flex:0 0 auto;width:34px;height:34px;border-radius:10px;background:#fff;display:grid;place-items:center;color:var(--teal)}
+.btc-note-icon svg{width:17px;height:17px}
+.btc-note-body{flex:1 1 auto;min-width:0}
+.btc-note-body strong{font-size:12px;color:var(--teal)}
+.btc-note-body p{margin:3px 0 0;font-size:11px;line-height:1.5;color:#3f5f5b}
+.btc-note .btc-link{flex:0 0 auto}
+.btc-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:36px 20px}
+.btc-empty-icon{width:50px;height:50px;border-radius:16px;display:grid;place-items:center;background:var(--teal-soft);font-size:24px}
+.btc-empty strong{font-size:14px;font-family:var(--font-display-stack);font-weight:600}
+.btc-empty p{margin:0;max-width:400px;color:var(--muted);font-size:11px;line-height:1.5}
+.btc-empty .secondary-button{margin-top:6px}
+
+/* ---- Synthèse ---- */
+.btc-synth{padding:20px}
+.btc-synth-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
+.btc-synth-grid.btc-synth-6{grid-template-columns:repeat(6,minmax(0,1fr))}
+.btc-synth-grid>div{display:flex;flex-direction:column;gap:4px}
+.btc-synth-grid small{color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}
+.btc-synth-grid strong{font-family:var(--font-display-stack);font-size:17px;font-weight:600}
+.btc-synth-grid .btc-gain{font-size:14px}
+
+/* ---- Filtres ---- */
+.btc-filter-bar{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.btc-filter-bar::-webkit-scrollbar{display:none}
+.btc-filter-bar button{flex:0 0 auto;border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 15px;font-size:11px;font-weight:800;color:var(--muted);cursor:pointer}
+.btc-filter-bar button.active{background:var(--teal);color:#fff;border-color:var(--teal)}
+
+/* ---- Cartes membres ---- */
+.btc-member-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.btc-member-card{padding:18px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 5px 16px rgba(23,50,77,.04)}
+.btc-member-card header{display:flex;align-items:center;gap:12px}
+.btc-member-card-id{flex:1 1 auto;min-width:0}
+.btc-member-card-id strong{display:block;font-size:14px}
+.btc-member-card-id small{color:var(--muted);font-size:10px}
+.btc-member-card-flag{flex:0 0 auto;background:#fff2cf;color:#9d6a00;border-radius:999px;padding:4px 8px;font-size:9px;font-weight:800}
+.btc-member-card-value{margin:14px 0 8px;font-family:var(--font-display-stack);font-size:22px;font-weight:600}
+.btc-member-card-bar{height:6px;border-radius:6px;background:var(--btc-track);overflow:hidden;margin-bottom:14px}
+.btc-member-card-bar i{display:block;height:100%;border-radius:inherit;background:var(--teal)}
+.btc-member-card dl{display:grid;grid-template-columns:1fr 1fr;gap:9px 16px;margin:0 0 14px}
+.btc-member-card dl div{display:flex;justify-content:space-between;gap:6px;padding-bottom:7px;border-bottom:1px solid #f0f3f3;font-size:11px}
+.btc-member-card dt{color:var(--muted)}
+.btc-member-card dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums}
+.btc-member-card-btn{width:100%}
+
+/* ---- Tables ---- */
+.btc-table-card{padding:20px}
+.btc-table{width:100%;border-collapse:collapse;font-size:12px}
+.btc-table thead th{text-align:left;padding:0 12px 10px;color:var(--muted);font-size:9px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-bottom:1px solid var(--line);white-space:nowrap}
+.btc-table thead th.num,.btc-table td.num{text-align:right}
+.btc-table tbody td{padding:12px;border-bottom:1px solid #f0f3f3;vertical-align:middle}
+.btc-table tbody tr:last-child td{border-bottom:0}
+.btc-table tbody tr:hover{background:#fafbfb}
+.btc-origin-tag{font-size:10px;font-weight:800;white-space:nowrap}
+
+/* ---- Investir ---- */
+.btc-invest-head{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;padding:20px}
+.btc-invest-intro{min-width:0}
+.btc-invest-intro h2{margin:8px 0 6px;font-family:var(--font-display-stack);font-size:22px;font-weight:600}
+.btc-invest-intro p{margin:0;max-width:520px;color:var(--muted);font-size:12px;line-height:1.55}
+.btc-invest-price{display:flex;gap:22px;flex-wrap:wrap}
+.btc-invest-price div{display:flex;flex-direction:column;gap:4px}
+.btc-invest-price small{color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}
+.btc-invest-price strong{font-family:var(--font-display-stack);font-size:18px;font-weight:600}
+.btc-parcours-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.btc-parcours-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff;cursor:pointer;transition:.15s;box-shadow:0 4px 14px rgba(23,50,77,.035)}
+.btc-parcours-card:hover{transform:translateY(-2px);border-color:var(--teal);box-shadow:0 12px 26px rgba(23,50,77,.09)}
+.btc-parcours-icon{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:var(--teal-soft);font-size:22px}
+.btc-parcours-card strong{font-size:14px}
+.btc-parcours-card p{margin:0;color:var(--muted);font-size:11px;line-height:1.5}
+.btc-parcours-cta{margin-top:auto;color:var(--teal);font-size:11px;font-weight:800}
+
+/* ---- Conservation ---- */
+.btc-flow{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;padding:16px;border:1px dashed var(--line);border-radius:14px;background:#fff}
+.btc-flow-node{display:flex;flex-direction:column;align-items:center;gap:2px;padding:12px 22px;border-radius:12px;font-size:11px;font-weight:800}
+.btc-flow-node b{font-size:13px;font-variant-numeric:tabular-nums}
+.btc-flow-node.binance{background:var(--amber-soft);color:#9d6a00}
+.btc-flow-node.ledger{background:var(--teal-soft);color:var(--teal)}
+.btc-flow-arrow{color:var(--muted);font-weight:800;font-size:14px}
+.btc-flow-arrow em{font-style:normal;font-size:10px;color:#9d6a00}
+.btc-custody-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.btc-custody-card{padding:20px}
+.btc-custody-card header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.btc-custody-badge{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:18px}
+.btc-custody-badge svg{width:20px;height:20px}
+.btc-custody-badge.binance{background:var(--amber-soft);color:#b9791a}
+.btc-custody-badge.ledger{background:var(--teal-soft);color:var(--teal)}
+.btc-custody-card header strong{display:block;font-size:15px}
+.btc-custody-card header small{color:var(--muted);font-size:10px}
+.btc-custody-value{margin:0 0 10px;font-family:var(--font-display-stack);font-size:22px;font-weight:600;display:flex;align-items:baseline;gap:10px}
+.btc-custody-value span{font-size:12px;font-weight:600;color:var(--muted)}
+.btc-custody-bar{height:7px;border-radius:7px;background:var(--btc-track);overflow:hidden}
+.btc-custody-bar i{display:block;height:100%;border-radius:inherit}
+.btc-custody-bar i.binance{background:var(--amber)}
+.btc-custody-bar i.ledger{background:var(--teal)}
+.btc-custody-pct{display:block;margin:7px 0 14px;color:var(--muted);font-size:10px}
+.btc-custody-members{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:9px}
+.btc-custody-members li{display:flex;align-items:center;gap:10px;font-size:11px}
+.btc-custody-members li b{margin-left:auto;font-variant-numeric:tabular-nums}
+.btc-custody-members li.muted{color:var(--muted)}
+.btc-custody-secure{display:flex;align-items:center;gap:8px;padding:11px 13px;border-radius:11px;background:var(--teal-soft);color:var(--teal);font-size:11px;font-weight:700}
+.btc-custody-secure svg{width:16px;height:16px}
+.btc-transfer-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.btc-transfer-item{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px;border:1px solid var(--line);border-radius:13px;background:#fff}
+.btc-transfer-lead{display:flex;align-items:center;gap:11px;flex:1 1 200px;min-width:0}
+.btc-transfer-icon{width:34px;height:34px;border-radius:10px;background:var(--teal-soft);color:var(--teal);display:grid;place-items:center}
+.btc-transfer-icon svg{width:17px;height:17px}
+.btc-transfer-lead strong{display:block;font-size:12px}
+.btc-transfer-lead small{color:var(--muted);font-size:10px}
+.btc-transfer-route{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;font-weight:700}
+.btc-transfer-route b{color:var(--teal)}
+.btc-transfer-select{border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:11px;background:#fff}
+
+/* ---- Performance ---- */
+.btc-series-tabs{display:inline-flex;gap:3px;padding:4px;background:#f2f5f4;border-radius:10px;flex-wrap:wrap}
+.btc-series-tabs button{border:0;background:transparent;border-radius:7px;padding:7px 12px;font-size:10px;font-weight:800;color:var(--muted);cursor:pointer}
+.btc-series-tabs button.active{background:#fff;color:var(--teal);box-shadow:0 2px 6px rgba(23,50,77,.1)}
+.btc-analyse-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.btc-analyse-grid .panel{padding:20px}
+.btc-analyse-list{list-style:none;margin:0;padding:0;display:grid;gap:11px}
+.btc-analyse-list li{display:grid;grid-template-columns:28px 1fr auto auto;gap:10px;align-items:center}
+.btc-analyse-list li.muted{grid-template-columns:1fr;color:var(--muted);font-size:11px}
+.btc-analyse-name{font-size:12px;font-weight:700}
+.btc-analyse-val{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.btc-analyse-perf{font-size:12px;font-weight:800;text-align:right;min-width:56px}
+.btc-extremes{display:grid;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.btc-extremes small{display:block;color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}
+.btc-extremes strong{font-size:12px;font-weight:700}
+
+/* ---- Comprendre ---- */
+.btc-learn-head{text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0}
+.btc-learn-head h2{margin:0;font-family:var(--font-display-stack);font-size:clamp(22px,3vw,30px);font-weight:600;letter-spacing:-.6px}
+.btc-learn-head p{margin:0;max-width:520px;color:var(--muted);font-size:12px;line-height:1.55}
+.btc-comprendre-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start}
+.btc-comprendre-grid .panel{padding:12px 20px}
+.btc-comprendre-side{display:grid;gap:16px}
+.btc-accordion-item{border-bottom:1px solid #f0f3f3}
+.btc-accordion-item:last-child{border-bottom:0}
+.btc-accordion-item button{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 0;border:0;background:none;text-align:left;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer}
+.btc-accordion-item b{flex:0 0 auto;width:24px;height:24px;border-radius:8px;display:grid;place-items:center;background:var(--teal-soft);color:var(--teal);font-size:16px}
+.btc-accordion-item.open>button{color:var(--teal)}
+.btc-accordion-body{padding:0 0 16px;color:#4f6f70;font-size:12px;line-height:1.6}
+.btc-glossary{padding:20px}
+.btc-glossary dl{margin:0;display:grid;gap:11px}
+.btc-glossary dl div{display:grid;gap:2px;padding-bottom:10px;border-bottom:1px solid #f0f3f3}
+.btc-glossary dl div:last-child{border-bottom:0;padding-bottom:0}
+.btc-glossary dt{font-size:12px;font-weight:800;color:var(--teal)}
+.btc-glossary dd{margin:0;font-size:11px;color:var(--muted);line-height:1.5}
+
+/* ============ RESPONSIVE ============ */
+@media (max-width:1024px){
+  .btc-hero-grid{grid-template-columns:1fr}
+  .btc-lower-grid,.btc-custody-grid,.btc-analyse-grid,.btc-comprendre-grid{grid-template-columns:1fr}
+  .btc-allocation-grid{grid-template-columns:1fr}
+  .btc-synth-grid.btc-synth-6{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:780px){
+  .btc-page{gap:14px}
+  .btc-header-actions{width:100%;justify-content:stretch}
+  .btc-header-actions .btc-cta{flex:1 1 auto;text-align:center;justify-content:center}
+  .btc-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .btc-parcours-grid{grid-template-columns:1fr}
+  .btc-synth-grid,.btc-synth-grid.btc-synth-6{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .btc-chart-foot{grid-template-columns:1fr;gap:8px;text-align:left}
+  .btc-invest-head{flex-direction:column}
+  /* Tables → cartes empilées (jamais de tableau horizontal illisible) */
+  .btc-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .btc-table,.btc-table tbody,.btc-table tr,.btc-table td{display:block;width:100%}
+  .btc-table tbody tr{border:1px solid var(--line);border-radius:13px;padding:6px 12px;margin-bottom:10px}
+  .btc-table tbody td{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #f2f5f4;text-align:right}
+  .btc-table tbody tr td:last-child{border-bottom:0}
+  .btc-table td.num{text-align:right}
+  .btc-table td::before{content:attr(data-label);color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;text-align:left}
+  .btc-ops li{grid-template-columns:30px minmax(0,1fr) auto;grid-template-areas:"mark info amount" "mark meta amount"}
+  .btc-ops-mark{grid-area:mark}.btc-ops-info{grid-area:info}.btc-ops-amount{grid-area:amount}.btc-ops-meta{grid-area:meta;text-align:left}
+  .btc-note{flex-wrap:wrap}
+  .btc-note .btc-link{width:100%}
+}
+@media (max-width:430px){
+  .btc-hero-value{font-size:32px}
+  .btc-member-mini li{grid-template-columns:26px 1fr auto;grid-template-areas:"av name pct" "av bar bar" "av btc btc";gap:4px 8px}
+  .btc-member-mini .btc-avatar{grid-area:av}.btc-member-mini-name{grid-area:name}.btc-member-mini-bar{grid-area:bar}.btc-member-mini-btc{grid-area:btc}.btc-member-mini-pct{grid-area:pct;text-align:right}
+  .btc-synth-grid,.btc-synth-grid.btc-synth-6{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .btc-member-cards{grid-template-columns:1fr}
 }

@@ -32,6 +32,7 @@ export type GiftSavePayload = {
   blockchainStatus?: string;
   confirmations?: number;
   note?: string | null;
+  source?: string | null;
 };
 
 // Single real write path shared by every "add/edit a gift" entry point (GiftEditor,

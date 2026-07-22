@@ -204,12 +204,13 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
     const totalBtc = scopedGifts.reduce((sum, gift) => sum + ownedBtc(gift), 0);
     const ledgerCount = scopedGifts.filter((gift) => locationOf(gift) === "Ledger").length;
     const binanceCount = scopedGifts.filter((gift) => locationOf(gift) === "Binance").length;
+    const ledgerEur = scopedGifts.filter((gift) => locationOf(gift) === "Ledger").reduce((sum, gift) => sum + gift.amountEur, 0);
     const currentValueEur = bitcoinEur && totalBtc > 0 ? totalBtc * bitcoinEur : null;
     const firstYear = scopedGifts.reduce<number | null>((min, gift) => { const year = Number(gift.giftDate.slice(0, 4)); return min === null || year < min ? year : min; }, null);
-    return { totalEur, totalBtc, ledgerCount, binanceCount, currentValueEur, count: scopedGifts.length, beneficiaries: members.length, firstYear };
+    const securedShare = totalEur > 0 ? ledgerEur / totalEur : 0;
+    return { totalEur, totalBtc, ledgerCount, binanceCount, currentValueEur, count: scopedGifts.length, beneficiaries: members.length, firstYear, securedShare };
   }, [scopedGifts, bitcoinEur, members.length]);
 
-  const hasActiveFilters = memberFilter !== "Tous" || occasionFilter !== "Toutes" || yearFilter !== "Toutes" || locationFilter !== "Toutes";
   function clearFilters() { setMemberFilter("Tous"); setOccasionFilter("Toutes"); setYearFilter("Toutes"); setLocationFilter("Toutes"); }
 
   async function handleSaved(result: GiftSaveResult) {
@@ -247,7 +248,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
 
       {summary.count > 0 && (
         <section className="amatxi-summary-grid" aria-label="Indicateurs des cadeaux">
-          <SummaryCard label="Montant total offert" value={euro.format(summary.totalEur)} tone="teal" icon="€" />
+          <SummaryCard label="Montant total offert" value={euro.format(summary.totalEur)} tone="teal" icon="€" progress={summary.securedShare} />
           <SummaryCard label="Valeur aujourd’hui" value={summary.currentValueEur === null ? (loading ? "Mise à jour…" : "Cours indisponible") : euro.format(summary.currentValueEur)} note={bitcoinEur ? `1 BTC = ${euro.format(bitcoinEur)}` : undefined} tone="amber" icon={ICONS.trendingUp} />
           <SummaryCard label="Bitcoin reçu" value={`${summary.totalBtc.toFixed(8)} BTC`} tone="neutral" icon="₿" />
           <SummaryCard label="Cadeaux" value={String(summary.count)} tone="coral" icon={ICONS.gift} />
@@ -270,12 +271,15 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
           <label className="amatxi-filter-field">Année
             <select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option>Toutes</option>{years.map((year) => <option key={year}>{year}</option>)}</select>
           </label>
-          <div className="amatxi-filter-chips" role="group" aria-label="Filtrer par emplacement">
-            {(["Toutes", "Binance", "Ledger"] as const).map((location) => (
-              <button type="button" key={location} className={locationFilter === location ? "active" : ""} aria-pressed={locationFilter === location} onClick={() => setLocationFilter(location)}>{location === "Toutes" ? "Tous les emplacements" : location}</button>
-            ))}
+          <div className="amatxi-filter-location">
+            <span>Emplacement</span>
+            <div className="amatxi-filter-chips" role="group" aria-label="Filtrer par emplacement">
+              {(["Toutes", "Binance", "Ledger"] as const).map((location) => (
+                <button type="button" key={location} className={locationFilter === location ? "active" : ""} aria-pressed={locationFilter === location} onClick={() => setLocationFilter(location)}>{location === "Toutes" ? "Tous les emplacements" : location}</button>
+              ))}
+            </div>
           </div>
-          {hasActiveFilters && <button type="button" className="amatxi-filter-clear" onClick={clearFilters}><span aria-hidden="true">{ICONS.refresh}</span>Réinitialiser</button>}
+          <button type="button" className="amatxi-filter-clear" onClick={clearFilters}><span aria-hidden="true">{ICONS.refresh}</span>Réinitialiser</button>
         </section>
       )}
 
@@ -338,7 +342,8 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
   );
 }
 
-function SummaryCard({ label, value, note, tone, icon }: { label: string; value: string; note?: string; tone: "amber" | "teal" | "coral" | "neutral"; icon: ReactElement | string }) {
+function SummaryCard({ label, value, note, tone, icon, progress }: { label: string; value: string; note?: string; tone: "amber" | "teal" | "coral" | "neutral"; icon: ReactElement | string; progress?: number }) {
+  const pct = progress === undefined ? null : Math.max(0, Math.min(1, progress)) * 100;
   return (
     <article className={`amatxi-stat ${tone}`}>
       <span className={`amatxi-stat-icon ${tone}`} aria-hidden="true">{icon}</span>
@@ -347,6 +352,11 @@ function SummaryCard({ label, value, note, tone, icon }: { label: string; value:
         <strong>{value}</strong>
         {note && <small>{note}</small>}
       </div>
+      {pct !== null && (
+        <div className="amatxi-stat-progress" role="img" aria-label={`${Math.round(pct)} % du montant sécurisé sur Ledger`}>
+          <span style={{ width: `${pct}%` }} />
+        </div>
+      )}
     </article>
   );
 }

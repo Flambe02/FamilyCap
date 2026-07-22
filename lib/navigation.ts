@@ -30,7 +30,10 @@ export type NavIconId =
   | "list-checks"
   | "star"
   | "shield-check"
-  | "calendar";
+  | "calendar"
+  | "bell"
+  | "sprout"
+  | "swap";
 
 export type NavLeaf = { id: View; label: string; icon: NavIconId; iconLabel: string; short?: string };
 

@@ -20,7 +20,10 @@ type GiftInput = {
   blockchainStatus?: string;
   confirmations?: number;
   note?: string | null;
+  source?: string | null;
 };
+
+const GIFT_SOURCES = ["cadeau_amatxi", "investissement_personnel", "achat_groupe"];
 
 type StoredGift = {
   id: string;
@@ -37,6 +40,7 @@ function validate(body: GiftInput) {
   if (!body.member || !body.occasion || !body.giftDate || !body.purchaseDate || !body.custody) return "Informations obligatoires manquantes.";
   if (!Number.isFinite(body.amountEur) || !Number.isFinite(body.btcAmount) || Number(body.btcAmount) <= 0) return "Montants invalides.";
   if (!["Anniversaire", "Noël", "Autre cadeau"].includes(body.occasion)) return "Occasion invalide.";
+  if (body.source && !GIFT_SOURCES.includes(body.source)) return "Origine invalide.";
   if (!["Binance commun", "Ledger"].includes(body.custody)) return "Lieu de conservation invalide.";
   if (body.forceLedgerAmount === true && body.custody !== "Ledger") return "La correction forc\u00e9e exige un Ledger.";
   if (body.forceLedgerAmount === true && !body.forceReason?.trim()) return "Une explication est obligatoire pour forcer la valeur BTC achetée.";
@@ -70,6 +74,9 @@ function payload(body: GiftInput, memberId: string | null) {
     blockchain_status: body.blockchainStatus || (body.custody === "Ledger" ? "À vérifier" : "Stocké sur Binance commun"),
     confirmations: body.confirmations ?? 0,
     note: body.note || null,
+    // N'écrit `source` que s'il est fourni : à la création sans valeur, le défaut SQL
+    // ('cadeau_amatxi') s'applique ; à la modification, l'origine existante est préservée.
+    ...(body.source && GIFT_SOURCES.includes(body.source) ? { source: body.source } : {}),
     is_deleted: false,
   };
 }
@@ -93,13 +100,29 @@ function withoutUnavailableLedgerAuditColumns(record: Record<string, unknown>, f
   return fallback;
 }
 
+function hasMissingSourceColumn(error: unknown) {
+  return error instanceof Error && error.message.includes("PGRST204") && /['"`]source['"`]/i.test(error.message);
+}
+
+// Écrit le lot en tolérant l'absence de colonnes optionnelles (source, audit Ledger) tant
+// que la migration correspondante n'a pas été jouée : on retire la colonne manquante et on
+// réessaie, sans jamais bloquer l'enregistrement d'un cadeau.
 async function writeGiftRecord<T>(path: string, init: RequestInit, record: Record<string, unknown>, forceReason?: string | null) {
-  try {
-    return await supabaseRest<T>(path, { ...init, body: JSON.stringify(record) });
-  } catch (caught) {
-    if (!hasMissingLedgerAuditColumn(caught)) throw caught;
-    return supabaseRest<T>(path, { ...init, body: JSON.stringify(withoutUnavailableLedgerAuditColumns(record, forceReason)) });
+  let current = { ...record };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await supabaseRest<T>(path, { ...init, body: JSON.stringify(current) });
+    } catch (caught) {
+      if (hasMissingSourceColumn(caught) && "source" in current) {
+        const next = { ...current }; delete next.source; current = next; continue;
+      }
+      if (hasMissingLedgerAuditColumn(caught)) {
+        current = withoutUnavailableLedgerAuditColumns(current, forceReason); continue;
+      }
+      throw caught;
+    }
   }
+  return supabaseRest<T>(path, { ...init, body: JSON.stringify(current) });
 }
 async function validateLedgerAllocation(body: GiftInput, excludingId?: string) {
   if (body.custody !== "Ledger" || !body.txid) return null;

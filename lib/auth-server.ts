@@ -53,3 +53,37 @@ export function authErrorResponse(error: unknown) {
   if (error instanceof Response) return error;
   return Response.json({ error: error instanceof Error ? error.message : "Erreur d’authentification" }, { status: 500 });
 }
+
+/**
+ * Ensemble des `member_id` que l'appelant est autorisé à consulter côté investissements,
+ * en répliquant EN CODE la logique de la fonction SQL `can_view_member_investments`
+ * (le service-role contourne la RLS, la frontière de sécurité est donc ici) :
+ *  - admin  → `null` (aucun filtre : accès de gestion à toute la famille) ;
+ *  - membre → soi + les membres dont le partage est ouvert à toute la famille
+ *             (`investment_access_scope = 'family'`) + ceux qui l'ont explicitement autorisé
+ *             via `investment_access_grants`.
+ *
+ * Repli sûr : si les colonnes/tables de partage ne sont pas encore présentes (migration
+ * 20260718 non jouée), on renvoie le périmètre le plus restrictif (soi uniquement) —
+ * jamais une sur-exposition.
+ */
+export async function viewableMemberIds(viewer: AuthenticatedMember): Promise<string[] | null> {
+  if (viewer.role === "admin") return null;
+  const ids = new Set<string>([viewer.id]);
+  try {
+    const [familyScoped, grants] = await Promise.all([
+      supabaseRest<Array<{ id: string }>>(
+        "family_members?select=id&is_active=eq.true&investment_access_scope=eq.family",
+      ),
+      supabaseRest<Array<{ owner_member_id: string }>>(
+        "investment_access_grants?select=owner_member_id&viewer_member_id=eq." + encodeURIComponent(viewer.id),
+      ),
+    ]);
+    for (const member of familyScoped) ids.add(member.id);
+    for (const grant of grants) ids.add(grant.owner_member_id);
+  } catch {
+    // Partage non déployé → périmètre minimal (soi uniquement).
+    return [viewer.id];
+  }
+  return [...ids];
+}

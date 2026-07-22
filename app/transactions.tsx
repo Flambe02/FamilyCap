@@ -521,6 +521,8 @@ function AdminMovementsMobile({ transactions, bitcoinEur, sortDir, onToggleSort,
 
 export type GiftSaveResult = { message: string; member: string; amountEur: number };
 
+export type GiftSource = "cadeau_amatxi" | "investissement_personnel" | "achat_groupe";
+
 export type GiftEditingInput = {
   id?: string;
   member: string;
@@ -531,16 +533,26 @@ export type GiftEditingInput = {
   giftDate: string;
   txid?: string | null;
   note?: string | null;
+  source?: GiftSource;
 };
 
-export function InvestmentModal({ defaultMember, editing, onClose, onSaved }: { defaultMember?: string; editing?: GiftEditingInput; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
+const SOURCE_LABELS: Record<GiftSource, string> = {
+  cadeau_amatxi: "Cadeau d’Amatxi",
+  investissement_personnel: "Investissement personnel",
+  achat_groupe: "Achat groupé / autre",
+};
+
+export function InvestmentModal({ defaultMember, defaultSource, editing, onClose, onSaved }: { defaultMember?: string; defaultSource?: GiftSource; editing?: GiftEditingInput; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
   const [step, setStep] = useState(1);
+  const initialSource: GiftSource = editing?.source ?? defaultSource ?? "cadeau_amatxi";
   const [draft, setDraft] = useState({
     member: editing?.member ?? defaultMember ?? memberNames[0],
-    occasion: editing?.occasion ?? ("Anniversaire" as "Anniversaire" | "Noël" | "Autre cadeau"),
+    source: initialSource,
+    occasion: editing?.occasion ?? (initialSource === "cadeau_amatxi" ? "Anniversaire" : "Autre cadeau") as "Anniversaire" | "Noël" | "Autre cadeau",
     custody: editing?.custody ?? ("Binance commun" as "Binance commun" | "Ledger"),
     amount: editing ? String(editing.amountEur) : "55",
     quantity: editing?.btcAmount ? String(editing.btcAmount) : "",
+    price: editing?.btcAmount && editing?.amountEur ? String(Number((editing.amountEur / editing.btcAmount).toFixed(2))) : "",
     date: editing?.giftDate ?? new Date().toISOString().slice(0, 10),
     txid: editing?.txid ?? "",
     note: editing?.note ?? "",
@@ -550,6 +562,25 @@ export function InvestmentModal({ defaultMember, editing, onClose, onSaved }: { 
   const update = <K extends keyof typeof draft>(key: K, value: typeof draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const dialogRef = useDialogA11y(true, onClose);
   const isEditing = Boolean(editing?.id);
+
+  // Type d'opération : hors cadeau, l'occasion n'a pas de sens → forcée sur « Autre cadeau ».
+  function changeSource(value: GiftSource) {
+    setDraft((current) => ({ ...current, source: value, occasion: value === "cadeau_amatxi" ? current.occasion : "Autre cadeau" }));
+  }
+  // Trio montant / prix BTC / quantité : renseigner deux valeurs calcule la troisième.
+  const round = (value: number, decimals: number) => (Number.isFinite(value) && value > 0 ? String(Number(value.toFixed(decimals))) : "");
+  function changeAmount(value: string) {
+    const amount = Number(value), price = Number(draft.price), quantity = Number(draft.quantity);
+    setDraft((current) => ({ ...current, amount: value, ...(value && price > 0 ? { quantity: round(amount / price, 8) } : value && quantity > 0 ? { price: round(amount / quantity, 2) } : {}) }));
+  }
+  function changeQuantity(value: string) {
+    const quantity = Number(value), price = Number(draft.price), amount = Number(draft.amount);
+    setDraft((current) => ({ ...current, quantity: value, ...(value && price > 0 ? { amount: round(price * quantity, 2) } : value && amount > 0 ? { price: round(amount / quantity, 2) } : {}) }));
+  }
+  function changePrice(value: string) {
+    const price = Number(value), amount = Number(draft.amount), quantity = Number(draft.quantity);
+    setDraft((current) => ({ ...current, price: value, ...(value && amount > 0 ? { quantity: round(amount / price, 8) } : value && quantity > 0 ? { amount: round(price * quantity, 2) } : {}) }));
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -571,6 +602,9 @@ export function InvestmentModal({ defaultMember, editing, onClose, onSaved }: { 
         custody: draft.custody,
         txid: draft.custody === "Ledger" && draft.txid.trim() ? draft.txid.trim() : null,
         note: draft.note.trim() || null,
+        // Sur une création, on enregistre l'origine choisie ; sur une modification, on ne
+        // l'envoie pas pour préserver l'origine déjà stockée côté serveur.
+        source: isEditing ? undefined : draft.source,
       });
       onSaved({ message: isEditing ? "Cadeau modifié et visible dans Cadeaux d’Amatxi." : "Cadeau enregistré et visible dans Transactions.", member: draft.member, amountEur });
     } catch (caught) {
@@ -588,17 +622,20 @@ export function InvestmentModal({ defaultMember, editing, onClose, onSaved }: { 
         <p className="modal-help">{stepHelp(step)}</p>
         <form onSubmit={submit}>
           {step === 1 && <div className="form-grid">
-            <label>Pour quel enfant ?<select value={draft.member} onChange={(event) => update("member", event.target.value)}>{memberNames.map((name) => <option key={name}>{name}</option>)}</select></label>
-            <label className="span-2">Occasion<select value={draft.occasion} onChange={(event) => update("occasion", event.target.value as typeof draft.occasion)}><option>Anniversaire</option><option>Noël</option><option>Autre cadeau</option></select></label>
+            <label className="span-2">Type d’opération<select value={draft.source} onChange={(event) => changeSource(event.target.value as GiftSource)}><option value="cadeau_amatxi">Cadeau d’Amatxi</option><option value="investissement_personnel">Investissement personnel</option><option value="achat_groupe">Achat groupé / autre</option></select></label>
+            <label className={draft.source === "cadeau_amatxi" ? "" : "span-2"}>{draft.source === "investissement_personnel" ? "Pour quel membre ?" : "Pour quel bénéficiaire ?"}<select value={draft.member} onChange={(event) => update("member", event.target.value)}>{memberNames.map((name) => <option key={name}>{name}</option>)}</select></label>
+            {draft.source === "cadeau_amatxi" && <label>Occasion<select value={draft.occasion} onChange={(event) => update("occasion", event.target.value as typeof draft.occasion)}><option>Anniversaire</option><option>Noël</option><option>Autre cadeau</option></select></label>}
           </div>}
           {step === 2 && <div className="form-grid">
-            <label>Montant total, frais inclus (€)<input value={draft.amount} onChange={(event) => update("amount", event.target.value)} type="number" min="0" step="0.01" required /></label>
-            <label>BTC achetés<input value={draft.quantity} onChange={(event) => update("quantity", event.target.value)} type="number" min="0" step="any" placeholder="Ex. 0,001234" required /></label>
-            <label>Date du cadeau<input value={draft.date} onChange={(event) => update("date", event.target.value)} type="date" required /></label>
+            <label>Montant total, frais inclus (€)<input value={draft.amount} onChange={(event) => changeAmount(event.target.value)} type="number" min="0" step="0.01" required /></label>
+            <label>Prix du BTC (€)<input value={draft.price} onChange={(event) => changePrice(event.target.value)} type="number" min="0" step="any" placeholder="Cours au moment de l’achat" /></label>
+            <label>BTC achetés<input value={draft.quantity} onChange={(event) => changeQuantity(event.target.value)} type="number" min="0" step="any" placeholder="Ex. 0,001234" required /></label>
+            <label>Date de l’opération<input value={draft.date} onChange={(event) => update("date", event.target.value)} type="date" required /></label>
+            <p className="modal-help span-2">Renseignez deux valeurs parmi montant, prix et quantité : la troisième se calcule automatiquement.</p>
             <label>Où sont les bitcoins ?<select value={draft.custody} onChange={(event) => update("custody", event.target.value as typeof draft.custody)}><option value="Binance commun">Binance commun</option><option value="Ledger">Ledger personnel</option></select></label>
-            {draft.custody === "Ledger" && <label className="span-2">TxID (optionnel)<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} placeholder="Laisser vide si le virement n’a pas encore eu lieu" /></label>}
+            {draft.custody === "Ledger" && <label>TxID (optionnel)<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} placeholder="Laisser vide si le virement n’a pas encore eu lieu" /></label>}
           </div>}
-          {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Bénéficiaire</dt><dd>{draft.member}</dd></div><div><dt>Occasion</dt><dd>{draft.occasion}</dd></div><div><dt>Localisation</dt><dd>{draft.custody}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount) || 0)}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} BTC` : "—"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label>{error && <p className="editor-feedback" role="alert">{error}</p>}</div>}
+          {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Type</dt><dd>{SOURCE_LABELS[draft.source]}</dd></div><div><dt>Bénéficiaire</dt><dd>{draft.member}</dd></div><div><dt>Occasion</dt><dd>{draft.occasion}</dd></div><div><dt>Localisation</dt><dd>{draft.custody}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount) || 0)}</dd></div><div><dt>Prix du BTC</dt><dd>{draft.price ? euro.format(Number(draft.price)) : "—"}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} BTC` : "—"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label>{error && <p className="editor-feedback" role="alert">{error}</p>}</div>}
           <footer><button type="button" className="secondary-button" disabled={busy} onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)}>{step === 1 ? "Annuler" : "← Retour"}</button><button type="submit" className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : step === 3 ? (isEditing ? "Enregistrer les modifications" : "Enregistrer l’opération") : "Continuer →"}</button></footer>
         </form>
       </section>
