@@ -194,3 +194,96 @@ test("investissement régulier : versement du mois courant comptabilisé", () =>
   assert.ok(approx(model.monthly.investedThisMonth, 100));
   assert.equal(model.monthly.status, "investi");
 });
+
+// ---- Compte-titres (CTO) : transferts, devises, agrégation multi-compte, impact du change ----
+const cto = { accountType: "CTO", today: "2026-07-22" };
+
+test("transfert entrant : ajoute une position sans mouvement d'espèces", () => {
+  const model = computeAccountModel({
+    operations: [
+      op({ type: "versement", grossAmount: 1000, netAmount: 1000 }),
+      op({ type: "transfer_in", isin: "AAA", quantity: 5, unitPrice: 100, grossAmount: 500, netAmount: 500 }),
+    ],
+    priceByKey: priceMap([["AAA", { lastPrice: 120, assetType: "etf" }]]),
+    ...cto,
+  });
+  assert.ok(approx(model.cashEur, 1000)); // le transfert de titres ne touche pas la trésorerie
+  assert.equal(model.positions.length, 1);
+  assert.ok(approx(model.positions[0].quantity, 5));
+  assert.ok(approx(model.positions[0].investedEur, 500)); // prix de revient repris
+});
+
+test("transfert sortant : retire la quantité, espèces inchangées", () => {
+  const model = computeAccountModel({
+    operations: [
+      op({ type: "achat", isin: "AAA", quantity: 10, unitPrice: 100, grossAmount: 1000, netAmount: 1000 }),
+      op({ type: "transfer_out", isin: "AAA", quantity: 4, unitPrice: 130, grossAmount: 520, netAmount: 520 }),
+    ],
+    priceByKey: priceMap([["AAA", { lastPrice: 130, assetType: "etf" }]]),
+    ...cto,
+  });
+  assert.ok(approx(model.positions[0].quantity, 6));
+  assert.ok(approx(model.cashEur, -1000)); // seul l'achat a bougé les espèces (−1000)
+});
+
+test("répartition par devise : positions groupées par devise, non converties", () => {
+  const model = computeAccountModel({
+    operations: [
+      op({ type: "achat", isin: "AAA", quantity: 10, unitPrice: 50, grossAmount: 500, fees: 5, netAmount: 505, currency: "EUR" }),
+      op({ type: "achat", isin: "BBB", quantity: 5, unitPrice: 40, grossAmount: 200, netAmount: 200, currency: "USD" }),
+    ],
+    priceByKey: priceMap([
+      ["AAA", { lastPrice: 60, assetType: "etf" }], // 600
+      ["BBB", { lastPrice: 50, assetType: "stock" }], // 250 (USD, non converti)
+    ]),
+    ...cto,
+  });
+  const currencies = model.currencyAllocation.map((bucket) => bucket.currency).sort();
+  assert.deepEqual(currencies, ["EUR", "USD"]);
+  const usd = model.currencyAllocation.find((bucket) => bucket.currency === "USD");
+  assert.ok(approx(usd.value, 250));
+  assert.equal(model.positions.find((position) => position.isin === "BBB").currency, "USD");
+  const totalPct = model.currencyAllocation.reduce((sum, bucket) => sum + bucket.pct, 0);
+  assert.ok(approx(totalPct, 100, 0.001));
+});
+
+test("impact du change : jamais estimé (null) au lot 1", () => {
+  const model = computeAccountModel({
+    operations: [op({ type: "achat", isin: "AAA", quantity: 1, unitPrice: 100, grossAmount: 100, netAmount: 100, currency: "USD" })],
+    priceByKey: priceMap([["AAA", { lastPrice: 110, assetType: "stock" }]]),
+    ...cto,
+  });
+  assert.equal(model.fxImpactEur, null);
+});
+
+test("agrégation multi-compte : même ISIN fusionné, comptes attribués", () => {
+  const model = computeAccountModel({
+    operations: [
+      op({ type: "achat", accountId: "a1", accountName: "Boursorama", isin: "AAA", quantity: 5, unitPrice: 100, grossAmount: 500, netAmount: 500 }),
+      op({ type: "achat", accountId: "a2", accountName: "Trade Republic", isin: "AAA", quantity: 5, unitPrice: 120, grossAmount: 600, netAmount: 600 }),
+      op({ type: "achat", accountId: "a2", accountName: "Trade Republic", isin: "BBB", quantity: 2, unitPrice: 50, grossAmount: 100, netAmount: 100 }),
+    ],
+    priceByKey: priceMap([
+      ["AAA", { lastPrice: 130, assetType: "etf" }],
+      ["BBB", { lastPrice: 60, assetType: "stock" }],
+    ]),
+    ...cto,
+  });
+  const aaa = model.positions.find((position) => position.isin === "AAA");
+  assert.ok(approx(aaa.quantity, 10)); // fusion des deux comptes
+  assert.ok(approx(aaa.averageCost, 110)); // (500 + 600) / 10
+  assert.deepEqual([...aaa.accounts].sort(), ["Boursorama", "Trade Republic"]);
+  const bbb = model.positions.find((position) => position.isin === "BBB");
+  assert.deepEqual(bbb.accounts, ["Trade Republic"]);
+});
+
+test("position mono-devise EUR par défaut", () => {
+  const model = computeAccountModel({
+    operations: [op({ type: "achat", isin: "AAA", quantity: 1, unitPrice: 100, grossAmount: 100, netAmount: 100 })],
+    priceByKey: priceMap([["AAA", { lastPrice: 100, assetType: "etf" }]]),
+    ...cto,
+  });
+  assert.equal(model.positions[0].currency, "EUR");
+  assert.equal(model.currencyAllocation.length, 1);
+  assert.equal(model.currencyAllocation[0].currency, "EUR");
+});

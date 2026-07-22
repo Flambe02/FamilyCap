@@ -11,6 +11,7 @@ import { AdminMemberSettings } from "./settings-admin-member";
 import { AdminUsers } from "./admin-users";
 import { BitcoinInvestmentPage } from "./bitcoin-investments";
 import { PeaInvestmentPage } from "./pea-investments";
+import { CtoInvestmentPage } from "./cto-investments";
 import { SouvenirsPage } from "./souvenirs";
 import type { AccountOperation } from "../lib/portfolio-account";
 import type { Viewer } from "../lib/auth-types";
@@ -94,6 +95,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     if (typeof window === "undefined") return "famille";
     if (window.location.hash.startsWith("#bitcoin")) return "bitcoin";
     if (window.location.hash.startsWith("#pea")) return "investissements-pea";
+    if (window.location.hash.startsWith("#cto")) return "investissements-comptetitres";
     return "famille";
   });
   const todayLabel = useMemo(() => new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date()).toUpperCase(), []);
@@ -587,7 +589,22 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
           />
           </>
         )}
-        {view === "investissements-comptetitres" && <>{canRecordPersonalBtc && <ContextualTip tipId="cto" memberId={viewer.id} title={onboardingCopy.tips.cto.title} body={onboardingCopy.tips.cto.body} cta={onboardingCopy.tips.cto.cta} />}<ComingSoon eyebrow="COMPTE-TITRES" title="Compte-titres" description="Cette section sera connectée aux données existantes. Le suivi du compte-titres arrivera dans une prochaine étape, une fois le partage familial appliqué côté serveur." /></>}
+        {view === "investissements-comptetitres" && (
+          <>
+            {canRecordPersonalBtc && <ContextualTip tipId="cto" memberId={viewer.id} title={onboardingCopy.tips.cto.title} body={onboardingCopy.tips.cto.body} cta={onboardingCopy.tips.cto.cta} />}
+            <CtoInvestmentPage
+              accounts={portfolioAccounts}
+              holdings={portfolioHoldings}
+              operations={portfolioOperations}
+              marketLoading={familyMarketLoading}
+              viewer={effectiveViewer}
+              isPreview={isPreview}
+              canManage={canManageGifts}
+              onReload={() => setFamilyReloadToken((token) => token + 1)}
+              onConfigure={() => setView("administration-globale")}
+            />
+          </>
+        )}
         {view === "investissements-suggestions" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Suggestions mensuelles" description="Cette section sera connectée aux données existantes. Un futur outil de recommandation d’investissement mensuel (répartition PEA & titres) sera piloté depuis cet écran." />}
         {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
         {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={viewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}

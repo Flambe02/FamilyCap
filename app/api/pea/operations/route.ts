@@ -18,17 +18,26 @@ type OperationInput = {
   unitPrice?: number;
   grossAmount?: number;
   fees?: number;
+  taxes?: number;
   netAmount?: number;
   currency?: string;
+  exchangeRate?: number;
   source?: string;
   note?: string;
 };
 
-const OPERATION_TYPES = new Set(["achat", "vente", "versement", "retrait", "dividende", "frais", "correction"]);
+// Types génériques (PEA + compte-titres). Les transferts de titres (transfer_in/out) et les
+// colonnes exchange_rate/taxes exigent la migration 20260725 ; le PEA n'en émet jamais.
+const OPERATION_TYPES = new Set(["achat", "vente", "versement", "retrait", "dividende", "frais", "correction", "transfer_in", "transfer_out"]);
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function setupResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erreur Supabase";
+  // Colonnes / types « compte-titres avancé » manquants → migration 20260725 requise (vérifié en premier
+  // car son message contient parfois « account_operations » via la contrainte account_operations_type_check).
+  if (message.includes("exchange_rate") || message.includes("taxes") || message.includes("PGRST204") || message.includes("_type_check") || message.includes("check constraint")) {
+    return Response.json({ error: "La migration compte-titres (20260725_investment_multicurrency.sql) doit être appliquée dans Supabase (devise, transferts, taxes).", setupRequired: true }, { status: 503 });
+  }
   if (message.includes("account_operations") || message.includes("PGRST205")) {
     return Response.json({ error: "La migration des opérations (20260722_account_operations.sql) doit être appliquée dans Supabase.", setupRequired: true }, { status: 503 });
   }
@@ -52,6 +61,8 @@ export async function POST(request: Request) {
     const quantity = body.quantity === undefined || body.quantity === null ? null : Number(body.quantity);
     const unitPrice = body.unitPrice === undefined || body.unitPrice === null ? null : Number(body.unitPrice);
     const fees = toAmount(body.fees) ?? 0;
+    const taxes = toAmount(body.taxes);
+    const exchangeRate = body.exchangeRate === undefined || body.exchangeRate === null || !Number.isFinite(Number(body.exchangeRate)) ? null : Number(body.exchangeRate);
     let gross = toAmount(body.grossAmount);
     let net = toAmount(body.netAmount);
 
@@ -62,6 +73,14 @@ export async function POST(request: Request) {
       }
       if (gross === null) gross = Math.round(Number(quantity) * Number(unitPrice) * 100) / 100;
       if (net === null) net = type === "achat" ? gross + fees : Math.max(0, gross - fees);
+    } else if (type === "transfer_in" || type === "transfer_out") {
+      // Transfert de titres : déplace une position, sans mouvement d'espèces. Prix unitaire =
+      // prix de revient repris (facultatif). Le moteur ignore le net côté trésorerie.
+      if (!(Number(quantity) > 0)) {
+        return Response.json({ error: "Un transfert de titres exige une quantité positive." }, { status: 400 });
+      }
+      if (gross === null) gross = Number(unitPrice) > 0 ? Math.round(Number(quantity) * Number(unitPrice) * 100) / 100 : 0;
+      if (net === null) net = gross;
     } else if (type === "versement" || type === "retrait" || type === "frais") {
       if (net === null) net = gross;
       if (net === null || !(Number(net) > 0)) {
@@ -87,26 +106,33 @@ export async function POST(request: Request) {
     const memberId = accounts[0]?.member_id;
     if (!memberId) return Response.json({ error: "Compte introuvable." }, { status: 404 });
 
+    // Champs de base (fonctionnent avec la migration 20260722 seule). Les colonnes avancées
+    // (taxes, exchange_rate — migration 20260725) ne sont ajoutées QUE si elles sont fournies,
+    // pour ne pas casser l'écriture tant que la migration n'est pas jouée.
+    const record: Record<string, unknown> = {
+      account_id: body.accountId,
+      member_id: memberId,
+      type,
+      operation_date: body.date,
+      asset_name: body.assetName?.trim() || null,
+      ticker: body.ticker?.trim().toUpperCase() || null,
+      isin: body.isin?.trim().toUpperCase() || null,
+      quantity,
+      unit_price: unitPrice,
+      gross_amount: gross,
+      fees,
+      net_amount: net,
+      currency: (body.currency || "EUR").toUpperCase(),
+      source: body.source?.trim() || "saisie manuelle",
+      note: body.note?.trim() || null,
+    };
+    if (taxes !== null) record.taxes = taxes;
+    if (exchangeRate !== null) record.exchange_rate = exchangeRate;
+
     const rows = await supabaseRest<Array<{ id: string }>>("account_operations", {
       method: "POST",
       headers: { prefer: "return=representation" },
-      body: JSON.stringify({
-        account_id: body.accountId,
-        member_id: memberId,
-        type,
-        operation_date: body.date,
-        asset_name: body.assetName?.trim() || null,
-        ticker: body.ticker?.trim().toUpperCase() || null,
-        isin: body.isin?.trim().toUpperCase() || null,
-        quantity,
-        unit_price: unitPrice,
-        gross_amount: gross,
-        fees,
-        net_amount: net,
-        currency: (body.currency || "EUR").toUpperCase(),
-        source: body.source?.trim() || "saisie manuelle",
-        note: body.note?.trim() || null,
-      }),
+      body: JSON.stringify(record),
     });
     return Response.json({ saved: true, id: rows[0]?.id }, { status: 201 });
   } catch (error) {

@@ -19,7 +19,9 @@ export type AccountOperationType =
   | "retrait"
   | "dividende"
   | "frais"
-  | "correction";
+  | "correction"
+  | "transfer_in" // transfert de titres entrant (déplace une position, sans mouvement d'espèces)
+  | "transfer_out"; // transfert de titres sortant
 
 export type AccountOperation = {
   id: string;
@@ -66,9 +68,15 @@ export type PortfolioPosition = {
   gainEur: number | null;
   gainPct: number | null;
   weightPct: number;
+  currency: string; // devise de l'actif (telle que saisie ; jamais convertie automatiquement)
+  accounts: string[]; // nom des comptes qui contribuent à cette position (vue agrégée multi-CTO)
 };
 
 export type AssetAllocationBucket = { key: string; label: string; color: string; valueEur: number; pct: number; count: number };
+
+// Répartition par devise (compte-titres). `value` = valeur (ou prix de revient si aucun cours)
+// de la position, dans SA devise d'origine, NON convertie — d'où l'absence de suffixe « Eur ».
+export type CurrencyAllocationBucket = { currency: string; value: number; pct: number; count: number };
 
 export type MonthlyInvestment = {
   investedThisMonth: number; // Σ versements du mois courant
@@ -104,6 +112,8 @@ export type AccountModel = {
   performancePct: number | null;
 
   allocation: AssetAllocationBucket[]; // ETF / Actions / … / Espèces
+  currencyAllocation: CurrencyAllocationBucket[]; // répartition par devise des positions (non converti)
+  fxImpactEur: number | null; // impact du change : non calculé au lot 1 → toujours null (UI : « Non disponible »)
   monthly: MonthlyInvestment;
   timeline: AccountTimelinePoint[];
 };
@@ -227,32 +237,34 @@ export function computeAccountModel(params: {
   }
 
   // ---- Positions dérivées (CUMP/PMP) ----
-  type Acc = { name: string; ticker: string | null; isin: string | null; qty: number; cost: number };
+  type Acc = { name: string; ticker: string | null; isin: string | null; qty: number; cost: number; currency: string; accounts: Set<string> };
   const byKey = new Map<string, Acc>();
   const getAcc = (op: AccountOperation): Acc => {
     const key = instrumentKey(op);
     let acc = byKey.get(key);
     if (!acc) {
-      acc = { name: (op.assetName ?? "").trim() || "Actif sans nom", ticker: op.ticker, isin: op.isin, qty: 0, cost: 0 };
+      acc = { name: (op.assetName ?? "").trim() || "Actif sans nom", ticker: op.ticker, isin: op.isin, qty: 0, cost: 0, currency: (op.currency || "EUR").toUpperCase(), accounts: new Set() };
       byKey.set(key, acc);
     }
     if (!acc.name || acc.name === "Actif sans nom") acc.name = (op.assetName ?? acc.name).trim() || acc.name;
     if (!acc.ticker && op.ticker) acc.ticker = op.ticker;
     if (!acc.isin && op.isin) acc.isin = op.isin;
+    if (op.currency) acc.currency = op.currency.toUpperCase(); // dernière devise connue de l'actif
+    if (op.accountName) acc.accounts.add(op.accountName); // attribution multi-compte (vue agrégée)
     return acc;
   };
 
   for (const op of ops) {
-    if (op.type === "achat") {
+    if (op.type === "achat" || op.type === "transfer_in") {
       const acc = getAcc(op);
       acc.qty += num(op.quantity);
-      acc.cost += buyCost(op);
-    } else if (op.type === "vente") {
+      acc.cost += buyCost(op); // un transfert entrant reprend le prix de revient (prix unitaire × qté + frais)
+    } else if (op.type === "vente" || op.type === "transfer_out") {
       const acc = getAcc(op);
       const avg = acc.qty > EPS ? acc.cost / acc.qty : 0;
       const soldQty = Math.min(num(op.quantity), acc.qty);
       acc.qty -= num(op.quantity);
-      acc.cost -= avg * soldQty; // on retire le coût moyen de la quantité vendue (plus/moins-value réalisée ignorée ici)
+      acc.cost -= avg * soldQty; // on retire le coût moyen de la quantité sortie (plus/moins-value réalisée ignorée ici)
       if (acc.qty < EPS) {
         acc.qty = 0;
         acc.cost = 0;
@@ -291,6 +303,8 @@ export function computeAccountModel(params: {
         gainEur,
         gainPct,
         weightPct: 0,
+        currency: acc.currency,
+        accounts: [...acc.accounts],
       } satisfies PortfolioPosition;
     })
     .filter((position) => position.quantity > EPS);
@@ -340,6 +354,25 @@ export function computeAccountModel(params: {
     allocation.push({ key: "cash", label: "Espèces", color: CASH_COLOR, valueEur: cash, pct: allocationTotal > 0 ? (cash / allocationTotal) * 100 : 0, count: 1 });
   }
 
+  // ---- Répartition par devise (compte-titres) ----
+  // Chaque position est comptée dans SA devise, à sa valeur si un cours existe, sinon à son
+  // prix de revient. Aucune conversion : c'est une répartition « telle que saisie », honnête
+  // sur le fait que les montants ne sont pas convertis (impact du change = à venir).
+  const currencyTotals = new Map<string, { value: number; count: number }>();
+  for (const position of positions) {
+    const value = position.currentValueEur ?? position.investedEur;
+    if (value <= EPS) continue;
+    const currency = position.currency || "EUR";
+    const entry = currencyTotals.get(currency) ?? { value: 0, count: 0 };
+    entry.value += value;
+    entry.count += 1;
+    currencyTotals.set(currency, entry);
+  }
+  const currencyTotalSum = [...currencyTotals.values()].reduce((sum, entry) => sum + entry.value, 0);
+  const currencyAllocation: CurrencyAllocationBucket[] = [...currencyTotals.entries()]
+    .map(([currency, entry]) => ({ currency, value: entry.value, pct: currencyTotalSum > 0 ? (entry.value / currencyTotalSum) * 100 : 0, count: entry.count }))
+    .sort((a, b) => b.value - a.value);
+
   // ---- Investissement régulier (mois courant) ----
   const monthKey = today.slice(0, 7);
   const investedThisMonth = ops
@@ -373,6 +406,8 @@ export function computeAccountModel(params: {
     performanceEur,
     performancePct,
     allocation,
+    currencyAllocation,
+    fxImpactEur: null, // lot 1 : l'impact du change n'est pas calculé (jamais estimé) → « Non disponible »
     monthly,
     timeline: buildAccountTimeline(ops, priceByKey, today),
   };
@@ -418,10 +453,10 @@ function buildAccountTimeline(ops: AccountOperation[], priceByKey: Map<string, I
       else if (op.type === "retrait") invested -= magnitude(op);
       const key = instrumentKey(op);
       const entry = acc.get(key) ?? { qty: 0, lastPrice: null };
-      if (op.type === "achat") {
+      if (op.type === "achat" || op.type === "transfer_in") {
         entry.qty += num(op.quantity);
         if (num(op.unitPrice) > 0) entry.lastPrice = num(op.unitPrice);
-      } else if (op.type === "vente") {
+      } else if (op.type === "vente" || op.type === "transfer_out") {
         entry.qty -= num(op.quantity);
         if (num(op.unitPrice) > 0) entry.lastPrice = num(op.unitPrice);
       } else if (op.type === "correction") entry.qty += num(op.quantity);

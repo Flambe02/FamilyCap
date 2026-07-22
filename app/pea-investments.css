@@ -55,6 +55,18 @@
 /* ---- Investir (parcours) ---- */
 .pea-parcours-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
+/* ---- Filtres partagés (positions / historique — PEA & compte-titres) ---- */
+.inv-positions-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.inv-positions-head .btc-panel-kicker { margin: 0; }
+.inv-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.inv-filters label { display: inline-flex; }
+.inv-filters input, .inv-filters select {
+  border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink);
+  font-size: 11px; font-weight: 700; padding: 6px 12px; max-width: 180px;
+}
+.inv-filters input:focus-visible, .inv-filters select:focus-visible { outline: 3px solid var(--amber); outline-offset: 1px; }
+.inv-muted { color: var(--muted); font-size: 10px; }
+
 /* ---- Comprendre ---- */
 .pea-faq { display: grid; gap: 16px; }
 .pea-faq-item { padding-bottom: 14px; border-bottom: 1px solid #f0f3f3; }

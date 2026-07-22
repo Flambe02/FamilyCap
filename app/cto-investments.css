@@ -1,0 +1,19 @@
+/* Compte-titres (CTO) — réutilise intégralement le stylesheet PEA/investissement
+   (.pea-page, .inv-*, .btc-*) et ne surcharge QUE le spécifique CTO : teinte du logo et
+   comportement mobile des filtres. Ne touche pas au rendu desktop des autres écrans. */
+
+/* Logo CTO : teinte distincte du PEA (bleu ardoise) pour différencier les deux enveloppes. */
+.cto-logo { background: linear-gradient(135deg, #5a79c4, #33487f); box-shadow: 0 8px 18px rgba(51, 72, 127, .3); font-size: 22px; }
+
+/* ============ RESPONSIVE (mobile-only, ne modifie pas le desktop) ============ */
+@media (max-width: 780px) {
+  /* Filtres positions/historique : rangée défilable horizontalement, aucun débordement de page. */
+  .cto-page .inv-positions-head { align-items: stretch; }
+  .cto-page .inv-filters {
+    width: 100%; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px; scrollbar-width: none;
+  }
+  .cto-page .inv-filters::-webkit-scrollbar { display: none; }
+  .cto-page .inv-filters label { flex: 0 0 auto; }
+  .cto-page .inv-filters input, .cto-page .inv-filters select { max-width: none; }
+}
