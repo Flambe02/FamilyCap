@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabaseRest } from "../../../lib/supabase-rest";
-import { authErrorResponse, requireAdmin, requireFamilyMember } from "../../../lib/auth-server";
+import { authErrorResponse, requireAdmin, requireFamilyMember, viewableMemberIdsForClass } from "../../../lib/auth-server";
 
 type GiftInput = {
   id?: string;
@@ -146,12 +146,25 @@ export async function GET(request: Request) {
   if (!isSupabaseConfigured()) return Response.json({ records: [], persistence: "unavailable" });
   try {
     const viewer = await requireFamilyMember(request);
-    const filter = viewer.role === "admin" ? "" : "&member_id=eq." + encodeURIComponent(viewer.id);
+    // Partage familial par classe : un membre voit ses cadeaux BTC + ceux des membres qui
+    // ont ouvert leur classe BTC pour lui (scope famille / grant). Admin → toute la famille.
+    const btcMemberIds = await viewableMemberIdsForClass(viewer, "btc");
+    let filter = "";
+    let viewableMembers: string[] | null = null;
+    if (btcMemberIds !== null) {
+      filter = "&member_id=in.(" + btcMemberIds.map((id) => encodeURIComponent(id)).join(",") + ")";
+      // Noms visibles : le client fusionne l'historique gelé (tous membres) et doit le
+      // restreindre au même périmètre que le serveur.
+      const nameRows = await supabaseRest<Array<{ name: string }>>(
+        "family_members?select=name&id=in.(" + btcMemberIds.map((id) => encodeURIComponent(id)).join(",") + ")",
+      );
+      viewableMembers = nameRows.map((row) => row.name);
+    }
     const records = await supabaseRest<Record<string, unknown>[]>(
       "gift_records?select=*&order=gift_date.desc,created_at.desc" + filter,
     );
     const visibleRecords = viewer.role === "admin" ? records : records.map((record) => { const gift = { ...record }; for (const privateField of ["public_address", "txid", "blockchain_status", "confirmations", "transfer_date"]) delete gift[privateField]; return gift; });
-    return Response.json({ records: visibleRecords, persistence: "supabase" });
+    return Response.json({ records: visibleRecords, viewableMembers, persistence: "supabase" });
   } catch (error) {
     return authErrorResponse(error);
   }

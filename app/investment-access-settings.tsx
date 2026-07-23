@@ -12,8 +12,15 @@ import "./investment-access-settings.css";
 
 type ShareRole = "admin" | "adult" | "child" | "viewer";
 type ShareMember = { id: string; name: string; role: ShareRole };
-type AccessState = { scope: "family" | "selected"; selectedIds: string[]; members: ShareMember[] };
+type ShareClasses = { btc: boolean; pea: boolean; cto: boolean };
+type AccessState = { scope: "family" | "selected"; selectedIds: string[]; shareClasses: ShareClasses; members: ShareMember[] };
 type Message = { text: string; tone: "success" | "error" | "info" };
+
+const ASSET_CLASSES: { key: keyof ShareClasses; label: string; hint: string }[] = [
+  { key: "btc", label: "Bitcoin", hint: "Cadeaux et portefeuille BTC." },
+  { key: "pea", label: "PEA", hint: "Plan d’épargne en actions." },
+  { key: "cto", label: "Compte-titres", hint: "Compte-titres ordinaire (CTO)." },
+];
 
 function roleLabel(role: ShareRole) {
   return role === "admin" ? "Administrateur" : role === "viewer" ? "Amatxi" : "Membre de la famille";
@@ -31,9 +38,14 @@ export function InvestmentAccessSettings() {
 
   const load = useCallback(async () => {
     const response = await fetch("/api/investment-access", { headers: await authHeaders() });
-    const result = await response.json() as AccessState & { error?: string };
+    const result = await response.json() as Partial<AccessState> & { error?: string };
     if (!response.ok) throw new Error(result.error ?? "Chargement impossible");
-    setAccess(result);
+    setAccess({
+      scope: result.scope ?? "family",
+      selectedIds: result.selectedIds ?? [],
+      shareClasses: { btc: result.shareClasses?.btc !== false, pea: result.shareClasses?.pea !== false, cto: result.shareClasses?.cto !== false },
+      members: result.members ?? [],
+    });
   }, []);
 
   useEffect(() => {
@@ -53,6 +65,10 @@ export function InvestmentAccessSettings() {
     setAccess((current) => current ? { ...current, selectedIds: current.selectedIds.includes(id) ? current.selectedIds.filter((selectedId) => selectedId !== id) : [...current.selectedIds, id] } : current);
     setMessage(null);
   }
+  function toggleClass(key: keyof ShareClasses, value: boolean) {
+    setAccess((current) => current ? { ...current, shareClasses: { ...current.shareClasses, [key]: value } } : current);
+    setMessage(null);
+  }
 
   async function save() {
     if (!access) return;
@@ -62,7 +78,7 @@ export function InvestmentAccessSettings() {
     }
     setSaving(true); setMessage(null);
     try {
-      const response = await fetch("/api/investment-access", { method: "PATCH", headers: await authHeaders(), body: JSON.stringify({ scope: access.scope, selectedIds: access.selectedIds }) });
+      const response = await fetch("/api/investment-access", { method: "PATCH", headers: await authHeaders(), body: JSON.stringify({ scope: access.scope, selectedIds: access.selectedIds, shareClasses: access.shareClasses }) });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Enregistrement impossible");
       setMessage({ text: "Préférences de partage enregistrées.", tone: "success" });
@@ -75,14 +91,33 @@ export function InvestmentAccessSettings() {
   }
 
   return (
-    <SettingsSection title="Partage familial" subtitle="Choisissez qui peut voir vos investissements.">
+    <SettingsSection title="Partage familial" subtitle="Choisissez ce que vous partagez, et avec qui.">
       {!access ? <p className="set-hint">Chargement des droits de partage…</p> : (
         <>
+          <div className="set-share-classes">
+            <p className="set-notif-kicker">Ce que je partage</p>
+            <ul className="set-rows">
+              {ASSET_CLASSES.map((asset) => (
+                <li key={asset.key} className="set-row">
+                  <div className="set-row-main">
+                    <strong>{asset.label}</strong>
+                    <p>{asset.hint}</p>
+                  </div>
+                  <div className="set-row-side">
+                    <SettingsSwitch checked={access.shareClasses[asset.key]} onChange={(value) => toggleClass(asset.key, value)} label={`Partager ${asset.label}`} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="set-hint">Ce que vous désactivez ici reste visible par vous et par l’administrateur, mais n’apparaît pas chez les personnes avec qui vous partagez.</p>
+          </div>
+
           <div className="set-rows">
+            <p className="set-notif-kicker">Avec qui je partage</p>
             <div className="set-row">
               <div className="set-row-main">
                 <strong>Toute la famille active</strong>
-                <p>Tous les utilisateurs actifs de LaBaJo &amp; Co peuvent consulter vos investissements.</p>
+                <p>Tous les utilisateurs actifs de LaBaJo &amp; Co peuvent consulter les classes partagées ci-dessus.</p>
               </div>
               <div className="set-row-side">
                 <SettingsSwitch checked={access.scope === "family"} onChange={setScope} label="Partager avec toute la famille active" />

@@ -1,5 +1,15 @@
-import { authErrorResponse, requireFamilyMember, viewableMemberIds } from "../../../lib/auth-server";
+import { authErrorResponse, requireFamilyMember, viewableInvestmentScope, type MemberShareFlags } from "../../../lib/auth-server";
 import { supabaseRest } from "../../../lib/supabase-rest";
+
+// Un compte est-il visible pour le viewer, compte tenu des classes que son propriétaire
+// partage ? PEA → flag PEA, compte-titres → flag CTO, wallet Bitcoin → flag BTC. Autres types
+// (banque, épargne…) : réservés au propriétaire/admin (seul soi a les 3 flags ouverts).
+function accountVisible(accountType: string, flags: MemberShareFlags): boolean {
+  if (accountType === "securities") return flags.cto;
+  if (accountType === "pea") return flags.pea;
+  if (accountType === "bitcoin") return flags.btc;
+  return flags.btc && flags.pea && flags.cto;
+}
 
 // Lecture des comptes financiers (PEA, compte-titres…), de leurs positions (référentiel de
 // cours) et de leurs opérations, pour le tableau de bord « vue utilisateur », l'écran PEA et
@@ -28,14 +38,21 @@ function isMissingTable(message: string) {
 export async function GET(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
-    // Filtre serveur respectant le partage : admin → toute la famille ; membre → soi + comptes partagés.
-    const viewable = await viewableMemberIds(viewer);
-    if (viewable !== null && viewable.length === 0) return Response.json({ accounts: [], holdings: [], operations: [] });
-    const scopeFilter = viewable === null ? "" : `&member_id=in.(${viewable.map((id) => encodeURIComponent(id)).join(",")})`;
+    // Filtre serveur respectant le partage PAR CLASSE : admin → toute la famille ; membre →
+    // soi + comptes dont le propriétaire a ouvert la classe correspondante (PEA / CTO / BTC).
+    const scope = await viewableInvestmentScope(viewer);
+    const scopeFilter = scope === null ? "" : `&member_id=in.(${[...scope.keys()].map((id) => encodeURIComponent(id)).join(",")})`;
 
-    const accountRows = await supabaseRest<AccountRow[]>(
+    const rawAccountRows = await supabaseRest<AccountRow[]>(
       `financial_accounts?select=id,name,institution,account_type,currency,member_id&is_active=eq.true${scopeFilter}`,
     );
+    // Deuxième passe par classe : un membre peut partager son CTO mais pas son PEA.
+    const accountRows = scope === null
+      ? rawAccountRows
+      : rawAccountRows.filter((account) => {
+          const flags = scope.get(account.member_id);
+          return flags ? accountVisible(account.account_type, flags) : false;
+        });
     const accountIds = accountRows.map((account) => account.id);
     const memberIds = [...new Set(accountRows.map((account) => account.member_id))];
 

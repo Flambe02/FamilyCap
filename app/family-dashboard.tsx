@@ -55,7 +55,7 @@ type FamilyGiftRecord = {
 type FamilyMemberBalance = { name: string; btc: number; currentValueEur: number | null };
 // Identité réelle (Supabase) d'un membre, utilisée pour résoudre l'aperçu admin sur son VRAI id
 // (jamais celui de l'admin) — parité complète "comme si connecté via son compte".
-type PreviewMemberRecord = { id: string; name: string; email: string | null; role: Viewer["role"]; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; wallet_address: string | null; is_active?: boolean };
+type PreviewMemberRecord = { id: string; name: string; email: string | null; role: Viewer["role"]; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; photo_url: string | null; wallet_address: string | null; is_active?: boolean };
 type LedgerQuote = { bitcoinEur?: number | null };
 type PortfolioAccount = { id: string; name: string; institution?: string | null; accountType: string; currency: string; memberId?: string; memberName: string | null };
 type PortfolioHolding = { account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string };
@@ -113,6 +113,9 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [transactionsReloadKey, setTransactionsReloadKey] = useState(0);
   const [transferRequests, setTransferRequests] = useState<TransferRequest[]>([]);
   const [familyRecords, setFamilyRecords] = useState<FamilyGiftRecord[]>([]);
+  // Membres visibles pour le BTC (partage familial par classe) renvoyés par /api/gifts.
+  // `null` = admin / non renseigné → la section Bitcoin retombe sur le périmètre « soi ».
+  const [viewableBtcMembers, setViewableBtcMembers] = useState<string[] | null>(null);
   const [portfolioAccounts, setPortfolioAccounts] = useState<PortfolioAccount[]>([]);
   const [portfolioHoldings, setPortfolioHoldings] = useState<PortfolioHolding[]>([]);
   const [portfolioOperations, setPortfolioOperations] = useState<PortfolioOperation[]>([]);
@@ -146,8 +149,8 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   // admin) pour ne jamais exposer l'identité de l'administrateur pendant le chargement.
   const effectiveViewer: Viewer = previewMember
     ? (previewMemberRecord
-        ? { id: previewMemberRecord.id, email: previewMemberRecord.email ?? "", name: previewMemberRecord.name, role: previewMemberRecord.role, birthdayDay: previewMemberRecord.birthday_day, birthdayMonth: previewMemberRecord.birthday_month, birthdayYear: previewMemberRecord.birthday_year, walletAddress: previewMemberRecord.wallet_address }
-        : { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" })
+        ? { id: previewMemberRecord.id, email: previewMemberRecord.email ?? "", name: previewMemberRecord.name, role: previewMemberRecord.role, birthdayDay: previewMemberRecord.birthday_day, birthdayMonth: previewMemberRecord.birthday_month, birthdayYear: previewMemberRecord.birthday_year, photoUrl: previewMemberRecord.photo_url, walletAddress: previewMemberRecord.wallet_address }
+        : { ...viewer, name: previewMember, email: "preview@cap.family", role: "child", photoUrl: null })
     : viewer;
   const canManageGifts = viewer.role === "admin" && !isPreview;
   // Un membre non-admin enregistre lui-même ses achats Bitcoin personnels ; l'identité et
@@ -181,8 +184,9 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
           authenticatedFetch("/api/ledger?priceOnly=1", { signal: controller.signal }),
           authenticatedFetch("/api/portfolio", { signal: controller.signal }),
         ]);
-        const giftResult = await giftResponse.json() as { records?: FamilyGiftRecord[]; error?: string };
+        const giftResult = await giftResponse.json() as { records?: FamilyGiftRecord[]; viewableMembers?: string[] | null; error?: string };
         if (!giftResponse.ok) throw new Error(giftResult.error ?? "Cadeaux indisponibles");
+        setViewableBtcMembers(giftResult.viewableMembers ?? null);
         setFamilyRecords((giftResult.records ?? []).map((record) => ({
           ...record,
           amount_eur: Number(record.amount_eur),
@@ -386,7 +390,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     <main className="app-shell">
       <aside className="sidebar">
         <button className="brand" onClick={() => setView("famille")} aria-label="Accueil LaBaJo & Co">
-          <span className="brand-mark" aria-hidden="true">LB</span>
+          <span className="brand-mark" aria-hidden="true"><img src="/Labajo logo.png" alt="" /></span>
           <span><strong>LaBaJo &amp; Co</strong><small>L’école financière familiale</small></span>
         </button>
 
@@ -460,8 +464,10 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         </nav>
 
         <div className="profile-mini">
-          <span className="avatar admin" aria-hidden="true">{(isPreview ? previewMember! : viewer.name).slice(0, 1).toUpperCase()}</span>
-          <span><strong>{isPreview ? previewMember : viewer.name}</strong><small>{isPreview ? "Aperçu lecture seule" : viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
+          {effectiveViewer.photoUrl
+            ? <img className="avatar admin" src={effectiveViewer.photoUrl} alt="" aria-hidden="true" />
+            : <span className="avatar admin" aria-hidden="true">{effectiveViewer.name.slice(0, 1).toUpperCase()}</span>}
+          <span><strong>{effectiveViewer.name}</strong><small>{isPreview ? "Aperçu lecture seule" : viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
           <button type="button" className="profile-mini-trigger" onClick={() => setProfileMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-label="Menu du profil">⌄</button>
           {profileMenuOpen && <>
             <div className="profile-menu-backdrop" onClick={() => setProfileMenuOpen(false)} />
@@ -479,8 +485,10 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
             <span><strong>LaBaJo &amp; Co</strong><small>L’école financière familiale</small></span>
           </div>
           <button type="button" className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Ouvrir mon profil et les paramètres">
-            <span className="mobile-menu-trigger-avatar" aria-hidden="true">{effectiveViewer.name.slice(0, 2).toUpperCase()}</span>
-            <span className="mobile-menu-trigger-info"><strong>{isPreview ? previewMember : viewer.name}</strong><small>{isPreview ? "Aperçu" : viewer.role === "admin" ? "Admin" : "Membre"}</small></span>
+            {effectiveViewer.photoUrl
+              ? <img className="mobile-menu-trigger-avatar" src={effectiveViewer.photoUrl} alt="" aria-hidden="true" />
+              : <span className="mobile-menu-trigger-avatar" aria-hidden="true">{effectiveViewer.name.slice(0, 2).toUpperCase()}</span>}
+            <span className="mobile-menu-trigger-info"><strong>{effectiveViewer.name}</strong><small>{isPreview ? "Aperçu" : viewer.role === "admin" ? "Admin" : "Membre"}</small></span>
             <b className="mobile-menu-trigger-chevron" aria-hidden="true">⌄</b>
           </button>
           <div className="topbar-heading">
@@ -528,13 +536,17 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
             <div className="topbar-user">
               {viewer.role === "admin" ? (
                 <button type="button" className="topbar-user-pill" onClick={() => setQuickSwitchOpen((open) => !open)} aria-haspopup="listbox" aria-expanded={quickSwitchOpen} aria-label="Changer la vue affichée">
-                  <span className="topbar-user-avatar" aria-hidden="true">{(isPreview ? previewMember! : viewer.name).slice(0, 1).toUpperCase()}</span>
+                  {effectiveViewer.photoUrl
+                    ? <img className="topbar-user-avatar" src={effectiveViewer.photoUrl} alt="" aria-hidden="true" />
+                    : <span className="topbar-user-avatar" aria-hidden="true">{effectiveViewer.name.slice(0, 1).toUpperCase()}</span>}
                   <span className="topbar-user-name">{isPreview ? `Vue ${previewMember}` : "Vue admin"}</span>
                   <b className="topbar-user-caret" aria-hidden="true">⌄</b>
                 </button>
               ) : (
                 <span className="topbar-user-pill topbar-user-pill-static">
-                  <span className="topbar-user-avatar" aria-hidden="true">{viewer.name.slice(0, 1).toUpperCase()}</span>
+                  {viewer.photoUrl
+                    ? <img className="topbar-user-avatar" src={viewer.photoUrl} alt="" aria-hidden="true" />
+                    : <span className="topbar-user-avatar" aria-hidden="true">{viewer.name.slice(0, 1).toUpperCase()}</span>}
                   <span className="topbar-user-name">{viewer.name}</span>
                 </span>
               )}
@@ -580,6 +592,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
             totalBitcoinValueEur={totalBitcoinValueEur}
             marketLoading={familyMarketLoading}
             memberBalances={memberBalances}
+            viewableMembers={viewableBtcMembers}
             transferRequests={transferRequests}
             transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)}
             transactionShortcut={transactionShortcut}

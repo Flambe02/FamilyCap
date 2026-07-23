@@ -43,6 +43,11 @@
   .mobile-nav button:focus-visible, .top-actions .primary-button:focus-visible { outline:3px solid #f3b649; outline-offset:2px; }
 }
 
+/* Photo de profil : un <img> reprend exactement la classe du <span> d'initiales qu'il remplace
+   (taille/rayon déjà définis par cette classe) — il ne manque que le cadrage de l'image. Le
+   sélecteur [src] cible uniquement les <img> (jamais les <span> d'initiales, qui n'ont pas de src). */
+.avatar[src],.topbar-user-avatar[src],.mobile-menu-trigger-avatar[src]{object-fit:cover;display:block}
+
 /* Accès rapide à la visite de bienvenue, disponible à tout moment pour un membre. */
 .onboarding-settings{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:22px;padding:15px 16px;border:1px solid #d9e8e4;border-radius:13px;background:#f6fbf9}.onboarding-settings b{display:block;color:var(--ink);font-size:11px}.onboarding-settings p{margin:4px 0 0;color:var(--muted);font-size:9px;line-height:1.45}.onboarding-settings button{flex:0 0 auto;min-height:38px;border:1px solid #168276;border-radius:9px;padding:0 12px;background:#fff;color:#126f65;font-size:9px;font-weight:900;cursor:pointer}.onboarding-settings button:hover{background:#e7f5f0}@media(max-width:780px){.onboarding-settings{align-items:flex-start;flex-direction:column}.onboarding-settings button{width:100%}}
 /* LaBaJo & Co 2026 — socle visuel commun à toutes les vues. */
@@ -370,8 +375,9 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:var(--font-sa
    Desktop d'abord, puis adaptation mobile (≤780px) façon PWA.
    ===================================================================== */
 
-/* Logo circulaire LB dans la sidebar */
-.sidebar .brand-mark{width:44px;height:44px;border-radius:50%;background:transparent;border:1.7px solid var(--color-gold);color:var(--color-gold);display:grid;place-items:center;font-family:var(--font-display-stack);font-size:19px;font-weight:600;letter-spacing:.4px;box-shadow:none}
+/* Logo circulaire LaBaJo dans la sidebar */
+.sidebar .brand-mark{width:44px;height:44px;border-radius:50%;background:transparent;border:1.7px solid var(--color-gold);color:var(--color-gold);display:grid;place-items:center;overflow:hidden;font-family:var(--font-display-stack);font-size:19px;font-weight:600;letter-spacing:.4px;box-shadow:none}
+.sidebar .brand-mark img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
 @media(min-width:781px){
   .sidebar .brand{gap:12px}
   .sidebar .brand strong{font-size:20px;font-weight:600;letter-spacing:-.2px}

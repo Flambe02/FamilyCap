@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Viewer } from "../lib/auth-types";
 import type { NavIconId, View } from "../lib/navigation";
 import { supabaseBrowser } from "../lib/supabase-browser";
@@ -22,9 +22,29 @@ type AdminMember = {
   id: string; name: string; email: string | null; role: Viewer["role"];
   birthday_day: number | null; birthday_month: number | null; birthday_year: number | null;
   is_active: boolean; access_status?: string; auth_user_id?: string | null;
-  investment_access_scope?: "family" | "selected"; wallet_address?: string | null;
+  investment_access_scope?: "family" | "selected"; wallet_address?: string | null; photo_url?: string | null;
   selected_viewer_ids?: string[]; auth?: { emailConfirmedAt?: string | null; lastSignInAt?: string | null } | null;
 };
+
+const PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+async function uploadMemberPhoto(memberId: string, file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("memberId", memberId);
+  const { authorization } = await authHeaders();
+  const response = await fetch("/api/profile/photo", { method: "POST", headers: { authorization }, body: form });
+  const result = await response.json().catch(() => ({})) as { photoUrl?: string; error?: string };
+  if (!response.ok || !result.photoUrl) throw new Error(result.error ?? "Envoi de la photo impossible.");
+  return result.photoUrl;
+}
+
+async function removeMemberPhoto(memberId: string): Promise<void> {
+  const { authorization } = await authHeaders();
+  const response = await fetch("/api/profile/photo?memberId=" + encodeURIComponent(memberId), { method: "DELETE", headers: { authorization } });
+  const result = await response.json().catch(() => ({})) as { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Suppression de la photo impossible.");
+}
 
 type SectionId = "compte" | "securite" | "comptes" | "ledger" | "partage" | "notifications" | "confidentialite" | "aide";
 type NavSection = { id: SectionId; label: string; icon: NavIconId };
@@ -149,9 +169,38 @@ function MemberAccount({ member, onSaved }: { member: AdminMember; onSaved: () =
   const [year, setYear] = useState(member.birthday_year?.toString() ?? "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
+  const [photoUrl, setPhotoUrl] = useState(member.photo_url ?? null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const initials = member.name.slice(0, 2).toUpperCase();
   const emailConfirmed = member.auth?.emailConfirmedAt ? true : member.auth_user_id ? false : null;
+
+  async function pickPhoto(file: File) {
+    if (!PHOTO_TYPES.has(file.type)) { setPhotoError("Format non pris en charge. Utilisez JPG, PNG ou WEBP."); return; }
+    setPhotoBusy(true); setPhotoError("");
+    try {
+      const url = await uploadMemberPhoto(member.id, file);
+      setPhotoUrl(url);
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : "Envoi de la photo impossible.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function clearPhoto() {
+    setPhotoBusy(true); setPhotoError("");
+    try {
+      await removeMemberPhoto(member.id);
+      setPhotoUrl(null);
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : "Suppression de la photo impossible.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   async function save() {
     if (saving) return;
@@ -172,8 +221,18 @@ function MemberAccount({ member, onSaved }: { member: AdminMember; onSaved: () =
   return (
     <SettingsSection title="Mon compte" subtitle={`Informations personnelles de ${member.name}.`}>
       <div className="set-account-hero">
-        <span className="avatar admin set-avatar" aria-hidden="true">{initials}</span>
-        <div><strong>{member.name}</strong><span>{roleLabel(member.role)}</span></div>
+        {photoUrl
+          ? <img className="avatar admin set-avatar" src={photoUrl} alt="" aria-hidden="true" />
+          : <span className="avatar admin set-avatar" aria-hidden="true">{initials}</span>}
+        <div>
+          <strong>{member.name}</strong><span>{roleLabel(member.role)}</span>
+          <div className="set-avatar-actions">
+            <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void pickPhoto(file); }} />
+            <button type="button" className="set-btn" onClick={() => photoInputRef.current?.click()} disabled={photoBusy}>{photoBusy ? "Envoi…" : photoUrl ? "Changer la photo" : "Ajouter une photo"}</button>
+            {photoUrl && <button type="button" className="set-btn set-btn-quiet" onClick={() => void clearPhoto()} disabled={photoBusy}>Supprimer</button>}
+          </div>
+          {photoError && <p className="set-message error" role="status">{photoError}</p>}
+        </div>
       </div>
 
       <div className="set-fields">
@@ -313,7 +372,9 @@ function MemberSharing({ member, members, onSaved }: { member: AdminMember; memb
               {others.map((other) => (
                 <li key={other.id} className="set-row">
                   <div className="set-row-main set-row-icon-main">
-                    <span className="avatar set-share-avatar" aria-hidden="true">{other.name.slice(0, 2).toUpperCase()}</span>
+                    {other.photo_url
+                      ? <img className="avatar set-share-avatar" src={other.photo_url} alt="" aria-hidden="true" />
+                      : <span className="avatar set-share-avatar" aria-hidden="true">{other.name.slice(0, 2).toUpperCase()}</span>}
                     <span><strong>{other.name}</strong><p>{roleLabel(other.role)}</p></span>
                   </div>
                   <div className="set-row-side">

@@ -6,5 +6,6 @@ export type Viewer = {
   birthdayDay?: number | null;
   birthdayMonth?: number | null;
   birthdayYear?: number | null;
+  photoUrl?: string | null;
   walletAddress?: string | null;
 };

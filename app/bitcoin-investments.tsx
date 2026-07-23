@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Viewer } from "../lib/auth-types";
 import type { TransferRequest } from "./back-office";
-import { GiftPortfolio } from "./gift-portfolio";
 import { TransactionsView, type TransactionRecord, type TransactionShortcut } from "./transactions";
 import { computeBitcoinModel, windowTimeline, ORIGIN_BY_KEY, type OriginKey, type MemberSummary } from "../lib/bitcoin-portfolio";
 import { NavIcon } from "./dashboard-ui";
@@ -45,9 +44,9 @@ const PERIOD_OPTIONS: { id: "1M" | "6M" | "1A" | "TOUT"; label: string }[] = [
 ];
 
 export function BitcoinInvestmentPage({
-  records, bitcoinEur, totalBtc, totalBitcoinValueEur, marketLoading, memberBalances, transferRequests,
+  records, bitcoinEur, totalBtc, totalBitcoinValueEur, marketLoading, memberBalances, viewableMembers, transferRequests,
   transactions, transactionShortcut, transactionsReloadKey, viewer, isPreview, canManageGifts, canRecordPersonalBtc,
-  openModal, openPersonalModal, onOpenMemberDetail, onTransferRequest, onRequestStatus, onOpenTransactions,
+  openModal, openPersonalModal, onOpenMemberDetail, onTransferRequest, onRequestStatus,
 }: {
   records: FamilyGiftRecord[];
   bitcoinEur: number | null;
@@ -55,6 +54,9 @@ export function BitcoinInvestmentPage({
   totalBitcoinValueEur: number | null;
   marketLoading: boolean;
   memberBalances: FamilyMemberBalance[];
+  // Membres que le viewer a le droit de voir pour le BTC (partage familial par classe).
+  // `null` = admin (toute la famille) ; sinon liste de noms renvoyée par /api/gifts.
+  viewableMembers: string[] | null;
   transferRequests: TransferRequest[];
   transactions: TransactionRecord[];
   transactionShortcut: TransactionShortcut | null;
@@ -98,18 +100,20 @@ export function BitcoinInvestmentPage({
     return map;
   }, [pendingTransfers]);
 
-  // En vue membre (et en aperçu d'un membre par l'admin), tout le portefeuille Bitcoin
-  // est limité à l'utilisateur — comme la page Cadeaux. L'admin garde la vue famille.
+  // Périmètre Bitcoin en vue membre : soi + les membres qui ont ouvert leur classe BTC au
+  // viewer (partage familial par classe, renvoyé par /api/gifts). L'admin garde la vue famille.
+  // Repli sûr sur soi uniquement si la liste des membres partagés n'est pas disponible.
   const scoped = useMemo(() => {
     if (isAdmin) return { records, memberBalances, totalBtc, totalValueEur: totalBitcoinValueEur };
-    const sRecords = records.filter((record) => record.member_name === viewer.name);
-    const sBalances = memberBalances.filter((balance) => balance.name === viewer.name);
+    const allowed = viewableMembers && viewableMembers.length > 0 ? new Set(viewableMembers) : new Set([viewer.name]);
+    const sRecords = records.filter((record) => allowed.has(record.member_name));
+    const sBalances = memberBalances.filter((balance) => allowed.has(balance.name));
     const sTotalBtc = sBalances.reduce((sum, balance) => sum + balance.btc, 0);
     const sTotalValue = sBalances.some((balance) => balance.currentValueEur !== null)
       ? sBalances.reduce((sum, balance) => sum + (balance.currentValueEur ?? 0), 0)
       : bitcoinEur !== null ? sTotalBtc * bitcoinEur : null;
     return { records: sRecords, memberBalances: sBalances, totalBtc: sTotalBtc, totalValueEur: sTotalValue };
-  }, [isAdmin, viewer.name, records, memberBalances, totalBtc, totalBitcoinValueEur, bitcoinEur]);
+  }, [isAdmin, viewer.name, viewableMembers, records, memberBalances, totalBtc, totalBitcoinValueEur, bitcoinEur]);
 
   const model = useMemo(() => computeBitcoinModel({
     records: scoped.records, bitcoinEur, memberBalances: scoped.memberBalances,
@@ -119,15 +123,19 @@ export function BitcoinInvestmentPage({
   const pendingBtc = useMemo(() => pendingTransfers.reduce((sum, request) => sum + (request.btcAmount ?? 0), 0), [pendingTransfers]);
   const binanceKpiBtc = model.custody.binance.btc + model.custody.unclassified.btc;
 
+  // L'onglet « Mes BTC » (détail par membre) ne subsiste que pour l'admin : côté membre il
+  // faisait doublon avec le Résumé. Un membre qui arriverait sur ce slug (ancien lien) est
+  // ramené au Résumé.
   const tabs: { id: BitcoinTab; label: string }[] = [
     { id: "resume", label: "Résumé" },
-    { id: "membres", label: "Mes BTC" },
+    ...(isAdmin ? [{ id: "membres" as BitcoinTab, label: "Détail par membre" }] : []),
     { id: "conservation", label: "Conservation" },
     { id: "performance", label: "Performance" },
     { id: "historique", label: "Historique" },
     { id: "comprendre", label: "Comprendre" },
     { id: "investir", label: "Investir" },
   ];
+  const activeTab: BitcoinTab = tab === "membres" && !isAdmin ? "resume" : tab;
 
   const valueLabel = model.valueEur === null ? (marketLoading ? "Mise à jour…" : "Cours indisponible") : euro.format(model.valueEur);
 
@@ -152,23 +160,21 @@ export function BitcoinInvestmentPage({
               {pendingTransfers.length} transfert{pendingTransfers.length > 1 ? "s" : ""} en attente
             </button>
           )}
-          {canManageGifts ? (
+          {canManageGifts && (
             <button type="button" className="primary-button btc-cta" onClick={() => openModal()}><b>+</b> Enregistrer un achat BTC</button>
-          ) : (
-            <button type="button" className="secondary-button btc-cta" onClick={() => setTab("membres")}>Voir mes BTC</button>
           )}
         </div>
       </header>
 
       <nav className="btc-tabs" aria-label="Sections Bitcoin">
         {tabs.map((item) => (
-          <button key={item.id} type="button" className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)}>
+          <button key={item.id} type="button" className={activeTab === item.id ? "active" : ""} aria-current={activeTab === item.id ? "page" : undefined} onClick={() => setTab(item.id)}>
             {item.label}
           </button>
         ))}
       </nav>
 
-      {tab === "resume" && (
+      {activeTab === "resume" && (
         <ResumeTab
           model={model} valueLabel={valueLabel} bitcoinEur={bitcoinEur} marketLoading={marketLoading}
           pendingCount={pendingTransfers.length} pendingBtc={pendingBtc} binanceKpiBtc={binanceKpiBtc}
@@ -176,25 +182,23 @@ export function BitcoinInvestmentPage({
         />
       )}
 
-      {tab === "membres" && (isAdmin ? (
+      {activeTab === "membres" && isAdmin && (
         <MembresTab model={model} memberFilter={memberFilter} setMemberFilter={setMemberFilter} onOpenMemberDetail={onOpenMemberDetail} onGoto={setTab} />
-      ) : (
-        <GiftPortfolio viewer={viewer} requests={transferRequests} onRequestStatus={onRequestStatus} selectedMember={viewer.name} previewReadOnly={isPreview} onOpenTransactions={onOpenTransactions} />
-      ))}
+      )}
 
-      {tab === "investir" && (
+      {activeTab === "investir" && (
         <InvestirTab model={model} bitcoinEur={bitcoinEur} canManageGifts={canManageGifts} canRecordPersonalBtc={canRecordPersonalBtc} isPreview={isPreview} openModal={openModal} openPersonalModal={openPersonalModal} onGoto={setTab} />
       )}
 
-      {tab === "conservation" && (
+      {activeTab === "conservation" && (
         <ConservationTab model={model} bitcoinEur={bitcoinEur} transferRequests={transferRequests} pendingTransfers={pendingTransfers} isAdmin={isAdmin} canManageGifts={canManageGifts} onRequestStatus={onRequestStatus} onGoto={setTab} />
       )}
 
-      {tab === "performance" && (
+      {activeTab === "performance" && (
         <PerformanceTab model={model} bitcoinEur={bitcoinEur} period={period} setPeriod={setPeriod} />
       )}
 
-      {tab === "historique" && (
+      {activeTab === "historique" && (
         <TransactionsView
           transactions={transactions} isAdmin={isAdmin} viewerName={viewer.name} onAdd={() => openModal()}
           onTransferRequest={onTransferRequest} onOpenPortfolio={(member) => onOpenMemberDetail(member)}
@@ -202,7 +206,7 @@ export function BitcoinInvestmentPage({
         />
       )}
 
-      {tab === "comprendre" && <ComprendreTab onGoto={setTab} />}
+      {activeTab === "comprendre" && <ComprendreTab onGoto={setTab} />}
     </div>
   );
 }
@@ -261,7 +265,7 @@ function ResumeTab({ model, valueLabel, bitcoinEur, marketLoading, pendingCount,
               ))}
             </ul>
           </div>
-          <button type="button" className="btc-link" onClick={() => onGoto("membres")}>Voir le détail des origines →</button>
+          {isAdmin && <button type="button" className="btc-link" onClick={() => onGoto("membres")}>Voir le détail des origines →</button>}
         </section>
 
         <section className="panel btc-alloc-card">
@@ -452,8 +456,8 @@ function InvestirTab({ model, bitcoinEur, canManageGifts, canRecordPersonalBtc, 
     return (
       <section className="panel">
         <EmptyState icon="🔒" title={isPreview ? "Aperçu en lecture seule" : "Les achats sont gérés par l’administrateur"}
-          description="Seul l’administrateur enregistre les opérations Bitcoin (cadeaux d’Amatxi, investissements personnels, achats groupés). Vous pouvez suivre l’ensemble de vos BTC dans l’onglet « Mes BTC »."
-          action="Voir mes BTC" onAction={() => onGoto("membres")} />
+          description="Seul l’administrateur enregistre les opérations Bitcoin (cadeaux d’Amatxi, investissements personnels, achats groupés). Vous pouvez suivre l’ensemble de vos BTC dans l’onglet « Résumé »."
+          action="Voir le résumé" onAction={() => onGoto("resume")} />
       </section>
     );
   }
@@ -474,7 +478,7 @@ function InvestirTab({ model, bitcoinEur, canManageGifts, canRecordPersonalBtc, 
           <h2>{canManageGifts ? "Enregistrer une opération Bitcoin" : "Enregistrer mon investissement"}</h2>
           <p>{canManageGifts
             ? "Choisissez le type d’opération : le formulaire guidé s’adapte et écrit directement dans le registre familial. Aucun faux succès : l’enregistrement n’est confirmé qu’après réponse du serveur."
-            : "Enregistrez vous-même un achat de Bitcoin que vous avez financé. Il est suivi séparément (origine : personnel) et rejoint votre portefeuille « Mes BTC ». L’enregistrement n’est confirmé qu’après réponse du serveur."}</p>
+            : "Enregistrez vous-même un achat de Bitcoin que vous avez financé. Il est suivi séparément (origine : personnel) et apparaît dans votre Résumé Bitcoin. L’enregistrement n’est confirmé qu’après réponse du serveur."}</p>
         </div>
         <div className="btc-invest-price">
           <div><small>Prix actuel du BTC</small><strong>{bitcoinEur ? euro.format(bitcoinEur) : "—"}</strong></div>
