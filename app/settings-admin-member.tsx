@@ -8,6 +8,7 @@ import { NavIcon } from "./dashboard-ui";
 import { SettingsSection, SettingsSwitch, SettingsMessage, SettingsModal } from "./settings-ui";
 import { NotificationsSettings } from "./settings-notifications";
 import { AccountsSettings } from "./settings-accounts";
+import { LedgerSettings } from "./settings-ledger";
 import { downloadAccountExport } from "../lib/account-settings-client";
 import "./settings.css";
 
@@ -24,14 +25,14 @@ type AdminMember = {
   selected_viewer_ids?: string[]; auth?: { emailConfirmedAt?: string | null; lastSignInAt?: string | null } | null;
 };
 
-type SectionId = "compte" | "securite" | "comptes" | "partage" | "notifications" | "confidentialite";
+type SectionId = "compte" | "securite" | "comptes" | "ledger" | "partage" | "notifications" | "confidentialite";
 type NavSection = { id: SectionId; label: string; icon: NavIconId };
 type NavGroup = { title: string; items: NavSection[] };
 type Message = { text: string; tone: "success" | "error" | "info" };
 
 const GROUPS: NavGroup[] = [
   { title: "Compte", items: [{ id: "compte", label: "Mon compte", icon: "users" }, { id: "securite", label: "Sécurité", icon: "shield-check" }] },
-  { title: "Investissements", items: [{ id: "comptes", label: "Mes comptes", icon: "wallet" }, { id: "partage", label: "Partage familial", icon: "users" }] },
+  { title: "Investissements", items: [{ id: "comptes", label: "Mes comptes", icon: "wallet" }, { id: "ledger", label: "Ledger", icon: "key" }, { id: "partage", label: "Partage familial", icon: "users" }] },
   { title: "Préférences", items: [{ id: "notifications", label: "Notifications", icon: "bell" }] },
   { title: "Confidentialité", items: [{ id: "confidentialite", label: "Données et confidentialité", icon: "book-open" }] },
 ];
@@ -108,6 +109,7 @@ export function AdminMemberSettings({ memberName, onExit, onNavigate }: { member
             {active === "compte" && <MemberAccount member={member} onSaved={reload} />}
             {active === "securite" && <MemberSecurity member={member} onSaved={reload} />}
             {active === "comptes" && <AccountsSettings viewer={memberAsViewer(member)} onNavigate={onNavigate} scopeOverride={member.investment_access_scope ?? "family"} />}
+            {active === "ledger" && <LedgerSettings viewer={memberAsViewer(member)} />}
             {active === "partage" && <MemberSharing member={member} members={members} onSaved={reload} />}
             {active === "notifications" && <NotificationsSettings memberId={member.id} />}
             {active === "confidentialite" && <MemberPrivacy member={member} onGoToSection={selectSection} onSaved={reload} />}

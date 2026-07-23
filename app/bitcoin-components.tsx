@@ -182,13 +182,20 @@ export function PeriodFilter<T extends string>({ value, options, onChange }: { v
 }
 
 // ---- Empty state utile ----------------------------------------------------------------
-export function EmptyState({ icon, title, description, action, onAction }: { icon?: string; title: string; description: string; action?: string; onAction?: () => void }) {
+export function EmptyState({ icon, title, description, action, onAction, secondaryAction, onSecondaryAction }: { icon?: string; title: string; description: string; action?: string; onAction?: () => void; secondaryAction?: string; onSecondaryAction?: () => void }) {
   return (
     <div className="btc-empty">
       <span className="btc-empty-icon" aria-hidden="true">{icon ?? "✦"}</span>
       <strong>{title}</strong>
       <p>{description}</p>
-      {action && <button type="button" className="secondary-button" onClick={onAction}>{action}</button>}
+      {secondaryAction ? (
+        <div className="btc-empty-actions">
+          {action && <button type="button" className="primary-button" onClick={onAction}>{action}</button>}
+          <button type="button" className="secondary-button" onClick={onSecondaryAction}>{secondaryAction}</button>
+        </div>
+      ) : (
+        action && <button type="button" className="secondary-button" onClick={onAction}>{action}</button>
+      )}
     </div>
   );
 }

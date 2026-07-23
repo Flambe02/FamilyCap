@@ -47,8 +47,17 @@ export function AuthShell() {
     const controller = new AbortController();
     void fetch("/api/auth/me", { headers: { authorization: `Bearer ${session.access_token}` }, signal: controller.signal })
       .then(async (response) => {
-        const result = await response.json() as { member?: Viewer; error?: string };
-        if (!response.ok || !result.member) throw new Error(result.error ?? "Accès familial non autorisé");
+        // Le serveur peut répondre en texte brut (500 « Internal Server Error », page d'erreur
+        // de la plateforme…). On lit d'abord le texte puis on tente le JSON, pour ne jamais
+        // afficher un « Unexpected token … is not valid JSON » à la place d'un vrai message.
+        const raw = await response.text();
+        let result: { member?: Viewer; error?: string } = {};
+        try { if (raw) result = JSON.parse(raw) as { member?: Viewer; error?: string }; } catch { /* réponse non-JSON */ }
+        if (!response.ok || !result.member) {
+          throw new Error(result.error ?? (response.status >= 500
+            ? "Le serveur est momentanément indisponible. Réessaie dans un instant."
+            : "Accès familial non autorisé"));
+        }
         setViewer(result.member);
       })
       .catch((error: unknown) => {

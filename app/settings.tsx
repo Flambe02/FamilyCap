@@ -6,6 +6,7 @@ import { InvestmentAccessSettings } from "./investment-access-settings";
 import { AccountSettings } from "./settings-account";
 import { SecuritySettings } from "./settings-security";
 import { AccountsSettings } from "./settings-accounts";
+import { LedgerSettings } from "./settings-ledger";
 import { NotificationsSettings } from "./settings-notifications";
 import { PrivacySettings } from "./settings-privacy";
 import { HelpSettings } from "./settings-help";
@@ -17,7 +18,7 @@ import { supabaseBrowser } from "../lib/supabase-browser";
 import "./settings.css";
 
 type SectionId =
-  | "compte" | "securite" | "comptes" | "partage" | "notifications" | "confidentialite" | "aide"
+  | "compte" | "securite" | "comptes" | "ledger" | "partage" | "notifications" | "confidentialite" | "aide"
   | "admin-utilisateurs" | "admin-cadeaux" | "admin-wallets" | "admin-donnees";
 
 type NavSection = { id: SectionId; label: string; icon: NavIconId };
@@ -33,6 +34,7 @@ const GROUPS: NavGroup[] = [
   ] },
   { title: "Investissements", items: [
     { id: "comptes", label: "Mes comptes", icon: "wallet" },
+    { id: "ledger", label: "Ledger", icon: "key" },
     { id: "partage", label: "Partage familial", icon: "users" },
   ] },
   { title: "Préférences", items: [
@@ -104,6 +106,7 @@ export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboardi
           {activeSection === "compte" && <AccountSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />}
           {activeSection === "securite" && <SecuritySettings viewer={viewer} />}
           {activeSection === "comptes" && <AccountsSettings viewer={viewer} onNavigate={onNavigate} />}
+          {activeSection === "ledger" && <LedgerSettings viewer={viewer} />}
           {activeSection === "partage" && <InvestmentAccessSettings />}
           {activeSection === "notifications" && <NotificationsSettings />}
           {activeSection === "confidentialite" && <PrivacySettings viewer={viewer} onGoToSection={selectSection} onSignOut={onSignOut} />}

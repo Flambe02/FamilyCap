@@ -437,8 +437,8 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         <div className="profile-mini">
           <span className="avatar admin" aria-hidden="true">{(isPreview ? previewMember! : viewer.name).slice(0, 1).toUpperCase()}</span>
           <span><strong>{isPreview ? previewMember : viewer.name}</strong><small>{isPreview ? "Aperçu lecture seule" : viewer.role === "admin" ? "Administrateur" : viewer.email}</small></span>
-          {!isPreview && <button type="button" className="profile-mini-trigger" onClick={() => setProfileMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-label="Menu du profil">⌄</button>}
-          {!isPreview && profileMenuOpen && <>
+          <button type="button" className="profile-mini-trigger" onClick={() => setProfileMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-label="Menu du profil">⌄</button>
+          {profileMenuOpen && <>
             <div className="profile-menu-backdrop" onClick={() => setProfileMenuOpen(false)} />
             <div className="profile-menu-popup" role="menu">
               <button type="button" role="menuitem" onClick={() => { setView("parametres"); setProfileMenuOpen(false); }}>Paramètres</button>

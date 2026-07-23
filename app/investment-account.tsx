@@ -10,8 +10,9 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { Viewer } from "../lib/auth-types";
-import { supabaseBrowser } from "../lib/supabase-browser";
 import { useDialogA11y } from "./use-dialog-a11y";
+import { authenticatedFetch, OP_LABEL, OP_ICON, OP_INFLOW } from "./investment-shared";
+import { InvestmentImportWizard } from "./investment-import-wizard";
 import {
   euro, euro0, dateOf, GainPill, BitcoinKpi, DonutChart, LegendRow,
   EvolutionChart, PeriodFilter, EmptyState, InfoNote, type ChartSeries,
@@ -57,21 +58,9 @@ const qty = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 4 });
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const ALL_ACCOUNTS = "__all__";
 
-export const OP_LABEL: Record<AccountOperationType, string> = {
-  achat: "Achat", vente: "Vente", versement: "Versement", retrait: "Retrait",
-  dividende: "Dividende", frais: "Frais", correction: "Correction",
-  transfer_in: "Transfert entrant", transfer_out: "Transfert sortant",
-};
-export const OP_ICON: Record<AccountOperationType, string> = {
-  achat: "📈", vente: "📉", versement: "➕", retrait: "➖", dividende: "💶", frais: "🧾", correction: "✏️",
-  transfer_in: "📥", transfer_out: "📤",
-};
-// Sens du mouvement affiché (+ / −). Les transferts de titres ne bougent pas les espèces :
-// le signe ne colore que la flèche, le montant reste la valeur des titres transférés.
-export const OP_INFLOW: Record<AccountOperationType, boolean> = {
-  versement: true, vente: true, dividende: true, transfer_in: true, correction: true,
-  achat: false, retrait: false, frais: false, transfer_out: false,
-};
+// Libellés / helpers d'opération déplacés dans investment-shared.ts (évite un cycle d'import
+// avec l'assistant d'import). Ré-exportés ici pour préserver la surface publique existante.
+export { OP_LABEL, OP_ICON, OP_INFLOW, authenticatedFetch };
 
 // Libellé d'une option du sélecteur de compte. Préfixe le membre quand il diffère du nom du
 // compte (l'admin voit plusieurs membres) ; ajoute l'établissement pour distinguer deux comptes
@@ -79,11 +68,6 @@ export const OP_INFLOW: Record<AccountOperationType, boolean> = {
 function accountOptionLabel(account: InvestmentAccount): string {
   const base = account.memberName && account.memberName !== account.name ? `${account.memberName} · ${account.name}` : account.name;
   return account.institution ? `${base} · ${account.institution}` : base;
-}
-
-export async function authenticatedFetch(url: string, init: RequestInit = {}) {
-  const { data } = await supabaseBrowser.auth.getSession();
-  return fetch(url, { ...init, headers: { ...init.headers, ...(data.session ? { authorization: "Bearer " + data.session.access_token } : {}) } });
 }
 
 function tabFromHash(prefix: string): InvestmentTab | null {
@@ -115,6 +99,7 @@ export function InvestmentAccountShell({
   const [tab, setTabState] = useState<InvestmentTab>(() => tabFromHash(config.hashPrefix) ?? "resume");
   const [range, setRange] = useState<"1M" | "3M" | "6M" | "1A" | "3A" | "TOUT">("TOUT");
   const [modal, setModal] = useState<{ open: boolean; type: AccountOperationType }>({ open: false, type: "achat" });
+  const [importOpen, setImportOpen] = useState(false);
   const [notice, setNotice] = useState("");
 
   // Comptes de l'enveloppe visibles. Le partage familial est déjà appliqué côté serveur
@@ -186,6 +171,10 @@ export function InvestmentAccountShell({
 
   // Compte cible d'une écriture : le compte sélectionné, ou le premier en mode agrégé.
   const writeAccounts = isAggregate ? envAccounts : selectedAccount ? [selectedAccount] : [];
+  // Cible d'un import : un seul compte précis (jamais la vue agrégée). En agrégé multi-comptes,
+  // l'admin doit d'abord choisir un compte dans le sélecteur d'en-tête.
+  const importTarget = selectedAccount ?? (envAccounts.length === 1 ? envAccounts[0] : null);
+  const importAccount = importTarget ? { id: importTarget.id, name: importTarget.name, kind: config.kind, currency: importTarget.currency, memberName: importTarget.memberName } : null;
 
   async function submitOperation(payload: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
     try {
@@ -232,7 +221,10 @@ export function InvestmentAccountShell({
         </div>
         <div className="btc-header-actions">
           {canManage && hasScope && (
-            <button type="button" className="primary-button btc-cta" onClick={() => setModal({ open: true, type: "achat" })}><b>+</b> Enregistrer une opération</button>
+            <>
+              <button type="button" className="primary-button btc-cta" onClick={() => setModal({ open: true, type: "achat" })}><b>+</b> Enregistrer une opération</button>
+              <button type="button" className="secondary-button btc-cta" disabled={!importAccount} title={importAccount ? undefined : "Choisissez un compte précis pour importer"} onClick={() => importAccount && setImportOpen(true)}>⬆ Importer un fichier</button>
+            </>
           )}
         </div>
       </header>
@@ -247,13 +239,28 @@ export function InvestmentAccountShell({
         <InvestmentSkeleton />
       ) : !hasScope ? (
         <section className="panel">
-          <EmptyState icon={config.emptyNoAccount.icon} title={config.emptyNoAccount.title} description={config.emptyNoAccount.description}
-            action={canManage ? config.emptyNoAccount.action : undefined} onAction={canManage ? onConfigure : undefined} />
+          {canManage ? (
+            <EmptyState icon={config.emptyNoAccount.icon}
+              title={`Aucun ${config.kind === "CTO" ? "compte-titres" : "PEA"} configuré pour ce membre`}
+              description={`Configurez le compte ${config.kind === "CTO" ? "compte-titres" : "PEA"}, puis saisissez les opérations manuellement ou importez son historique.`}
+              action={`Configurer ${config.kind === "CTO" ? "un compte-titres" : "un PEA"}`} onAction={onConfigure}
+              secondaryAction="Importer un historique" onSecondaryAction={onConfigure} />
+          ) : (
+            <EmptyState icon={config.emptyNoAccount.icon}
+              title={`Aucun ${config.kind === "CTO" ? "compte-titres" : "PEA"} n’est encore configuré`}
+              description="Ce compte doit être configuré par l’administrateur de l’espace familial." />
+          )}
         </section>
       ) : !model!.hasOperations ? (
         <section className="panel">
-          <EmptyState icon={config.emptyNoOperation.icon} title={config.emptyNoOperation.title} description={config.emptyNoOperation.description}
-            action={canManage ? config.emptyNoOperation.action : undefined} onAction={canManage ? () => setModal({ open: true, type: "versement" }) : undefined} />
+          {canManage ? (
+            <EmptyState icon={config.emptyNoOperation.icon} title={config.emptyNoOperation.title} description={config.emptyNoOperation.description}
+              action="Enregistrer la première opération" onAction={() => setModal({ open: true, type: "versement" })}
+              secondaryAction={importAccount ? "Importer un fichier" : undefined} onSecondaryAction={importAccount ? () => setImportOpen(true) : undefined} />
+          ) : (
+            <EmptyState icon={config.emptyNoOperation.icon} title={config.emptyNoOperation.title}
+              description="Les opérations seront saisies par l’administrateur ; la valeur et les positions apparaîtront ici ensuite." />
+          )}
         </section>
       ) : (
         <>
@@ -263,7 +270,7 @@ export function InvestmentAccountShell({
               onReport={() => setNotice("Le report sera enregistré dans une prochaine version. Saisissez le versement le moment venu.")} recent={scopeOps} />
           )}
           {tab === "positions" && <PositionsTab config={config} model={model!} />}
-          {tab === "historique" && <HistoriqueTab config={config} operations={scopeOps} accountNameById={accountNameById} />}
+          {tab === "historique" && <HistoriqueTab config={config} operations={scopeOps} accountNameById={accountNameById} canManage={canManage} onImport={importAccount ? () => setImportOpen(true) : undefined} />}
           {tab === "revenus" && <RevenusTab model={model!} operations={scopeOps} />}
           {tab === "investir" && <InvestirTab config={config} model={model!} canManage={canManage} onAdd={(type) => setModal({ open: true, type })} />}
           {tab === "performance" && <PerformanceTab model={model!} onGoto={setTab} />}
@@ -276,6 +283,11 @@ export function InvestmentAccountShell({
           onClose={() => setModal((current) => ({ ...current, open: false }))}
           onSubmit={submitOperation}
           onSaved={() => { setModal((current) => ({ ...current, open: false })); setNotice("Opération enregistrée."); onReload(); }} />
+      )}
+      {importOpen && canManage && importAccount && (
+        <InvestmentImportWizard account={importAccount}
+          onClose={() => setImportOpen(false)}
+          onDone={() => { setNotice("Import enregistré."); onReload(); }} />
       )}
       {notice && <div className="toast" role="status">✓ {notice}</div>}
     </div>
@@ -587,7 +599,7 @@ function PositionsTab({ config, model }: { config: EnvelopeConfig; model: Accoun
 // ==========================================================================================
 // HISTORIQUE
 // ==========================================================================================
-function HistoriqueTab({ config, operations, accountNameById }: { config: EnvelopeConfig; operations: InvestmentOperation[]; accountNameById: Map<string, string> }) {
+function HistoriqueTab({ config, operations, accountNameById, canManage, onImport }: { config: EnvelopeConfig; operations: InvestmentOperation[]; accountNameById: Map<string, string>; canManage: boolean; onImport?: () => void }) {
   const cto = config.positionsVariant === "cto";
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [accountFilter, setAccountFilter] = useState<string>("all");
@@ -601,6 +613,7 @@ function HistoriqueTab({ config, operations, accountNameById }: { config: Envelo
     <section className="panel table-panel btc-table-card">
       <div className="inv-positions-head">
         <h3 className="btc-panel-kicker">HISTORIQUE DES OPÉRATIONS</h3>
+        {canManage && onImport && <button type="button" className="secondary-button inv-import-btn" onClick={onImport}>⬆ Importer un fichier</button>}
         {operations.length > 0 && (
           <div className="inv-filters">
             <label><span className="sr-only">Filtrer par type</span>

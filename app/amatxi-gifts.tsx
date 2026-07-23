@@ -283,12 +283,9 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
         </section>
       )}
 
-      <section className="panel amatxi-list-panel">
+      <section className="amatxi-list-panel">
         <header className="amatxi-list-head">
-          <div>
-            <span>CADEAUX</span>
-            <h3>{loading ? "Chargement…" : `${filteredGifts.length} cadeau${filteredGifts.length > 1 ? "x" : ""} affiché${filteredGifts.length > 1 ? "s" : ""}`}</h3>
-          </div>
+          <h3>{loading ? "Chargement…" : `${filteredGifts.length} cadeau${filteredGifts.length > 1 ? "x" : ""} affiché${filteredGifts.length > 1 ? "s" : ""}`}</h3>
           {!loading && filteredGifts.length > 0 && (
             <div className="amatxi-view-toggle" role="group" aria-label="Choisir l’affichage">
               <button type="button" className={viewMode === "grid" ? "active" : ""} aria-pressed={viewMode === "grid"} aria-label="Affichage en cartes" onClick={() => setViewMode("grid")}>{ICONS.grid}</button>

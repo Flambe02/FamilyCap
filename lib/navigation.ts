@@ -33,7 +33,8 @@ export type NavIconId =
   | "calendar"
   | "bell"
   | "sprout"
-  | "swap";
+  | "swap"
+  | "key";
 
 export type NavLeaf = { id: View; label: string; icon: NavIconId; iconLabel: string; short?: string };
 

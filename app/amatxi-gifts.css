@@ -41,9 +41,16 @@
 .amatxi-filter-clear { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
 .amatxi-filter-clear svg { width: 14px; height: 14px; }
 
-.amatxi-list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
-.amatxi-list-head span { display: block; font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--muted); }
-.amatxi-list-head h3 { margin: 2px 0 0; font-size: 16px; }
+/* Desktop : plus d'air entre les groupes de filtres (Occasion / Année / Emplacement).
+   Uniquement en colonne, pour ne pas casser le calcul 2 colonnes du mobile (ligne
+   .amatxi-filter-field { flex: 1 1 calc(50% - 6px) } qui suppose un gap de 12px). */
+@media (min-width: 781px) {
+  .amatxi-filters { column-gap: 28px; }
+}
+
+.amatxi-list-panel { background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 0; }
+.amatxi-list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 12px; }
+.amatxi-list-head h3 { margin: 0; font-size: 18px; font-weight: 700; color: var(--ink); }
 .amatxi-view-toggle { display: flex; gap: 4px; padding: 4px; border-radius: 11px; background: var(--cream); }
 .amatxi-view-toggle button { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
 .amatxi-view-toggle button svg { width: 16px; height: 16px; }
@@ -86,11 +93,11 @@
 .amatxi-row-arrow { display: grid; place-items: center; color: var(--muted); }
 .amatxi-row-arrow svg { width: 14px; height: 14px; }
 
-.amatxi-empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 13px; background: var(--cream); border-radius: var(--radius-sm); }
+.amatxi-empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 13px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .amatxi-load-warning { margin: 0 0 12px; padding: 10px 14px; border-radius: var(--radius-sm); background: #fdeee9; color: #a74333; font-size: 12px; }
 
 .amatxi-skeleton-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 14px; }
-.amatxi-skeleton-card { height: 132px; border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--cream) 25%, #efece2 37%, var(--cream) 63%); background-size: 400% 100%; animation: amatxi-shimmer 1.4s ease infinite; }
+.amatxi-skeleton-card { height: 132px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--paper) 25%, #f1eee6 37%, var(--paper) 63%); background-size: 400% 100%; animation: amatxi-shimmer 1.4s ease infinite; }
 @keyframes amatxi-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
 @media (prefers-reduced-motion: reduce) { .amatxi-skeleton-card { animation: none; } }
 
@@ -121,8 +128,7 @@
   .amatxi-filter-chips { flex-wrap: wrap; gap: 8px; }
   .amatxi-filter-chips button { min-height: 40px; }
   .amatxi-filter-clear { flex: 0 0 auto; }
-  .amatxi-list-head span { display: none; }
-  .amatxi-list-head h3 { margin: 0; font-size: 18px; font-weight: 700; }
+  .amatxi-list-head h3 { font-size: 18px; }
   .amatxi-grid, .amatxi-skeleton-grid { grid-template-columns: 1fr; }
   .amatxi-view-toggle { flex: 0 0 auto; }
   .amatxi-row { grid-template-columns: 36px 1fr; grid-template-rows: auto auto auto; row-gap: 8px; column-gap: 12px; }

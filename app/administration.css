@@ -232,3 +232,10 @@
 .transfer-plan-breakdown>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 0 6px;border-bottom:1px solid rgba(23,59,76,.10)}
 .transfer-plan-breakdown>header strong{color:#765000;font-size:.61rem}
 .transfer-plan-breakdown>header span{color:#765000;font-size:.59rem;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Comptes d'investissement : archivage + actions de carte */
+.account-card-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.account-card-actions .quiet{background:none;border:1px solid rgba(23,59,76,.18);border-radius:999px;padding:4px 10px;font-size:.62rem;font-weight:800;cursor:pointer;color:#173b4c}
+.account-card-actions .quiet:hover{background:rgba(23,59,76,.06)}
+.account-card.account-archived{opacity:.62}
+.account-card.account-archived .account-icon{filter:grayscale(1)}

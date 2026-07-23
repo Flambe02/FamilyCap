@@ -83,6 +83,14 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:var(--font-sa
   .stats-row { gap: 8px; }.stat-card { min-height: 126px; align-items: flex-start; padding: 19px 20px; border: 0; border-radius: 13px; box-shadow: var(--shadow-card); }.stat-icon { width: 48px; height: 48px; border-radius: 50%; font-size: 17px; }.stat-card strong { margin: 6px 0 4px; font-family: inherit; font-size: 25px; font-weight: 750; }.stat-card p { font-size: 9px; letter-spacing: .5px; }.stat-card small { font-size: 10px; line-height: 1.4; }.stat-card-link { display: inline-block; margin-top: 2px; }
   .panel { border: 0; border-radius: var(--radius-card); box-shadow: var(--shadow-card); }.family-panel { padding: 22px 24px; }.family-panel > .panel-title { display: none; }.family-panel-compact-title { display: flex; margin-bottom: 14px; }.member-grid { gap: 14px; }.member-card { padding: 15px; border: 0; border-radius: 15px; background: #f5f2e9; min-height: 194px; display: flex; flex-direction: column; }.member-card .avatar { width: 40px; height: 40px; border-radius: 50%; font-size: 11px; }.member-card h3 { margin: 10px 0 3px; font-family: var(--font-display-stack); font-size: 17px; font-weight: 500; }.member-value { margin: 8px 0 9px; }.member-value strong { font-family: inherit; font-size: 21px; font-weight: 750; }.member-card footer { margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(23,50,77,.08); }.member-card footer b { padding: 4px 8px; border-radius: 999px; background: var(--color-gold-soft); color: #a46b00; font-weight: 800; }.mission-panel, .activity-panel { padding: 23px; }.dashboard-bottom-row .activity-mark { border-radius: 50%; }.dashboard-mini-icon { display: flex; }
 }
+/* La sidebar est sticky (100vh) : sur une page plus haute que l'écran (ex. « Détail par
+   lot »), la colonne de gauche laissait apparaître le crème sous les 100vh. On peint le
+   dégradé bleu sur toute la hauteur de la colonne (244px), en reprenant la couleur de bas
+   de sidebar (#023147) pour une jointure invisible. Desktop uniquement — le mobile masque
+   la sidebar. */
+@media (min-width: 781px) {
+  .app-shell { background: linear-gradient(90deg, #023147 0, #023147 244px, #f7f5ed 244px); }
+}
 @media (max-width: 780px) { .view-mode-switch { display: inline-flex; padding: 3px; border-radius: 999px; background: #e5e6e2; }.view-mode-switch button, .view-mode-switch select { min-height: 28px; border: 0; border-radius: 999px; background: transparent; font-size: 10px; }.view-mode-switch button.active { background: #fff; }.welcome-action { position: relative; margin-top: 18px; } }
 
 .family-calendar-notice{grid-column:1/-1;margin:0}
