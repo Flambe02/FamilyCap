@@ -48,6 +48,12 @@ export async function supabaseRest<T>(path: string, init: RequestInit = {}) {
     throw new Error(`Supabase ${response.status}: ${message.slice(0, 300)}`);
   }
 
+  // PostgREST renvoie un corps VIDE avec un statut 200 (pas seulement 204) pour les
+  // ecritures `Prefer: return=minimal` — notamment les upserts `resolution=merge-duplicates`
+  // (ledger-transfers, saveWallet…). Appeler response.json() sur ce corps vide levait
+  // « Unexpected end of JSON input » APRES une ecriture pourtant reussie, transformant un
+  // succes en 500. On tolere donc un corps vide quel que soit le statut 2xx.
   if (response.status === 204) return null as T;
-  return response.json() as Promise<T>;
+  const body = await response.text();
+  return (body ? JSON.parse(body) : null) as T;
 }
