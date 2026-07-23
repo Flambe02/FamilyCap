@@ -66,9 +66,9 @@ export function OnboardingFlow({ viewer, mode, initialState, onDone, onDefer, on
       // Pré-sélection « Cadeaux d'Amatxi » si des cadeaux existent et qu'aucun choix n'est déjà stocké.
       setSelectedModules((current) => (current.length === 0 && ctx.giftCount > 0 ? ["gifts"] : current));
     });
-    void loadProfile().then((p) => { if (!cancelled && p) setProfile((prev) => ({ ...prev, ...p, firstName: p.firstName || prev.firstName })); });
+    void loadProfile(viewer.id).then((p) => { if (!cancelled && p) setProfile((prev) => ({ ...prev, ...p, firstName: p.firstName || prev.firstName })); });
     return () => { cancelled = true; };
-  }, []);
+  }, [viewer.id]);
 
   const adminName = context?.adminName ?? "l’administrateur";
 
@@ -104,7 +104,7 @@ export function OnboardingFlow({ viewer, mode, initialState, onDone, onDefer, on
     if (readOnly) { goTo("modules", "profile"); return; }
     setSaving(true); setError(null);
     try {
-      if (Object.keys(patch).length) await saveProfile(patch);
+      if (Object.keys(patch).length) await saveProfile(patch, viewer.id);
       setProfile((prev) => ({ ...prev, ...patch }));
       const next = await saveOnboardingState(viewer.id, state, { status: "in_progress", currentStep: "modules", completedStep: "profile" });
       setState(next);

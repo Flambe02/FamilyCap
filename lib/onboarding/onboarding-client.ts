@@ -63,10 +63,13 @@ export function clearTipsFor(memberId: string) {
 
 export type LoadResult = { state: OnboardingState; available: boolean };
 
-// Charge l'état : serveur prioritaire, repli sur le miroir local si indisponible.
+// Charge l'état : serveur prioritaire, repli sur le miroir local si indisponible. memberId est
+// systématiquement transmis au serveur : sans effet pour un membre (le serveur l'ignore et
+// utilise son identité de toute façon), mais nécessaire pour qu'un administrateur puisse lire
+// l'état d'un AUTRE membre (aperçu « comme si connecté via son compte »).
 export async function loadOnboardingState(memberId: string): Promise<LoadResult> {
   try {
-    const response = await fetch("/api/onboarding", { headers: await authHeaders() });
+    const response = await fetch("/api/onboarding?memberId=" + encodeURIComponent(memberId), { headers: await authHeaders() });
     const result = await response.json() as { state?: OnboardingState; available?: boolean; error?: string };
     if (response.ok && result.state) {
       // Si le serveur ne persiste pas encore (table absente), on préfère le miroir local
@@ -109,7 +112,7 @@ export async function saveOnboardingState(memberId: string, current: OnboardingS
 
   writeMirror(memberId, next);
   try {
-    await fetch("/api/onboarding", { method: "PATCH", headers: await authHeaders(), body: JSON.stringify(patch) });
+    await fetch("/api/onboarding", { method: "PATCH", headers: await authHeaders(), body: JSON.stringify({ ...patch, memberId }) });
   } catch {
     // Le miroir local a déjà été écrit ; on n'interrompt pas le parcours.
   }
@@ -195,9 +198,12 @@ export type ProfileData = {
   displayCurrency: string;
 };
 
-export async function loadProfile(): Promise<ProfileData | null> {
+// memberId optionnel : sans effet pour un membre, utile pour un administrateur ciblant un autre
+// membre (aperçu « comme si connecté via son compte »).
+export async function loadProfile(memberId?: string): Promise<ProfileData | null> {
   try {
-    const response = await fetch("/api/profile", { headers: await authHeaders() });
+    const url = memberId ? "/api/profile?memberId=" + encodeURIComponent(memberId) : "/api/profile";
+    const response = await fetch(url, { headers: await authHeaders() });
     if (!response.ok) return null;
     const result = await response.json() as { profile?: ProfileData };
     return result.profile ?? null;
@@ -206,8 +212,8 @@ export async function loadProfile(): Promise<ProfileData | null> {
   }
 }
 
-export async function saveProfile(patch: Partial<ProfileData>): Promise<void> {
-  const response = await fetch("/api/profile", { method: "PATCH", headers: await authHeaders(), body: JSON.stringify(patch) });
+export async function saveProfile(patch: Partial<ProfileData>, memberId?: string): Promise<void> {
+  const response = await fetch("/api/profile", { method: "PATCH", headers: await authHeaders(), body: JSON.stringify(memberId ? { ...patch, memberId } : patch) });
   const result = await response.json().catch(() => ({})) as { error?: string };
   if (!response.ok) throw new Error(result.error ?? "Enregistrement du profil impossible.");
 }

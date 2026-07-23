@@ -12,9 +12,10 @@ import {
 } from "../../../lib/onboarding/onboarding-types";
 
 // État d'onboarding du membre connecté (public.user_onboarding). Frontière de sécurité :
-// requireFamilyMember identifie l'appelant ; le member_id est FORCÉ sur son identité.
-// Lecture : un administrateur peut lire l'état d'un membre via ?memberId= (aperçu LECTURE SEULE).
-// Écriture : toujours sur soi — jamais sur un autre membre (règle « l'aperçu admin n'écrit rien »).
+// requireFamilyMember identifie l'appelant.
+// Lecture ET écriture : un administrateur peut cibler un autre membre via memberId (aperçu admin
+// « comme si connecté via son compte » — parité complète, sur le modèle de
+// /api/notification-preferences::resolveTargetId). Un non-admin ne peut JAMAIS viser un autre id.
 
 type Row = {
   version: number;
@@ -56,6 +57,12 @@ function isMissingTable(error: unknown) {
   return error instanceof Error && (error.message.includes("user_onboarding") || error.message.includes("PGRST205") || error.message.includes("PGRST106"));
 }
 
+// Cible : le membre connecté, ou — pour un administrateur uniquement — le memberId fourni
+// (querystring en GET, corps en PATCH). Un non-admin ne peut jamais viser un autre id.
+function resolveTargetId(requested: string | null | undefined, viewer: { id: string; role: string }): string {
+  return requested && viewer.role === "admin" ? requested : viewer.id;
+}
+
 const SELECT = "version,status,current_step,completed_steps,selected_modules,privacy_choice,admin_can_edit,started_at,completed_at,deferred_at,updated_at";
 
 async function readRow(memberId: string): Promise<Row | undefined> {
@@ -67,9 +74,8 @@ export async function GET(request: Request) {
   if (!isSupabaseConfigured()) return Response.json({ state: defaultOnboardingState(), available: false });
   try {
     const viewer = await requireFamilyMember(request);
-    // Lecture seule d'un autre membre réservée à l'administrateur (aperçu).
     const requested = new URL(request.url).searchParams.get("memberId");
-    const targetId = requested && viewer.role === "admin" ? requested : viewer.id;
+    const targetId = resolveTargetId(requested, viewer);
     const row = await readRow(targetId);
     return Response.json({ state: toState(row), available: true });
   } catch (error) {
@@ -111,12 +117,12 @@ export async function PATCH(request: Request) {
   if (!isSupabaseConfigured()) return Response.json({ error: "Service indisponible : authentification requise." }, { status: 503 });
   try {
     const viewer = await requireFamilyMember(request);
-    // Écriture TOUJOURS sur soi. Un administrateur en aperçu n'écrit jamais l'onboarding d'un membre.
-    const targetId = viewer.id;
     const body = await request.json() as {
+      memberId?: unknown;
       status?: unknown; currentStep?: unknown; completedStep?: unknown;
       selectedModules?: unknown; privacyChoice?: unknown; adminCanEdit?: unknown;
     };
+    const targetId = resolveTargetId(typeof body.memberId === "string" ? body.memberId : null, viewer);
 
     const current = await readRow(targetId).catch((error: unknown) => { if (isMissingTable(error)) throw error; return undefined; });
     const state = toState(current);

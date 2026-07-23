@@ -53,6 +53,9 @@ type FamilyGiftRecord = {
   note?: string | null;
 };
 type FamilyMemberBalance = { name: string; btc: number; currentValueEur: number | null };
+// Identité réelle (Supabase) d'un membre, utilisée pour résoudre l'aperçu admin sur son VRAI id
+// (jamais celui de l'admin) — parité complète "comme si connecté via son compte".
+type PreviewMemberRecord = { id: string; name: string; email: string | null; role: Viewer["role"]; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; wallet_address: string | null; is_active?: boolean };
 type LedgerQuote = { bitcoinEur?: number | null };
 type PortfolioAccount = { id: string; name: string; institution?: string | null; accountType: string; currency: string; memberId?: string; memberName: string | null };
 type PortfolioHolding = { account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string };
@@ -119,17 +122,39 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
   const [transactionShortcut, setTransactionShortcut] = useState<TransactionShortcut | null>(null);
   const [previewMember, setPreviewMember] = useState<string | null>(null);
   const isPreview = previewMember !== null;
+  // Identités réelles des membres (admin uniquement) : nécessaires pour résoudre le VRAI id du
+  // membre prévisualisé (jamais celui de l'admin) et donner un accès fonctionnel identique au
+  // sien — "comme si connecté via son compte" (lecture ET écriture).
+  const [adminMembers, setAdminMembers] = useState<PreviewMemberRecord[]>([]);
+  useEffect(() => {
+    if (viewer.role !== "admin") return;
+    let cancelled = false;
+    void authenticatedFetch("/api/admin/users", {}).then((response) => response.json()).then((result: { users?: PreviewMemberRecord[] }) => {
+      if (!cancelled) setAdminMembers(result.users ?? []);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [viewer.role]);
+  const previewMemberRecord = previewMember ? adminMembers.find((member) => member.name === previewMember) ?? null : null;
   const [onboardingOverlay, setOnboardingOverlay] = useState<null | { mode: "tour" | "required"; state?: OnboardingState }>(null);
   const [checklistToken, setChecklistToken] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const mobileMenuRef = useDialogA11y(mobileMenuOpen, () => setMobileMenuOpen(false));
-  const effectiveViewer: Viewer = previewMember ? { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" } : viewer;
+  // En aperçu, on résout la VRAIE identité Supabase du membre (id, rôle, anniversaire) dès que
+  // /api/admin/users a répondu ; tant que ce n'est pas chargé, repli provisoire minimal (jamais
+  // admin) pour ne jamais exposer l'identité de l'administrateur pendant le chargement.
+  const effectiveViewer: Viewer = previewMember
+    ? (previewMemberRecord
+        ? { id: previewMemberRecord.id, email: previewMemberRecord.email ?? "", name: previewMemberRecord.name, role: previewMemberRecord.role, birthdayDay: previewMemberRecord.birthday_day, birthdayMonth: previewMemberRecord.birthday_month, birthdayYear: previewMemberRecord.birthday_year, walletAddress: previewMemberRecord.wallet_address }
+        : { ...viewer, name: previewMember, email: "preview@cap.family", role: "child" })
+    : viewer;
   const canManageGifts = viewer.role === "admin" && !isPreview;
-  // Un membre (hors admin et hors aperçu) enregistre lui-même ses achats Bitcoin
-  // personnels ; l'identité et l'origine sont forcées côté serveur.
-  const canRecordPersonalBtc = viewer.role !== "admin" && !isPreview;
+  // Un membre non-admin enregistre lui-même ses achats Bitcoin personnels ; l'identité et
+  // l'origine sont forcées côté serveur. Un administrateur en aperçu bénéficie du même accès
+  // (parité complète "comme si connecté via son compte"), via un contournement Cas A (voir
+  // InvestmentModal.adminForMember) puisque la route self-service ne peut viser qu'elle-même.
+  const canRecordPersonalBtc = effectiveViewer.role !== "admin";
   const [investmentsOpen, setInvestmentsOpen] = useState(true);
   const investmentsActive = INVESTMENT_VIEW_IDS.includes(view);
   const investmentsExpanded = investmentsActive || investmentsOpen;
@@ -283,7 +308,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
 
   // Relance volontaire (visite, sans écriture) et reprise d'un parcours reporté (mode obligatoire).
   function replayOnboarding() { setOnboardingOverlay({ mode: "tour" }); }
-  function resumeOnboarding() { void loadOnboardingState(viewer.id).then(({ state }) => setOnboardingOverlay({ mode: "required", state })); }
+  function resumeOnboarding() { void loadOnboardingState(effectiveViewer.id).then(({ state }) => setOnboardingOverlay({ mode: "required", state })); }
   function closeOnboardingOverlay() { setOnboardingOverlay(null); setChecklistToken((token) => token + 1); setFamilyReloadToken((token) => token + 1); }
   function changePreview(next: string | null) {
     setPreviewMember(next);
@@ -542,12 +567,12 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
           </nav>
         )}
 
-        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} checklist={(viewer.role === "adult" || viewer.role === "child") && !isPreview ? <OnboardingChecklist key={checklistToken} viewer={viewer} navigate={navigate} onResume={resumeOnboarding} /> : null} />}
+        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} checklist={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null} />}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
-        {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} previewReadOnly={isPreview} onOpenTransactions={openFilteredTransactions} />}
+        {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} onOpenTransactions={openFilteredTransactions} />}
         {view === "bitcoin" && (
           <>
-            {canRecordPersonalBtc && <ContextualTip tipId="bitcoin" memberId={viewer.id} title={onboardingCopy.tips.bitcoin.title} body={onboardingCopy.tips.bitcoin.body} cta={onboardingCopy.tips.bitcoin.cta} />}
+            {canRecordPersonalBtc && <ContextualTip tipId="bitcoin" memberId={effectiveViewer.id} title={onboardingCopy.tips.bitcoin.title} body={onboardingCopy.tips.bitcoin.body} cta={onboardingCopy.tips.bitcoin.cta} />}
             <BitcoinInvestmentPage
             records={familyGiftRecords}
             bitcoinEur={bitcoinEur}
@@ -566,16 +591,16 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
             openModal={(source) => openGiftModal(source)}
             openPersonalModal={() => setPersonalModalOpen(true)}
             onOpenMemberDetail={(member) => { setFamilyMember(member); setView("portefeuilles"); }}
-            onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer}
+            onTransferRequest={requestTransfer}
             onRequestStatus={updateRequestStatus}
             onOpenTransactions={openFilteredTransactions}
           />
           </>
         )}
-        {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={isPreview ? () => setToast("Apercu : aucune demande n est envoyee.") : requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
+        {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "investissements-pea" && (
           <>
-            {canRecordPersonalBtc && <ContextualTip tipId="pea" memberId={viewer.id} title={onboardingCopy.tips.pea.title} body={onboardingCopy.tips.pea.body} cta={onboardingCopy.tips.pea.cta} />}
+            {canRecordPersonalBtc && <ContextualTip tipId="pea" memberId={effectiveViewer.id} title={onboardingCopy.tips.pea.title} body={onboardingCopy.tips.pea.body} cta={onboardingCopy.tips.pea.cta} />}
             <PeaInvestmentPage
             accounts={portfolioAccounts}
             holdings={portfolioHoldings}
@@ -591,7 +616,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         )}
         {view === "investissements-comptetitres" && (
           <>
-            {canRecordPersonalBtc && <ContextualTip tipId="cto" memberId={viewer.id} title={onboardingCopy.tips.cto.title} body={onboardingCopy.tips.cto.body} cta={onboardingCopy.tips.cto.cta} />}
+            {canRecordPersonalBtc && <ContextualTip tipId="cto" memberId={effectiveViewer.id} title={onboardingCopy.tips.cto.title} body={onboardingCopy.tips.cto.body} cta={onboardingCopy.tips.cto.cta} />}
             <CtoInvestmentPage
               accounts={portfolioAccounts}
               holdings={portfolioHoldings}
@@ -607,13 +632,13 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         )}
         {view === "investissements-suggestions" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Suggestions mensuelles" description="Cette section sera connectée aux données existantes. Un futur outil de recommandation d’investissement mensuel (répartition PEA & titres) sera piloté depuis cet écran." />}
         {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
-        {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={viewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}
+        {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={effectiveViewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}
         {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "famille-acces" && effectiveViewer.role === "admin" && <AdminUsers />}
         {view === "administration-suggestions" && effectiveViewer.role === "admin" && <ComingSoon eyebrow="ADMINISTRATION" title="Suggestions" description="Cette section sera connectée aux données existantes. Un futur outil de création et de suivi des suggestions mensuelles (répartition PEA & titres) sera piloté depuis cet écran." />}
         {view === "administration-globale" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "apprendre" && <Learn />}
-        {view === "parametres" && (isPreview ? <AdminMemberSettings memberName={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} onNavigate={navigate} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} onNavigate={navigate} />)}
+        {view === "parametres" && (isPreview ? <AdminMemberSettings memberName={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} onNavigate={navigate} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} onNavigate={navigate} />)}
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">
@@ -678,9 +703,9 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         )}
       </aside>
 
-      {onboardingOverlay && !isPreview && <OnboardingFlow viewer={viewer} mode={onboardingOverlay.mode} initialState={onboardingOverlay.state} onDone={closeOnboardingOverlay} onDefer={closeOnboardingOverlay} onExitTour={closeOnboardingOverlay} />}
+      {onboardingOverlay && <OnboardingFlow viewer={effectiveViewer} mode={onboardingOverlay.mode} initialState={onboardingOverlay.state} onDone={closeOnboardingOverlay} onDefer={closeOnboardingOverlay} onExitTour={closeOnboardingOverlay} />}
       {modalOpen && canManageGifts && <InvestmentModal defaultMember={familyMember} defaultSource={modalSource} onClose={closeGiftModal} onSaved={handleGiftSaved} />}
-      {personalModalOpen && canRecordPersonalBtc && <InvestmentModal personalMode memberInvestor={effectiveViewer.name} onClose={() => setPersonalModalOpen(false)} onSaved={handlePersonalInvestmentSaved} />}
+      {personalModalOpen && canRecordPersonalBtc && <InvestmentModal personalMode memberInvestor={effectiveViewer.name} adminForMember={isPreview ? effectiveViewer.name : undefined} onClose={() => setPersonalModalOpen(false)} onSaved={handlePersonalInvestmentSaved} />}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );
@@ -902,8 +927,8 @@ function Dashboard({ name, navigate, home, marketLoading, checklist }: { name: s
   );
 }
 
-function Portfolios({ viewer, requests, selectedMember, previewReadOnly, onOpenTransactions }: { openModal: () => void; viewer: Viewer; requests: TransferRequest[]; selectedMember: string; previewReadOnly: boolean; onOpenTransactions: (shortcut: Omit<TransactionShortcut, "requestId">) => void }) {
-  return <GiftPortfolio viewer={viewer} requests={requests} selectedMember={selectedMember} previewReadOnly={previewReadOnly} onOpenTransactions={onOpenTransactions} />;
+function Portfolios({ viewer, requests, selectedMember, onOpenTransactions }: { openModal: () => void; viewer: Viewer; requests: TransferRequest[]; selectedMember: string; onOpenTransactions: (shortcut: Omit<TransactionShortcut, "requestId">) => void }) {
+  return <GiftPortfolio viewer={viewer} requests={requests} selectedMember={selectedMember} onOpenTransactions={onOpenTransactions} />;
 }
 
 function Learn() {

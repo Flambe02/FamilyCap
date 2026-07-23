@@ -36,6 +36,15 @@ export async function GET(request: Request) {
   return Response.json({ requests: [], persistence: "unavailable" });
 }
 
+// Résout un membre par nom (utilisé uniquement pour une création ADMIN au nom d'un membre —
+// « aperçu » avec parité complète, cf. lib/auth-server.ts pour la frontière de sécurité générale).
+async function memberByName(name: string): Promise<{ id: string; name: string } | null> {
+  const rows = await supabaseRest<Array<{ id: string; name: string }>>(
+    "family_members?select=id,name&name=eq." + encodeURIComponent(name) + "&is_active=eq.true&limit=1",
+  );
+  return rows[0] ?? null;
+}
+
 export async function POST(request: Request) {
   try {
     // Fail-closed : sans Supabase configuré on ne peut pas authentifier l'appelant.
@@ -46,22 +55,34 @@ export async function POST(request: Request) {
     const viewer = await requireFamilyMember(request);
     const payload = await request.json() as { id?: string; member?: string; transactionId?: string; btcAmount?: number; requestedAt?: string };
     const id = payload.id?.trim() || crypto.randomUUID();
-    const member = viewer.name || payload.member?.trim() || "";
     const transactionId = payload.transactionId?.trim() ?? "";
     const btcAmount = payload.btcAmount === undefined ? null : Number(payload.btcAmount);
     const requestedAt = payload.requestedAt ?? new Date().toISOString();
-    if (!member || !transactionId) return Response.json({ error: "Membre et transaction obligatoires." }, { status: 400 });
-    if (payload.member?.trim() && payload.member.trim() !== viewer.name) {
-      return Response.json({ error: "Une demande ne peut concerner que votre propre portefeuille." }, { status: 403 });
+
+    // Cible par défaut : l'appelant lui-même. Un ADMINISTRATEUR peut créer une demande pour un
+    // AUTRE membre (aperçu « comme si connecté via son compte » — parité complète, écriture
+    // comprise) ; un non-admin ne peut JAMAIS viser un autre membre que lui-même.
+    let memberId = viewer.id;
+    let memberName = viewer.name;
+    const requestedMember = payload.member?.trim();
+    if (requestedMember && requestedMember !== viewer.name) {
+      if (viewer.role !== "admin") {
+        return Response.json({ error: "Une demande ne peut concerner que votre propre portefeuille." }, { status: 403 });
+      }
+      const target = await memberByName(requestedMember);
+      if (!target) return Response.json({ error: "Membre introuvable." }, { status: 404 });
+      memberId = target.id;
+      memberName = target.name;
     }
+    if (!memberName || !transactionId) return Response.json({ error: "Membre et transaction obligatoires." }, { status: 400 });
 
     await supabaseRest("transfer_requests", {
       method: "POST",
       headers: { prefer: "resolution=ignore-duplicates,return=minimal" },
       body: JSON.stringify({
         id,
-        member_id: viewer.id,
-        member_name: member,
+        member_id: memberId,
+        member_name: memberName,
         transaction_id: transactionId,
         btc_amount: btcAmount,
         requested_at: requestedAt,
@@ -69,8 +90,8 @@ export async function POST(request: Request) {
       }),
     });
 
-    const email = await sendAlertEmail({ id, member, transactionId, btcAmount, requestedAt });
-    return Response.json({ request: { id, member, transactionId, btcAmount, requestedAt, status: "Nouvelle" }, persisted: true, persistence: "supabase", email }, { status: 201 });
+    const email = await sendAlertEmail({ id, member: memberName, transactionId, btcAmount, requestedAt });
+    return Response.json({ request: { id, member: memberName, transactionId, btcAmount, requestedAt, status: "Nouvelle" }, persisted: true, persistence: "supabase", email }, { status: 201 });
   } catch (error) {
     if (error instanceof Response) return error;
     return Response.json({ error: error instanceof Error ? error.message : "Demande impossible." }, { status: 500 });

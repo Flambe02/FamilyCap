@@ -121,11 +121,11 @@ export async function archiveVideo(id: string) {
   return requestVideosApi<{ archived?: boolean }>("/api/videos?id=" + encodeURIComponent(id), { method: "DELETE" });
 }
 
-// Marque une vidéo comme vue pour l'appelant réel. À n'appeler QUE hors mode aperçu :
-// en aperçu, aucune vue ne doit être écrite au nom du membre simulé.
-export async function markVideoViewed(videoId: string) {
+// Marque une vidéo comme vue pour l'appelant, ou — si l'appelant est administrateur et memberId
+// fourni — pour le membre visé (aperçu admin « comme si connecté via son compte »).
+export async function markVideoViewed(videoId: string, memberId?: string) {
   return requestVideosApi<{ recorded?: boolean }>("/api/videos/view", {
     method: "POST",
-    body: JSON.stringify({ videoId }),
+    body: JSON.stringify(memberId ? { videoId, memberId } : { videoId }),
   }).catch(() => undefined);
 }

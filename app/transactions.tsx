@@ -542,7 +542,7 @@ const SOURCE_LABELS: Record<GiftSource, string> = {
   achat_groupe: "Achat groupé / autre",
 };
 
-export function InvestmentModal({ defaultMember, defaultSource, editing, personalMode, memberInvestor, onClose, onSaved }: { defaultMember?: string; defaultSource?: GiftSource; editing?: GiftEditingInput; personalMode?: boolean; memberInvestor?: string; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
+export function InvestmentModal({ defaultMember, defaultSource, editing, personalMode, memberInvestor, adminForMember, onClose, onSaved }: { defaultMember?: string; defaultSource?: GiftSource; editing?: GiftEditingInput; personalMode?: boolean; memberInvestor?: string; adminForMember?: string; onClose: () => void; onSaved: (result: GiftSaveResult) => void }) {
   const [step, setStep] = useState(1);
   // Mode personnel (membre) : origine et bénéficiaire verrouillés sur l'appelant.
   const initialSource: GiftSource = personalMode ? "investissement_personnel" : editing?.source ?? defaultSource ?? "cadeau_amatxi";
@@ -592,7 +592,13 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, persona
     try {
       const amountEur = Number(draft.amount);
       const btcAmount = Number(draft.quantity);
-      if (personalMode) {
+      if (personalMode && adminForMember) {
+        // Aperçu admin (parité complète) : la route self-service ne peut viser que l'appelant
+        // (son identité vient du jeton), donc un administrateur écrit via la route cadeaux
+        // (Cas A, memberId explicite), avec la même origine « investissement_personnel ».
+        await saveGift({ member: adminForMember, occasion: "Autre cadeau", giftDate: draft.date, purchaseDate: draft.date, amountEur, btcAmount, custody: draft.custody, note: draft.note.trim() || null, source: "investissement_personnel" });
+        onSaved({ message: "Investissement enregistré et visible dans « Mes BTC ».", member: adminForMember, amountEur });
+      } else if (personalMode) {
         // Écriture membre : l'identité et l'origine sont forcées côté serveur.
         await savePersonalInvestment({ amountEur, btcAmount, custody: draft.custody, date: draft.date, note: draft.note.trim() || null });
         onSaved({ message: "Investissement enregistré et visible dans « Mes BTC ».", member: draft.member, amountEur });

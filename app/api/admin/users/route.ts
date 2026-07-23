@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
 import { supabaseRest } from "../../../../lib/supabase-rest";
+import { firstReceiveAddress, isExtendedKey } from "../../../../lib/bitcoin-xpub";
 
 type RuntimeEnv = { SUPABASE_URL?: string; SUPABASE_SECRET_KEY?: string };
 type Member = { id: string; email: string | null; auth_user_id: string | null; role: string; name: string; is_active?: boolean };
@@ -10,6 +11,16 @@ async function findMember(id: string): Promise<Member | null> { const rows = awa
 function isPrimaryAdmin(member: Member) { return member.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL; }
 function birthdayParts(value?: string | null) { const iso = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/); const short = value?.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/); const year = iso ? Number(iso[1]) : short?.[3] ? Number(short[3]) : null; const month = iso ? Number(iso[2]) : short ? Number(short[2]) : null; const day = iso ? Number(iso[3]) : short ? Number(short[1]) : null; if (month !== null && day !== null && month >= 1 && month <= 12 && day >= 1 && day <= 31 && (year === null || (year >= 1900 && year <= new Date().getFullYear()))) return { year, month, day }; return { year: null, month: null, day: null }; }
 const BTC_ADDRESS_RE = /^(bc1[a-zA-HJ-NP-Z0-9]{25,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,61})$/;
+function upsertWallet(record: Record<string, unknown>) {
+  return supabaseRest("wallets?on_conflict=member_id", {
+    method: "POST",
+    headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(record),
+  });
+}
+// Accepte soit une adresse publique unique, soit une cle publique etendue (xpub/ypub/zpub)
+// d'un compte Ledger. Pour une cle etendue on stocke la cle ET la 1re adresse de reception
+// derivee (affichage membre + repli). /api/ledger derive alors toutes les adresses du compte.
 async function saveWallet(memberId: string, memberName: string, walletAddress?: string) {
   if (walletAddress === undefined) return;
   const trimmed = walletAddress.trim();
@@ -17,12 +28,28 @@ async function saveWallet(memberId: string, memberName: string, walletAddress?: 
     await supabaseRest("wallets?member_id=eq." + encodeURIComponent(memberId), { method: "DELETE", headers: { prefer: "return=minimal" } });
     return;
   }
-  if (!BTC_ADDRESS_RE.test(trimmed)) throw new Error("Adresse Bitcoin publique invalide.");
-  await supabaseRest("wallets?on_conflict=member_id", {
-    method: "POST",
-    headers: { prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ member_id: memberId, member_name: memberName, label: "Ledger de " + memberName, custody: "Ledger", public_address: trimmed, network: "bitcoin-mainnet", asset_code: "BTC" }),
-  });
+  let publicAddress = trimmed;
+  let xpub: string | null = null;
+  if (isExtendedKey(trimmed)) {
+    try { publicAddress = firstReceiveAddress(trimmed); }
+    catch { throw new Error("Cle publique etendue (xpub/ypub/zpub) invalide."); }
+    xpub = trimmed;
+  } else if (!BTC_ADDRESS_RE.test(trimmed)) {
+    throw new Error("Adresse Bitcoin ou cle publique etendue (xpub/ypub/zpub) invalide.");
+  }
+  const record: Record<string, unknown> = { member_id: memberId, member_name: memberName, label: "Ledger de " + memberName, custody: "Ledger", public_address: publicAddress, xpub, network: "bitcoin-mainnet", asset_code: "BTC" };
+  try {
+    await upsertWallet(record);
+  } catch (error) {
+    const missingXpubColumn = error instanceof Error && /xpub/i.test(error.message) && /(PGRST|column|schema cache)/i.test(error.message);
+    if (missingXpubColumn && xpub === null) {
+      const { xpub: _omitted, ...withoutXpub } = record;
+      await upsertWallet(withoutXpub);
+      return;
+    }
+    if (missingXpubColumn) throw new Error("Suivi xpub indisponible : jouez d'abord la migration 20260727_wallet_xpub.sql dans Supabase.");
+    throw error;
+  }
 }
 
 async function saveAccess(memberId: string, scope?: string, selectedIds?: unknown) {
@@ -37,13 +64,29 @@ async function saveAccess(memberId: string, scope?: string, selectedIds?: unknow
   if (scope === "selected") await supabaseRest("investment_access_grants", { method: "POST", headers: { prefer: "return=minimal" }, body: JSON.stringify(ids.map((viewerMemberId) => ({ owner_member_id: memberId, viewer_member_id: viewerMemberId }))) });
 }
 
+type MemberRow = Record<string, unknown> & { id: string; auth_user_id?: string; wallets: Array<{ public_address: string | null; xpub: string | null }> };
+async function loadMembersWithWallets(): Promise<MemberRow[]> {
+  try {
+    return await supabaseRest<MemberRow[]>("family_members?select=*,wallets(public_address,xpub)&order=name.asc");
+  } catch (error) {
+    // Repli si la migration 20260727_wallet_xpub n'a pas encore ete jouee (colonne absente).
+    if (error instanceof Error && /xpub/i.test(error.message)) {
+      const rows = await supabaseRest<Array<Record<string, unknown> & { id: string; auth_user_id?: string; wallets: Array<{ public_address: string | null }> }>>("family_members?select=*,wallets(public_address)&order=name.asc");
+      return rows.map((row) => ({ ...row, wallets: (row.wallets ?? []).map((wallet) => ({ ...wallet, xpub: null })) }));
+    }
+    throw error;
+  }
+}
+
 export async function GET(request: Request) {
   try {
     await requireAdmin(request);
-    const [users, grants, authResult] = await Promise.all([supabaseRest<Array<Record<string, unknown> & { id: string; auth_user_id?: string; wallets: Array<{ public_address: string | null }> }>>("family_members?select=*,wallets(public_address)&order=name.asc"), supabaseRest<Array<{ owner_member_id: string; viewer_member_id: string }>>("investment_access_grants?select=owner_member_id,viewer_member_id"), adminClient().auth.admin.listUsers({ page: 1, perPage: 1000 })]);
+    const [users, grants, authResult] = await Promise.all([loadMembersWithWallets(), supabaseRest<Array<{ owner_member_id: string; viewer_member_id: string }>>("investment_access_grants?select=owner_member_id,viewer_member_id"), adminClient().auth.admin.listUsers({ page: 1, perPage: 1000 })]);
     if (authResult.error) throw authResult.error;
     const authById = new Map(authResult.data.users.map((user) => [user.id, user]));
-    return Response.json({ users: users.map((member) => { const authUser = member.auth_user_id ? authById.get(String(member.auth_user_id)) : undefined; const { wallets, ...rest } = member; return { ...rest, wallet_address: wallets?.[0]?.public_address ?? null, selected_viewer_ids: grants.filter((grant) => grant.owner_member_id === member.id).map((grant) => grant.viewer_member_id), auth: authUser ? { emailConfirmedAt: authUser.email_confirmed_at, lastSignInAt: authUser.last_sign_in_at } : null }; }) });
+    // On expose la cle etendue si elle existe (l'editeur reaffiche alors la valeur saisie),
+    // sinon l'adresse publique unique.
+    return Response.json({ users: users.map((member) => { const authUser = member.auth_user_id ? authById.get(String(member.auth_user_id)) : undefined; const { wallets, ...rest } = member; return { ...rest, wallet_address: wallets?.[0]?.xpub ?? wallets?.[0]?.public_address ?? null, selected_viewer_ids: grants.filter((grant) => grant.owner_member_id === member.id).map((grant) => grant.viewer_member_id), auth: authUser ? { emailConfirmedAt: authUser.email_confirmed_at, lastSignInAt: authUser.last_sign_in_at } : null }; }) });
   } catch (error) { return authErrorResponse(error); }
 }
 

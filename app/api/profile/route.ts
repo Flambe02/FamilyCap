@@ -1,10 +1,11 @@
 import { authErrorResponse, requireFamilyMember } from "../../../lib/auth-server";
 import { isSupabaseConfigured, supabaseRest } from "../../../lib/supabase-rest";
 
-// Profil en libre-service du membre connecté. Le membre met à jour SA propre fiche
-// (family_members) : prénom, date d'anniversaire, langue, devise d'affichage. Frontière de
-// sécurité : requireFamilyMember ; l'écriture est toujours forcée sur l'identité de l'appelant.
-// L'adresse e-mail (identifiant Supabase Auth) reste gérée par Supabase, pas ici.
+// Profil en libre-service du membre connecté (family_members) : prénom, date d'anniversaire,
+// langue, devise d'affichage. Frontière de sécurité : requireFamilyMember ; l'écriture cible
+// l'appelant, SAUF pour un administrateur qui peut viser un autre membre via memberId (aperçu
+// admin « comme si connecté via son compte » — parité complète). Un non-admin ne peut jamais
+// viser un autre id. L'adresse e-mail (identifiant Supabase Auth) reste gérée par Supabase, pas ici.
 
 type MemberRow = {
   name: string;
@@ -31,13 +32,21 @@ function isMissingColumn(error: unknown) {
   return error instanceof Error && (error.message.includes("language") || error.message.includes("display_currency") || error.message.includes("42703") || error.message.includes("PGRST204"));
 }
 
+// Cible : le membre connecté, ou — pour un administrateur uniquement — le memberId fourni.
+// Un non-admin ne peut jamais viser un autre id.
+function resolveTargetId(requested: string | null | undefined, viewer: { id: string; role: string }): string {
+  return requested && viewer.role === "admin" ? requested : viewer.id;
+}
+
 export async function GET(request: Request) {
   if (!isSupabaseConfigured()) return Response.json({ error: "Service indisponible." }, { status: 503 });
   try {
     const viewer = await requireFamilyMember(request);
+    const requested = new URL(request.url).searchParams.get("memberId");
+    const targetId = resolveTargetId(requested, viewer);
     // select=* : les colonnes language/display_currency sont lues si présentes, ignorées sinon
     // (aucune erreur si la migration 20260723 n'est pas encore jouée).
-    const rows = await supabaseRest<MemberRow[]>("family_members?select=*&id=eq." + encodeURIComponent(viewer.id) + "&limit=1");
+    const rows = await supabaseRest<MemberRow[]>("family_members?select=*&id=eq." + encodeURIComponent(targetId) + "&limit=1");
     return Response.json({ profile: toProfile(rows[0]) });
   } catch (error) {
     return authErrorResponse(error);
@@ -60,9 +69,11 @@ export async function PATCH(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
     const body = await request.json() as {
+      memberId?: unknown;
       firstName?: unknown; birthdayDay?: unknown; birthdayMonth?: unknown; birthdayYear?: unknown;
       language?: unknown; displayCurrency?: unknown;
     };
+    const targetId = resolveTargetId(typeof body.memberId === "string" ? body.memberId : null, viewer);
 
     const core: Record<string, unknown> = {};
     // Prénom : jamais écrasé par une valeur vide (« ne pas écraser une donnée existante par du vide »).
@@ -81,7 +92,7 @@ export async function PATCH(request: Request) {
     }
 
     if (Object.keys(core).length) {
-      await supabaseRest("family_members?id=eq." + encodeURIComponent(viewer.id), {
+      await supabaseRest("family_members?id=eq." + encodeURIComponent(targetId), {
         method: "PATCH",
         headers: { prefer: "return=minimal" },
         body: JSON.stringify(core),
@@ -95,7 +106,7 @@ export async function PATCH(request: Request) {
     if (typeof body.displayCurrency === "string" && CURRENCIES.has(body.displayCurrency)) prefs.display_currency = body.displayCurrency;
     if (Object.keys(prefs).length) {
       try {
-        await supabaseRest("family_members?id=eq." + encodeURIComponent(viewer.id), {
+        await supabaseRest("family_members?id=eq." + encodeURIComponent(targetId), {
           method: "PATCH",
           headers: { prefer: "return=minimal" },
           body: JSON.stringify(prefs),

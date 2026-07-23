@@ -33,7 +33,7 @@ type GiftRecord = {
   origin: "database" | "historical" | "expected";
 };
 
-type LedgerTransaction = { txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number; explorerUrl: string };
+type LedgerTransaction = { txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number; explorerUrl: string; address?: string };
 type LedgerWallet = { member: string; address: string; confirmedBalanceBtc?: number; transactions?: LedgerTransaction[]; explorerUrl?: string; error?: string };
 type LedgerResponse = { wallets?: LedgerWallet[]; bitcoinEur: number | null; updatedAt?: string };
 
@@ -521,7 +521,7 @@ function TransferWorkbench({ member, wallet, giftRecords, transferCostsBtc, onSa
         body: JSON.stringify({
           member,
           txid: selectedTransaction.txid,
-          publicAddress: wallet?.address,
+          publicAddress: selectedTransaction.address ?? wallet?.address,
           transferDate: selectedTransaction.date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
           giftIds: selectedGiftIds,
           forceReason: differenceBtc > 0.00000001 ? forceReason : null,
@@ -604,7 +604,7 @@ function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record
     const transferDate = transaction.date?.slice(0, 10) ?? draft.transferDate;
     setDraft((current) => ({
       ...current,
-      publicAddress: candidateWallet?.address ?? current.publicAddress,
+      publicAddress: transaction.address ?? candidateWallet?.address ?? current.publicAddress,
       txid: transaction.txid,
       transferDate,
       ledgerAmount: String(Math.min(Number(current.btcAmount || 0), transaction.remainingBtc)),

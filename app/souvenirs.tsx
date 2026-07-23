@@ -142,9 +142,11 @@ export function SouvenirsPage({ viewer, isPreview, onOpenGiftMember }: { viewer:
 
   function openDetail(video: VideoRecord) {
     setDetail(video);
-    if (!isPreview && !video.viewed) {
+    if (!video.viewed) {
       setVideos((current) => current.map((item) => (item.id === video.id ? { ...item, viewed: true } : item)));
-      void markVideoViewed(video.id);
+      // En aperçu, viewer.id est déjà celui du membre simulé (résolu par family-dashboard) :
+      // on l'enregistre explicitement en memberId pour que l'admin puisse écrire en son nom.
+      void markVideoViewed(video.id, isPreview ? viewer.id : undefined);
     }
   }
 

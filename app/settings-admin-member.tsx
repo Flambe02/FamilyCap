@@ -9,6 +9,7 @@ import { SettingsSection, SettingsSwitch, SettingsMessage, SettingsModal } from 
 import { NotificationsSettings } from "./settings-notifications";
 import { AccountsSettings } from "./settings-accounts";
 import { LedgerSettings } from "./settings-ledger";
+import { HelpSettings } from "./settings-help";
 import { downloadAccountExport } from "../lib/account-settings-client";
 import "./settings.css";
 
@@ -25,7 +26,7 @@ type AdminMember = {
   selected_viewer_ids?: string[]; auth?: { emailConfirmedAt?: string | null; lastSignInAt?: string | null } | null;
 };
 
-type SectionId = "compte" | "securite" | "comptes" | "ledger" | "partage" | "notifications" | "confidentialite";
+type SectionId = "compte" | "securite" | "comptes" | "ledger" | "partage" | "notifications" | "confidentialite" | "aide";
 type NavSection = { id: SectionId; label: string; icon: NavIconId };
 type NavGroup = { title: string; items: NavSection[] };
 type Message = { text: string; tone: "success" | "error" | "info" };
@@ -35,6 +36,7 @@ const GROUPS: NavGroup[] = [
   { title: "Investissements", items: [{ id: "comptes", label: "Mes comptes", icon: "wallet" }, { id: "ledger", label: "Ledger", icon: "key" }, { id: "partage", label: "Partage familial", icon: "users" }] },
   { title: "Préférences", items: [{ id: "notifications", label: "Notifications", icon: "bell" }] },
   { title: "Confidentialité", items: [{ id: "confidentialite", label: "Données et confidentialité", icon: "book-open" }] },
+  { title: "Aide", items: [{ id: "aide", label: "Aide et découverte", icon: "book-open" }] },
 ];
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -42,7 +44,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { authorization: "Bearer " + (data.session?.access_token ?? ""), "content-type": "application/json" };
 }
 
-export function AdminMemberSettings({ memberName, onExit, onNavigate }: { memberName: string; onExit: () => void; onNavigate?: (view: View) => void }) {
+export function AdminMemberSettings({ memberName, onExit, onNavigate, onReplayOnboarding, onResumeOnboarding }: { memberName: string; onExit: () => void; onNavigate?: (view: View) => void; onReplayOnboarding?: () => void; onResumeOnboarding?: () => void }) {
   const [members, setMembers] = useState<AdminMember[] | null>(null);
   const [error, setError] = useState("");
   const [active, setActive] = useState<SectionId>("compte");
@@ -113,6 +115,7 @@ export function AdminMemberSettings({ memberName, onExit, onNavigate }: { member
             {active === "partage" && <MemberSharing member={member} members={members} onSaved={reload} />}
             {active === "notifications" && <NotificationsSettings memberId={member.id} />}
             {active === "confidentialite" && <MemberPrivacy member={member} onGoToSection={selectSection} onSaved={reload} />}
+            {active === "aide" && <HelpSettings viewer={memberAsViewer(member)} onReplay={onReplayOnboarding} onResume={onResumeOnboarding} onNavigate={onNavigate} onGoToSection={selectSection} />}
           </div>
         </div>
       )}
