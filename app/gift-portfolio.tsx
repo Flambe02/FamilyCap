@@ -7,6 +7,7 @@ import type { TransactionShortcut } from "./transactions";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { saveGift, type GiftSavePayload } from "../lib/gifts-client";
 import { GIFT_HISTORY } from "../lib/gift-history";
+import { heldBtc, ledgerBalanceBtc, isBinanceGift, transferFeesBtc, unreconciledLedgerBtc } from "../lib/gift-custody";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 import "./gift-portfolio.css";
@@ -142,12 +143,16 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus, selected
   const records = allRecords.filter((record) => record.member_name === selected);
   const recorded = records.filter((record) => record.origin !== "expected");
   const wallet = ledger?.wallets?.find((item) => item.member === selected);
-  const totalBtc = recorded.reduce((sum, record) => sum + (record.custody === "Ledger" ? Number(record.ledger_amount ?? record.btc_amount) : record.btc_amount), 0);
-  const ledgerGiftBtc = recorded.filter((record) => record.custody === "Ledger").reduce((sum, record) => sum + Number(record.ledger_amount ?? record.btc_amount), 0);
-  const binanceBtc = recorded.filter((record) => record.custody === "Binance commun" || (!isAdmin && record.custody === "À rapprocher" && record.btc_amount > 0)).reduce((sum, record) => sum + record.btc_amount, 0);
+  const totalBtc = recorded.reduce((sum, record) => sum + heldBtc(record), 0);
+  const ledgerGiftBtc = ledgerBalanceBtc(recorded);
+  const binanceBtc = recorded.filter((record) => isBinanceGift(record) || (!isAdmin && record.custody === "À rapprocher" && record.btc_amount > 0)).reduce((sum, record) => sum + record.btc_amount, 0);
   const unassignedRecords = recorded.filter((record) => record.custody === "À rapprocher" && Number(record.btc_amount) > 0);
   const unassignedBtc = unassignedRecords.reduce((sum, record) => sum + Number(record.btc_amount), 0);
-  const transferCostsBtc = recorded.filter((record) => record.custody === "Ledger").reduce((sum, record) => sum + Math.max(0, record.btc_amount - Number(record.ledger_amount ?? record.btc_amount)), 0);
+  const transferCostsBtc = transferFeesBtc(recorded);
+  // Solde blockchain reel de l'adresse Ledger (admin) : sert a reperer d'eventuels BTC
+  // recus mais pas encore rattaches a un cadeau, sans jamais sous-estimer le vrai solde.
+  const onChainLedgerBtc = wallet?.confirmedBalanceBtc;
+  const unreconciledBtc = onChainLedgerBtc !== undefined ? unreconciledLedgerBtc(recorded, onChainLedgerBtc) : 0;
   const totalEur = recorded.reduce((sum, record) => sum + record.amount_eur, 0);
   const christmasCount = recorded.filter((record) => record.occasion === "Noël").length;
   const birthdayCount = recorded.filter((record) => record.occasion === "Anniversaire").length;
@@ -281,7 +286,7 @@ const person = people.find((item) => item.name === selected) ?? people[0];
           {isAdmin && reconciliationOpen && unassignedRecords.length > 0 && <section id="gifts-to-reconcile" className="reconciliation-list" aria-label="Cadeaux à rapprocher"><header><div><small>À RAPPROCHER</small><h3>{unassignedRecords.length} cadeau{unassignedRecords.length > 1 ? "x" : ""} à classer</h3></div><span>{unassignedBtc.toFixed(8)} BTC</span></header><p>Choisissez où se trouvent ces bitcoins : Binance commun ou un virement Ledger. Vous pouvez vérifier et valider chaque ligne.</p><ul>{unassignedRecords.map((record) => <li key={keyOf(record)}><div><strong>{record.occasion} · {fullDate.format(new Date(record.gift_date + "T00:00:00Z"))}</strong><small>{euro.format(record.amount_eur)} · {Number(record.btc_amount).toFixed(8)} BTC</small></div><button type="button" onClick={() => startEntry(record)}>Classer / valider</button></li>)}</ul></section>}
           <details className="reveal">
             <summary>{isAdmin ? "Voir le détail et l’adresse publique" : "Comprendre où sont tes bitcoins"}</summary>
-            <div className="reveal-content"><p>Les bitcoins sur Ledger sont conservés sur l’adresse publique de {selected}. Les données blockchain sont en lecture seule.</p><p>Les bitcoins sur Binance commun sont déjà attribués à {selected}, mais attendent encore leur transfert vers le Ledger.</p>{isAdmin && unassignedBtc > 0 && <p>Les bitcoins à rapprocher doivent encore être classés par Florent.</p>}{isAdmin && <div className="reveal-wallet"><small>SOLDE PUBLIC DE L’ADRESSE LEDGER</small><strong>{wallet?.confirmedBalanceBtc?.toFixed(8) ?? "—"} BTC</strong><span>{wallet?.confirmedBalanceBtc !== undefined && ledger?.bitcoinEur ? euro.format(wallet.confirmedBalanceBtc * ledger.bitcoinEur) : "Blockchain en lecture"}</span>{wallet?.explorerUrl && <a href={wallet.explorerUrl} target="_blank" rel="noreferrer">Voir sur Blockstream ↗</a>}</div>}</div>
+            <div className="reveal-content"><p>Les bitcoins sur Ledger sont conservés sur l’adresse publique de {selected}. Les données blockchain sont en lecture seule.</p><p>Les bitcoins sur Binance commun sont déjà attribués à {selected}, mais attendent encore leur transfert vers le Ledger.</p>{isAdmin && unassignedBtc > 0 && <p>Les bitcoins à rapprocher doivent encore être classés par Florent.</p>}{isAdmin && <div className="reveal-wallet"><small>SOLDE PUBLIC DE L’ADRESSE LEDGER</small><strong>{wallet?.confirmedBalanceBtc?.toFixed(8) ?? "—"} BTC</strong><span>{wallet?.confirmedBalanceBtc !== undefined && ledger?.bitcoinEur ? euro.format(wallet.confirmedBalanceBtc * ledger.bitcoinEur) : "Blockchain en lecture"}</span>{wallet?.explorerUrl && <a href={wallet.explorerUrl} target="_blank" rel="noreferrer">Voir sur Blockstream ↗</a>}</div>}{isAdmin && unreconciledBtc > 0.00000001 && <p className="custody-unreconciled" role="status">⚠ {unreconciledBtc.toFixed(8)} BTC reçus sur le Ledger ne sont pas encore rattachés à un cadeau documenté.</p>}</div>
           </details>
         </section>
         <section className="gift-stats" aria-label="Raccourcis du portefeuille"><button type="button" onClick={() => openTransactions("Cadeaux documentés de " + selected, "Tous", "documented")}><span>✓</span><div><strong>{recorded.length}</strong><small>cadeaux documentés</small></div><em>Voir →</em></button><button type="button" onClick={() => openTransactions("Actions à traiter pour " + selected, "À classer", "needs-action")}><span>!</span><div><strong>{missing}</strong><small>cadeaux passés à compléter</small></div><em>{missing > 0 ? "Traiter →" : "Vérifier →"}</em></button>{isAdmin ? <button type="button" onClick={() => openTransactions("Transactions Ledger de " + selected, "Ledger", "blockchain")}><span>↗</span><div><strong>{wallet?.transactions?.length ?? 0}</strong><small>transactions Ledger publiques</small></div><em>Voir →</em></button> : <button type="button" onClick={() => openTransactions("Bitcoins de " + selected + " sur Binance", "Binance", "gifts")}><span>→</span><div><strong>{binanceBtc.toFixed(8)} BTC</strong><small>encore sur Binance commun</small></div><em>Voir →</em></button>}</section>
