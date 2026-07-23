@@ -137,7 +137,7 @@ button.set-account-row:focus-visible{outline:3px solid rgba(29,112,107,.35);outl
 
 /* ---- Compte : en-tête + pied ---- */
 .set-account-hero{display:flex;align-items:center;gap:14px;margin-bottom:22px}
-.set-avatar{width:54px;height:54px;font-size:17px;border-radius:16px;flex:0 0 auto}
+.set-avatar{width:68px;height:68px;font-size:21px;border-radius:19px;flex:0 0 auto}
 .set-avatar[src],.set-share-avatar[src]{object-fit:cover;display:block}
 .set-avatar-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
 .set-avatar-actions .set-btn{min-height:32px;padding:6px 12px;font-size:10px}
