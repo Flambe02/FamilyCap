@@ -40,7 +40,10 @@ export async function GET(request: Request) {
     const viewer = await requireFamilyMember(request);
     // Filtre serveur respectant le partage PAR CLASSE : admin → toute la famille ; membre →
     // soi + comptes dont le propriétaire a ouvert la classe correspondante (PEA / CTO / BTC).
-    const scope = await viewableInvestmentScope(viewer);
+    // Aperçu admin fidèle : ?asMember=<id> calcule le périmètre de CE membre (admin, lecture seule).
+    const asMember = new URL(request.url).searchParams.get("asMember");
+    const scopeViewer = viewer.role === "admin" && asMember ? { ...viewer, id: asMember, role: "adult" as const } : viewer;
+    const scope = await viewableInvestmentScope(scopeViewer);
     const scopeFilter = scope === null ? "" : `&member_id=in.(${[...scope.keys()].map((id) => encodeURIComponent(id)).join(",")})`;
 
     const rawAccountRows = await supabaseRest<AccountRow[]>(

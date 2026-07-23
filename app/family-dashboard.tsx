@@ -138,6 +138,10 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     return () => { cancelled = true; };
   }, [viewer.role]);
   const previewMemberRecord = previewMember ? adminMembers.find((member) => member.name === previewMember) ?? null : null;
+  // Aperçu admin fidèle : en « Vue <membre> », on demande au serveur le périmètre de CE membre
+  // (partage familial par classe) au lieu de la vue admin globale — sinon la répartition retombe
+  // sur « soi seul ». `null` hors aperçu.
+  const previewMemberId = previewMemberRecord?.id ?? null;
   const [onboardingOverlay, setOnboardingOverlay] = useState<null | { mode: "tour" | "required"; state?: OnboardingState }>(null);
   const [checklistToken, setChecklistToken] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -179,10 +183,12 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     async function loadFamilyMarketSummary() {
       setFamilyMarketLoading(true);
       try {
+        // En aperçu admin, portée serveur = celle du membre prévisualisé (asMember) ; sinon vide.
+        const asMemberQuery = previewMemberId && viewer.role === "admin" ? `?asMember=${encodeURIComponent(previewMemberId)}` : "";
         const [giftResponse, ledgerResponse, portfolioResponse] = await Promise.all([
-          authenticatedFetch("/api/gifts", { signal: controller.signal }),
+          authenticatedFetch(`/api/gifts${asMemberQuery}`, { signal: controller.signal }),
           authenticatedFetch("/api/ledger?priceOnly=1", { signal: controller.signal }),
-          authenticatedFetch("/api/portfolio", { signal: controller.signal }),
+          authenticatedFetch(`/api/portfolio${asMemberQuery}`, { signal: controller.signal }),
         ]);
         const giftResult = await giftResponse.json() as { records?: FamilyGiftRecord[]; viewableMembers?: string[] | null; error?: string };
         if (!giftResponse.ok) throw new Error(giftResult.error ?? "Cadeaux indisponibles");
@@ -218,7 +224,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
     }
     void loadFamilyMarketSummary();
     return () => controller.abort();
-  }, [viewer.role, familyReloadToken]);
+  }, [viewer.role, familyReloadToken, previewMemberId]);
   const familyGiftRecords = useMemo(() => {
     const storedByKey = new Map(familyRecords.map((record) => [familyGiftKey(record), record]));
     const historyKeys = new Set(GIFT_HISTORY.map((gift) => familyGiftKey({ member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate })));

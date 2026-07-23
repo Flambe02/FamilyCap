@@ -148,7 +148,11 @@ export async function GET(request: Request) {
     const viewer = await requireFamilyMember(request);
     // Partage familial par classe : un membre voit ses cadeaux BTC + ceux des membres qui
     // ont ouvert leur classe BTC pour lui (scope famille / grant). Admin → toute la famille.
-    const btcMemberIds = await viewableMemberIdsForClass(viewer, "btc");
+    // Aperçu admin fidèle : un admin peut demander le périmètre d'UN membre (?asMember=<id>)
+    // pour voir ce que ce membre verrait (lecture seule, admin uniquement) ; ignoré sinon.
+    const asMember = new URL(request.url).searchParams.get("asMember");
+    const scopeViewer = viewer.role === "admin" && asMember ? { ...viewer, id: asMember, role: "adult" as const } : viewer;
+    const btcMemberIds = await viewableMemberIdsForClass(scopeViewer, "btc");
     let filter = "";
     let viewableMembers: string[] | null = null;
     if (btcMemberIds !== null) {
