@@ -6,12 +6,14 @@ import { supabaseBrowser } from "../lib/supabase-browser";
 import type { Viewer } from "../lib/auth-types";
 import { FamilyDashboard } from "./family-dashboard";
 import { OnboardingGate } from "./onboarding/onboarding-gate";
-import { useDialogA11y } from "./use-dialog-a11y";
 import "./auth.css";
+
+type AuthIntent = "first" | "invite" | "recovery" | null;
 
 export function AuthShell() {
   const [session, setSession] = useState<Session | null>(null);
   const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [authIntent, setAuthIntent] = useState<AuthIntent>(() => readAuthIntent());
   const [ready, setReady] = useState(false);
   const [setupMode, setSetupMode] = useState(false);
   const [serviceError, setServiceError] = useState("");
@@ -43,14 +45,24 @@ export function AuthShell() {
         setReady(true);
       });
 
-    const { data: listener } = supabaseBrowser.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabaseBrowser.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
       setViewer(null);
       setAccessError("");
+      if (event === "PASSWORD_RECOVERY") setAuthIntent("recovery");
+      if (!nextSession) setAuthIntent(null);
       if (!nextSession) setReady(true);
     });
     return () => { controller.abort(); listener.subscription.unsubscribe(); };
   }, []);
+
+  useEffect(() => {
+    if (!authIntent || !session || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auth");
+    url.hash = "";
+    window.history.replaceState(null, "", url.pathname + (url.search ? url.search : ""));
+  }, [authIntent]);
 
   // Extrait de l'effet ci-dessous pour être rejouable : après un changement de photo de profil,
   // l'avatar de la barre supérieure, de la sidebar et du menu mobile doit refléter la nouvelle
@@ -96,9 +108,10 @@ export function AuthShell() {
   if (!ready) return <div className="auth-loading"><span><img src="/Labajo logo.png" alt="" width={48} height={48} /></span><p>Ouverture de LaBaJo &amp; Co…</p></div>;
   if (serviceError) return <ServiceUnavailable message={serviceError} />;
   if (setupMode) return <FamilyDashboard viewer={{ id: "local-admin", email: "florent.lambert@gmail.com", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
+  if (session && authIntent) return <PasswordSetupScreen intent={authIntent} onDone={() => setAuthIntent(null)} />;
   if (accessError) return <AccessDenied message={accessError} onSignOut={() => void supabaseBrowser.auth.signOut()} />;
   if (!session || !viewer) return <LoginScreen />;
-  // La garde d'onboarding décide, avant tout rendu du dashboard, entre le tunnel obligatoire
+  // La garde d'onboarding décide, avant tout rendu du dashboard, entre le tunnel facultatif
   // (membre non encore onboardé) et l'application. Admin & lecteur familial ne sont jamais gardés.
   return <OnboardingGate viewer={viewer} onSignOut={() => void supabaseBrowser.auth.signOut()} onViewerChanged={refreshViewer} />;
 }
@@ -109,14 +122,12 @@ function ServiceUnavailable({ message }: { message: string }) {
 
 function LoginScreen() {
   const hashError = readAuthHashError();
-  const [mode, setMode] = useState<"login" | "magic">(hashError ? "magic" : "login");
+  const [mode, setMode] = useState<"login" | "first" | "forgot">(hashError ? "forgot" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState(hashError ?? "");
   const [busy, setBusy] = useState(false);
   const [showPw, setShowPw] = useState(false);
-  const [introOpen, setIntroOpen] = useState(false);
-  const introRef = useDialogA11y(introOpen, () => setIntroOpen(false));
 
   useEffect(() => {
     if (window.location.hash) history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -130,9 +141,12 @@ function LoginScreen() {
         const { error } = await supabaseBrowser.auth.signInWithPassword({ email: normalizedEmail, password });
         if (error) throw error;
       } else {
-        const { error } = await supabaseBrowser.auth.signInWithOtp({ email: normalizedEmail, options: { shouldCreateUser: true, emailRedirectTo: `${window.location.origin}/` } });
+        const redirect = mode === "first" ? `${window.location.origin}/?auth=first` : `${window.location.origin}/`;
+        const { error } = await supabaseBrowser.auth.signInWithOtp({ email: normalizedEmail, options: { shouldCreateUser: true, emailRedirectTo: redirect } });
         if (error) throw error;
-        setMessage("Lien unique envoyé. Vérifie ta boîte de réception et les courriers indésirables.");
+        setMessage(mode === "first"
+          ? "Si cette adresse est autorisée, un lien de première connexion vient d’être envoyé. Ouvre-le pour choisir ton mot de passe."
+          : "Si cette adresse est autorisée, un lien unique vient d’être envoyé. Ouvre-le pour te connecter sans mot de passe.");
       }
     } catch (error) { setMessage(friendlyAuthError(error)); }
     finally { setBusy(false); }
@@ -144,14 +158,24 @@ function LoginScreen() {
     if (error) { setMessage(error.message); setBusy(false); }
   }
 
-  const heading = mode === "login" ? "Heureux de te revoir" : "Recevoir un lien unique";
+  async function resetPassword() {
+    setBusy(true); setMessage("");
+    const normalizedEmail = email.trim().toLowerCase();
+    try {
+      const { error } = await supabaseBrowser.auth.resetPasswordForEmail(normalizedEmail, { redirectTo: `${window.location.origin}/?auth=recovery` });
+      if (error) throw error;
+      setMessage("Si cette adresse est autorisée, un lien de réinitialisation vient d’être envoyé. Ouvre-le pour choisir un nouveau mot de passe.");
+    } catch (error) { setMessage(friendlyAuthError(error)); }
+    finally { setBusy(false); }
+  }
+
+  const heading = mode === "login" ? "Heureux de te revoir" : mode === "first" ? "Première connexion" : "Accès par e-mail";
   const subtitle = mode === "login"
     ? "Accède à ton espace personnel sécurisé et retrouve tout l’univers LaBaJo & Co."
-    : "Reçois un lien de connexion sécurisé par e-mail, sans saisir de mot de passe.";
-  const submitLabel = busy ? "Un instant…" : mode === "login" ? "Se connecter" : "Envoyer le lien unique";
-  const discover = mode === "login"
-    ? { title: "Vous avez reçu une invitation ?", action: "Découvrir comment activer votre compte", go: () => setIntroOpen(true) }
-    : { title: "Retour", action: "Revenir à la connexion", go: () => { setMode("login"); setMessage(""); } };
+    : mode === "first"
+      ? "Entre l’adresse e-mail autorisée par Florent. Tu recevras un lien pour confirmer ton adresse et choisir ton mot de passe."
+      : "Le lien unique permet de te connecter sans mot de passe. Tu peux aussi demander une vraie réinitialisation.";
+  const submitLabel = busy ? "Un instant…" : mode === "login" ? "Se connecter" : mode === "first" ? "Envoyer le lien de première connexion" : "Recevoir le lien unique";
 
   return <main className="auth-page">
     <div className="auth-hero">
@@ -179,7 +203,7 @@ function LoginScreen() {
                 <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="prenom@exemple.com" autoComplete="email" required />
               </span>
             </label>
-            {mode !== "magic" && <label>Mot de passe
+            {mode === "login" && <label>Mot de passe
               <span className="auth-field">
                 <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2.5" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>
                 <input type={showPw ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete="current-password" placeholder="••••••••" required />
@@ -190,17 +214,18 @@ function LoginScreen() {
                 </button>
               </span>
             </label>}
-            {mode === "login" && <button type="button" className="auth-forgot" onClick={() => { setMode("magic"); setMessage(""); }}>Mot de passe oublié ?</button>}
+            {mode === "login" && <button type="button" className="auth-forgot" onClick={() => { setMode("forgot"); setMessage(""); }}>Mot de passe oublié ?</button>}
             <button className="auth-submit" disabled={busy} aria-busy={busy}>{busy && <span className="auth-spinner" aria-hidden="true" />}{submitLabel}</button>
-            {mode === "login" && <button type="button" className="auth-magic" onClick={() => { setMode("magic"); setMessage(""); }}>Recevoir un lien unique par e-mail</button>}
+            {mode === "forgot" && <button type="button" className="auth-magic" onClick={() => void resetPassword()} disabled={busy}>Réinitialiser mon mot de passe</button>}
+            {mode !== "login" && <button type="button" className="auth-magic" onClick={() => { setMode("login"); setMessage(""); }}>Retour à la connexion</button>}
           </form>
           {message && <p className="auth-message" role="status" aria-live="polite">{message}</p>}
         </div>
-        <button type="button" className="auth-discover" onClick={discover.go}>
+        <button type="button" className="auth-discover" onClick={() => { setMode("first"); setMessage(""); }}>
           <span className="auth-discover-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m4 7 8 6 8-6" /></svg>
           </span>
-          <span className="auth-discover-copy"><strong>{discover.title}</strong><small>{discover.action}</small></span>
+          <span className="auth-discover-copy"><strong>Première connexion ?</strong><small>Activer mon accès avec mon adresse e-mail</small></span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" className="auth-discover-arrow"><path d="m9 6 6 6-6 6" /></svg>
         </button>
         <p className="auth-secure">
@@ -211,25 +236,54 @@ function LoginScreen() {
       </section>
     </div>
 
-    {introOpen && <div className="modal-backdrop auth-intro-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setIntroOpen(false)}>
-      <section ref={introRef} className="auth-intro" role="dialog" aria-modal="true" aria-labelledby="auth-intro-title" tabIndex={-1}>
-        <button type="button" className="auth-intro-close" onClick={() => setIntroOpen(false)} aria-label="Fermer">×</button>
-        <span className="auth-intro-eyebrow">LABAJO &amp; CO</span>
-        <h2 id="auth-intro-title">Comment rejoindre l’espace famille ?</h2>
-        <p>LaBaJo &amp; Co est un espace privé réservé à la famille : chaque accès est créé par Florent, il n’y a pas d’inscription libre. Choisis ta situation :</p>
-        <div className="auth-intro-options">
-          <button type="button" className="auth-intro-option" onClick={() => { setIntroOpen(false); setMode("login"); setMessage(""); }}>
-            <strong>J’ai reçu une invitation</strong>
-            <span>Continuer avec mon e-mail et mon mot de passe</span>
-          </button>
-          <button type="button" className="auth-intro-option" onClick={() => { setIntroOpen(false); setMode("magic"); setMessage(""); }}>
-            <strong>Je veux un accès</strong>
-            <span>Faire une demande et recevoir un lien unique par e-mail</span>
-          </button>
-        </div>
-      </section>
-    </div>}
   </main>;
+}
+
+function PasswordSetupScreen({ intent, onDone }: { intent: Exclude<AuthIntent, null>; onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (password.length < 8) { setMessage("Le mot de passe doit contenir au moins 8 caractères."); return; }
+    if (password !== confirmation) { setMessage("Les deux mots de passe ne correspondent pas."); return; }
+    setBusy(true); setMessage("");
+    const { error } = await supabaseBrowser.auth.updateUser({ password });
+    if (error) { setMessage(friendlyAuthError(error)); setBusy(false); return; }
+    onDone();
+  }
+
+  const title = intent === "recovery" ? "Nouveau mot de passe" : "Créer votre mot de passe";
+  const description = intent === "recovery"
+    ? "Choisissez un nouveau mot de passe pour sécuriser votre accès."
+    : "Votre adresse e-mail est confirmée. Définissez maintenant le mot de passe qui servira pour vos prochaines connexions.";
+
+  return <main className="auth-password-page"><section className="auth-password-card auth-card">
+    <header><span>ESPACE FAMILLE PRIVÉ</span><h1>{title}</h1><p>{description}</p></header>
+    <form onSubmit={submit}>
+      <label>Mot de passe
+        <span className="auth-field"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete="new-password" required /></span>
+      </label>
+      <label>Confirmer le mot de passe
+        <span className="auth-field"><input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} minLength={8} autoComplete="new-password" required /></span>
+      </label>
+      <button className="auth-submit" disabled={busy}>{busy ? "Enregistrement…" : "Continuer vers la plateforme"}</button>
+    </form>
+    {message && <p className="auth-message" role="alert">{message}</p>}
+  </section></main>;
+}
+
+function readAuthIntent(): AuthIntent {
+  if (typeof window === "undefined") return null;
+  const queryIntent = new URLSearchParams(window.location.search).get("auth");
+  if (queryIntent === "first" || queryIntent === "invite" || queryIntent === "recovery") return queryIntent;
+  const hash = window.location.hash.replace(/^#/, "");
+  const hashType = new URLSearchParams(hash).get("type");
+  if (hashType === "recovery") return "recovery";
+  if (hashType === "invite") return "invite";
+  return null;
 }
 
 function appSemver() {

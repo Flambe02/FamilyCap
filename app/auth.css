@@ -103,21 +103,15 @@
 .auth-secure span{max-width:300px}
 .auth-version{margin:2px 0 0;color:rgba(170,190,200,.55);font-size:9.5px;text-align:center;letter-spacing:.02em}
 
-:where(.auth-page button,.auth-page input,.auth-page a):focus-visible{outline:3px solid rgba(86,215,199,.5);outline-offset:2px}
+.auth-password-page{min-height:100dvh;display:grid;place-items:center;padding:24px;background:linear-gradient(135deg,#061725 0%,#071b2a 47%,#061522 100%);color:var(--auth-text-primary);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.auth-password-card{width:min(100%,520px)}
+.auth-password-card h1{margin:10px 0 8px;font-family:Georgia,serif;font-size:32px;font-weight:500;color:var(--auth-text-primary)}
+.auth-password-card header p{margin:0 0 24px;color:var(--auth-text-secondary);font-size:14px;line-height:1.5}
+.auth-password-card form{display:grid;gap:14px}
+.auth-password-card label{display:grid;gap:6px}
+.auth-password-card .auth-submit{margin-top:8px}
 
-/* ---- Popup "Vous avez reçu une invitation ?" ---- */
-.auth-intro-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:20px;background:rgba(4,12,20,.6);backdrop-filter:blur(2px)}
-.auth-intro{position:relative;width:100%;max-width:420px;padding:26px 24px;border-radius:22px;background:#0e2534;box-shadow:0 30px 60px rgba(0,0,0,.5)}
-.auth-intro-close{position:absolute;top:14px;right:14px;width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:50%;background:rgba(255,255,255,.08);color:#c4d3d6;font-size:16px;cursor:pointer}
-.auth-intro-close:hover{background:rgba(255,255,255,.16)}
-.auth-intro-eyebrow{display:block;color:var(--auth-accent);font-size:9.5px;font-weight:700;letter-spacing:.14em}
-.auth-intro h2{margin:8px 0 8px;font-family:Georgia,serif;font-size:20px;font-weight:500;color:var(--auth-text-primary);padding-right:26px}
-.auth-intro p{margin:0 0 16px;color:var(--auth-text-secondary);font-size:12.5px;line-height:1.55}
-.auth-intro-options{display:grid;gap:10px}
-.auth-intro-option{display:grid;gap:3px;padding:14px 15px;border:1px solid var(--auth-border-soft);border-radius:14px;background:rgba(255,255,255,.04);text-align:left;cursor:pointer;transition:border-color .15s,transform .12s}
-.auth-intro-option:hover{border-color:var(--auth-accent);transform:translateY(-1px)}
-.auth-intro-option strong{color:var(--auth-text-primary);font-size:13px}
-.auth-intro-option span{color:var(--auth-accent);font-size:11.5px;font-weight:600}
+:where(.auth-page button,.auth-page input,.auth-page a,.auth-password-page button,.auth-password-page input):focus-visible{outline:3px solid rgba(86,215,199,.5);outline-offset:2px}
 
 /* ---- Mobile : tient sur un seul écran, sans scroll (login only ; desktop/tablette non touchés) ---- */
 @media (max-width:767px){
