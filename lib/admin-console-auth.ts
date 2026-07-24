@@ -8,3 +8,9 @@ export async function requireConsoleAdmin(request: Request) {
   const consoleRole = roles[0]?.role ?? (member.email.toLowerCase() === "florent.lambert@gmail.com" ? "super_admin" : "admin");
   return { ...member, consoleRole };
 }
+
+export async function requireConsoleSuperAdmin(request: Request) {
+  const member = await requireConsoleAdmin(request);
+  if (member.consoleRole !== "super_admin") throw Response.json({ error: "Accès super administrateur refusé" }, { status: 403 });
+  return member;
+}

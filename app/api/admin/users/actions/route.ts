@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { authErrorResponse } from "../../../../../lib/auth-server";
-import { requireConsoleAdmin } from "../../../../../lib/admin-console-auth";
+import { requireConsoleSuperAdmin } from "../../../../../lib/admin-console-auth";
 import { assertNotLastSuperAdmin } from "../../../../../lib/admin-super-admin";
 import { writeAdminAudit } from "../../../../../lib/admin-audit";
 import { supabaseRest } from "../../../../../lib/supabase-rest";
@@ -25,7 +25,7 @@ function redirect(value?: string) { return value || undefined; }
 
 export async function POST(request: Request) {
   try {
-    const actor = await requireConsoleAdmin(request); const body = await request.json() as ActionBody;
+    const actor = await requireConsoleSuperAdmin(request); const body = await request.json() as ActionBody;
     if (!body.memberId) return Response.json({ error: "Membre manquant." }, { status: 400 });
     const member = await memberFor(body.memberId);
     if (!member?.email) return Response.json({ error: "Ce membre n'a pas encore d'adresse e-mail." }, { status: 400 });

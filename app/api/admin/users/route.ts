@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { authErrorResponse } from "../../../../lib/auth-server";
-import { requireConsoleAdmin } from "../../../../lib/admin-console-auth";
+import { requireConsoleSuperAdmin } from "../../../../lib/admin-console-auth";
 import { assertNotLastSuperAdmin } from "../../../../lib/admin-super-admin";
 import { writeAdminAudit } from "../../../../lib/admin-audit";
 import { firstReceiveAddress, isExtendedKey } from "../../../../lib/bitcoin-xpub";
@@ -92,9 +92,31 @@ async function saveInvitation(memberId: string, email: string, status: string, a
 async function listProducts() { return supabaseRest<Array<{ member_id: string; product: Product; access_level: AccessLevel }>>("member_product_access?select=member_id,product,access_level").catch(() => []); }
 async function listInvitations() { return supabaseRest<Array<{ id: string; member_id: string; email: string; status: string; sent_at: string | null; expires_at: string | null; accepted_at: string | null; created_at: string }>>("invitations?select=id,member_id,email,status,sent_at,expires_at,accepted_at,created_at&order=created_at.desc").catch(() => []); }
 
+function isAdminConsoleSchemaError(error: unknown) {
+  return error instanceof Error && /(family_members\.(deleted_at|deleted_by|relationship)|relation .*?(profiles|user_roles|member_product_access|invitations|admin_audit_log).*does not exist|column .* does not exist|Could not find the table .*?(profiles|user_roles|member_product_access|invitations|admin_audit_log).*schema cache)/i.test(error.message);
+}
+
+async function assertAdminConsoleSchema() {
+  try {
+    await Promise.all([
+      supabaseRest("family_members?select=id,deleted_at,deleted_by,relationship&limit=1"),
+      supabaseRest("profiles?select=user_id&limit=1"),
+      supabaseRest("user_roles?select=user_id&limit=1"),
+      supabaseRest("member_product_access?select=member_id&limit=1"),
+      supabaseRest("invitations?select=id&limit=1"),
+      supabaseRest("admin_audit_log?select=id&limit=1"),
+    ]);
+  } catch (error) {
+    if (isAdminConsoleSchemaError(error)) {
+      throw new Error("La migration Supabase 20260801_admin_family_console.sql n'est pas appliquee. Executez-la dans le projet Supabase avant de creer un membre.");
+    }
+    throw error;
+  }
+}
+
 export async function GET(request: Request) {
   try {
-    await requireConsoleAdmin(request);
+    await requireConsoleSuperAdmin(request);
     const admin = adminClient();
     const [members, grants, products, invitations, authResult, roles, profiles] = await Promise.all([
       supabaseRest<Array<Record<string, unknown> & { id: string; auth_user_id?: string; wallets: Array<{ public_address: string | null; xpub: string | null }> }>>("family_members?select=*,wallets(public_address,xpub)&order=name.asc"),
@@ -133,7 +155,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const actor = await requireConsoleAdmin(request);
+    const actor = await requireConsoleSuperAdmin(request);
+    await assertAdminConsoleSchema();
     const body = await request.json() as { memberId?: string; name?: string; email?: string; role?: string; birthday?: string; relationship?: string; accessScope?: string; selectedViewerIds?: unknown; productAccess?: ProductAccess; sendInvite?: boolean; redirectTo?: string };
     const name = body.name?.trim() ?? ""; const email = body.email?.trim().toLowerCase() ?? "";
     if (!name || !/^\S+@\S+\.\S+$/.test(email)) return Response.json({ error: "Nom et e-mail valides obligatoires." }, { status: 400 });
@@ -159,12 +182,17 @@ export async function POST(request: Request) {
     }
     await audit(actor.id, member.id, "invitation.created", undefined, { role: body.role ?? roleToDb(member.role), accessScope: body.accessScope ?? "family" }, { emailDomain: email.split("@")[1], invitationSent: invitation.sent });
     return Response.json({ saved: true, id: member.id, invitation }, { status: 201 });
-  } catch (error) { return authErrorResponse(error); }
+  } catch (error) {
+    if (isAdminConsoleSchemaError(error) || error instanceof Error && error.message.includes("20260801_admin_family_console.sql")) {
+      return Response.json({ error: error instanceof Error ? error.message : "Migration Supabase requise." }, { status: 503 });
+    }
+    return authErrorResponse(error);
+  }
 }
 
 export async function PATCH(request: Request) {
   try {
-    const actor = await requireConsoleAdmin(request);
+    const actor = await requireConsoleSuperAdmin(request);
     const body = await request.json() as { id?: string; name?: string; email?: string; role?: string; birthday?: string | null; relationship?: string; isActive?: boolean; accessScope?: string; selectedViewerIds?: unknown; walletAddress?: string; productAccess?: ProductAccess };
     if (!body.id) return Response.json({ error: "Utilisateur manquant." }, { status: 400 });
     const member = await findMember(body.id); if (!member) return Response.json({ error: "Membre introuvable." }, { status: 404 });
@@ -200,7 +228,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const actor = await requireConsoleAdmin(request); const id = new URL(request.url).searchParams.get("id");
+    const actor = await requireConsoleSuperAdmin(request); const id = new URL(request.url).searchParams.get("id");
     if (!id) return Response.json({ error: "Utilisateur manquant." }, { status: 400 });
     const member = await findMember(id); if (!member) return Response.json({ error: "Membre introuvable." }, { status: 404 });
     if (isPrimaryAdmin(member) || (member.role === "admin" && !member.auth_user_id)) return Response.json({ error: "Le dernier super administrateur ne peut pas etre supprime." }, { status: 403 });
