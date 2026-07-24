@@ -118,6 +118,9 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   const [portfolioAccounts, setPortfolioAccounts] = useState<PortfolioAccount[]>([]);
   const [portfolioHoldings, setPortfolioHoldings] = useState<PortfolioHolding[]>([]);
   const [portfolioOperations, setPortfolioOperations] = useState<PortfolioOperation[]>([]);
+  // Plan d'investissement personnel du membre affiché (objectif mensuel + compte cible). Utilisé
+  // par le bloc « Investissement régulier » des écrans PEA/CTO. null pour l'admin hors aperçu.
+  const [investmentPlan, setInvestmentPlan] = useState<{ monthlyTarget: number | null; targetAccountId: string | null } | null>(null);
   const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
   const [familyMarketLoading, setFamilyMarketLoading] = useState(true);
   const [familyMember, setFamilyMember] = useState("Thibault");
@@ -169,6 +172,11 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   // (parité complète "comme si connecté via son compte"), via un contournement Cas A (voir
   // InvestmentModal.adminForMember) puisque la route self-service ne peut viser qu'elle-même.
   const canRecordPersonalBtc = effectiveViewer.role !== "admin";
+  // Un membre investisseur réel (adulte / jeune membre, hors aperçu) peut enregistrer lui-même un
+  // ACHAT sur son PEA/CTO. Le rôle « viewer » (Amatxi, lecture seule) est exclu. En aperçu admin,
+  // la session reste celle de l'admin : la route self-service refuserait d'écrire sur le compte du
+  // membre prévisualisé, donc on n'expose pas la saisie membre.
+  const memberCanRecordOperation = (viewer.role === "adult" || viewer.role === "child") && !isPreview;
   const [investmentsOpen, setInvestmentsOpen] = useState(true);
   const investmentsActive = INVESTMENT_VIEW_IDS.includes(view);
   const investmentsExpanded = investmentsActive || investmentsOpen;
@@ -192,10 +200,14 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
       try {
         // En aperçu admin, portée serveur = celle du membre prévisualisé (asMember) ; sinon vide.
         const asMemberQuery = previewMemberId && viewer.role === "admin" ? `?asMember=${encodeURIComponent(previewMemberId)}` : "";
-        const [giftResponse, ledgerResponse, portfolioResponse] = await Promise.all([
+        // Le plan d'investissement se cible par ?memberId= (pas ?asMember=), comme les autres
+        // réglages membre (notifications). En aperçu admin, on lit le plan du membre prévisualisé.
+        const planQuery = previewMemberId && viewer.role === "admin" ? `?memberId=${encodeURIComponent(previewMemberId)}` : "";
+        const [giftResponse, ledgerResponse, portfolioResponse, planResponse] = await Promise.all([
           authenticatedFetch(`/api/gifts${asMemberQuery}`, { signal: controller.signal }),
           authenticatedFetch("/api/ledger?priceOnly=1", { signal: controller.signal }),
           authenticatedFetch(`/api/portfolio${asMemberQuery}`, { signal: controller.signal }),
+          authenticatedFetch(`/api/investment-plan${planQuery}`, { signal: controller.signal }),
         ]);
         const giftResult = await giftResponse.json() as { records?: FamilyGiftRecord[]; viewableMembers?: string[] | null; error?: string };
         if (!giftResponse.ok) throw new Error(giftResult.error ?? "Cadeaux indisponibles");
@@ -222,6 +234,12 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           setPortfolioAccounts([]);
           setPortfolioHoldings([]);
           setPortfolioOperations([]);
+        }
+        if (planResponse.ok) {
+          const planResult = await planResponse.json() as { plan?: { monthlyTarget: number | null; targetAccountId: string | null } | null };
+          setInvestmentPlan(planResult.plan ?? null);
+        } else {
+          setInvestmentPlan(null);
         }
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) console.error(error);
@@ -625,8 +643,11 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             viewer={effectiveViewer}
             isPreview={isPreview}
             canManage={canManageGifts}
+            memberCanRecord={memberCanRecordOperation}
+            investmentPlan={investmentPlan}
             onReload={() => setFamilyReloadToken((token) => token + 1)}
             onConfigure={() => setView("administration-globale")}
+            onOpenRhythm={() => setView("parametres")}
           />
           </>
         )}
@@ -641,8 +662,11 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
               viewer={effectiveViewer}
               isPreview={isPreview}
               canManage={canManageGifts}
+              memberCanRecord={memberCanRecordOperation}
+              investmentPlan={investmentPlan}
               onReload={() => setFamilyReloadToken((token) => token + 1)}
               onConfigure={() => setView("administration-globale")}
+              onOpenRhythm={() => setView("parametres")}
             />
           </>
         )}

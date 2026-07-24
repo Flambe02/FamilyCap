@@ -8,7 +8,7 @@
 import type { Viewer } from "../lib/auth-types";
 import {
   InvestmentAccountShell,
-  type EnvelopeConfig, type InvestmentAccount, type InvestmentHolding, type InvestmentOperation,
+  type EnvelopeConfig, type InvestmentAccount, type InvestmentHolding, type InvestmentOperation, type ShellInvestmentPlan,
 } from "./investment-account";
 
 // Alias rétro-compatibles (aucun importeur externe, conservés par prudence).
@@ -62,8 +62,11 @@ export function PeaInvestmentPage(props: {
   viewer: Viewer;
   isPreview: boolean;
   canManage: boolean;
+  memberCanRecord?: boolean;
+  investmentPlan?: ShellInvestmentPlan | null;
   onReload: () => void;
   onConfigure: () => void;
+  onOpenRhythm?: () => void;
 }) {
   return <InvestmentAccountShell config={PEA_CONFIG} {...props} />;
 }

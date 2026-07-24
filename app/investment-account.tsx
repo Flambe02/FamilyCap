@@ -22,6 +22,7 @@ import {
   computeAccountModel, windowAccountTimeline, supportedRanges, priceKeyOf,
   type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice,
 } from "../lib/portfolio-account";
+import { computeMonthlyPlanProgress, type MonthlyPlanProgress } from "../lib/investment-plan";
 import "./pea-investments.css";
 
 // ---- Types d'entrée (formes renvoyées par /api/portfolio) --------------------------------
@@ -35,6 +36,10 @@ export type InvestmentAccount = {
 };
 export type InvestmentHolding = { account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string };
 export type InvestmentOperation = AccountOperation;
+
+// Plan d'investissement du membre affiché (sous-ensemble utile au shell). L'objectif mensuel
+// est l'engagement PERSONNEL du membre (≠ financial_accounts.monthly_target).
+export type ShellInvestmentPlan = { monthlyTarget: number | null; targetAccountId: string | null };
 
 export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "performance" | "historique" | "comprendre" | "infos";
 
@@ -90,7 +95,8 @@ function tabFromHash(prefix: string): InvestmentTab | null {
 // SHELL
 // ==========================================================================================
 export function InvestmentAccountShell({
-  config, accounts, holdings, operations, marketLoading, viewer, isPreview, canManage, onReload, onConfigure,
+  config, accounts, holdings, operations, marketLoading, viewer, isPreview, canManage,
+  memberCanRecord = false, investmentPlan = null, onReload, onConfigure, onOpenRhythm,
 }: {
   config: EnvelopeConfig;
   accounts: InvestmentAccount[];
@@ -100,13 +106,18 @@ export function InvestmentAccountShell({
   viewer: Viewer;
   isPreview: boolean;
   canManage: boolean;
+  // Un membre (non-admin, hors aperçu) peut enregistrer un ACHAT sur son propre compte via la
+  // route self-service /api/investment-operations. L'écriture admin reste inchangée.
+  memberCanRecord?: boolean;
+  investmentPlan?: ShellInvestmentPlan | null;
   onReload: () => void;
   onConfigure: () => void;
+  onOpenRhythm?: () => void;
 }) {
   const isAdmin = viewer.role === "admin";
   const [tab, setTabState] = useState<InvestmentTab>(() => tabFromHash(config.hashPrefix) ?? "resume");
   const [range, setRange] = useState<"1M" | "3M" | "6M" | "1A" | "3A" | "TOUT">("TOUT");
-  const [modal, setModal] = useState<{ open: boolean; type: AccountOperationType }>({ open: false, type: "achat" });
+  const [modal, setModal] = useState<{ open: boolean; type: AccountOperationType; mode: "admin" | "member" }>({ open: false, type: "achat", mode: "admin" });
   const [importOpen, setImportOpen] = useState(false);
   // Assistant de création de compte, ouvert EN PLACE (plus de détour par Administration).
   // `null` = fermé ; la valeur mémorise l'intention de départ pour proposer la bonne suite.
@@ -198,6 +209,28 @@ export function InvestmentAccountShell({
     }
   }
 
+  // Achat self-service du membre sur SON compte (route séparée de l'admin, member_id forcé serveur).
+  async function submitMemberOperation(payload: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const response = await authenticatedFetch("/api/investment-operations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, type: "achat" }) });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) return { ok: false, error: result.error ?? "Enregistrement impossible." };
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Réseau indisponible." };
+    }
+  }
+
+  // Progression de l'objectif mensuel : dérivée des ACHATS réels du mois civil, sur le compte
+  // cible du plan (ou, à défaut, le périmètre affiché). Jamais les versements, la valeur du
+  // portefeuille ni holdings.quantity. L'objectif n'est pris en compte qu'en vue membre.
+  const monthlyProgress = useMemo<MonthlyPlanProgress>(() => {
+    const targetId = investmentPlan?.targetAccountId ?? null;
+    const accountIds = targetId ? [targetId] : [...scopeIds];
+    return computeMonthlyPlanProgress({ operations, accountIds, monthlyTarget: investmentPlan?.monthlyTarget ?? null, today: todayISO() });
+  }, [operations, scopeIds, investmentPlan]);
+  const hasPlan = !isAdmin && investmentPlan != null && investmentPlan.monthlyTarget != null && investmentPlan.monthlyTarget > 0;
+
   // Compte créé : on le sélectionne, on rafraîchit le portefeuille, puis on enchaîne directement
   // sur la suite choisie. Le compte n'existe pas encore dans `accounts` (rechargement asynchrone) :
   // la modale d'opération / l'assistant d'import s'affichent dès que les données arrivent.
@@ -206,7 +239,7 @@ export function InvestmentAccountShell({
     setSelectedId(account.id);
     onReload();
     setNotice(`${account.name} est configuré.`);
-    if (next === "operation") setModal({ open: true, type: "versement" });
+    if (next === "operation") setModal({ open: true, type: "versement", mode: "admin" });
     if (next === "import") setImportOpen(true);
   }
 
@@ -245,13 +278,16 @@ export function InvestmentAccountShell({
         <div className="btc-header-actions">
           {canManage && hasScope && (
             <>
-              <button type="button" className="primary-button btc-cta" onClick={() => setModal({ open: true, type: "achat" })}><b>+</b> Enregistrer une opération</button>
+              <button type="button" className="primary-button btc-cta" onClick={() => setModal({ open: true, type: "achat", mode: "admin" })}><b>+</b> Enregistrer une opération</button>
               <button type="button" className="secondary-button btc-cta" disabled={!importAccount} title={importAccount ? undefined : "Choisissez un compte précis pour importer"} onClick={() => importAccount && setImportOpen(true)}>⬆ Importer un fichier</button>
               <button type="button" className="secondary-button btc-cta" onClick={() => setSetupIntent("operation")}><b>+</b> Ajouter un compte</button>
             </>
           )}
           {canManage && !hasScope && !loading && (
             <button type="button" className="primary-button btc-cta" onClick={() => setSetupIntent("operation")}><b>+</b> Configurer {config.kind === "CTO" ? "un compte-titres" : "un PEA"}</button>
+          )}
+          {memberCanRecord && hasScope && (
+            <button type="button" className="primary-button btc-cta" onClick={() => setModal({ open: true, type: "achat", mode: "member" })}><b>+</b> Enregistrer un achat</button>
           )}
         </div>
       </header>
@@ -284,7 +320,7 @@ export function InvestmentAccountShell({
         <section className="panel">
           {canManage ? (
             <EmptyState icon={config.emptyNoOperation.icon} title={config.emptyNoOperation.title} description={config.emptyNoOperation.description}
-              action="Enregistrer la première opération" onAction={() => setModal({ open: true, type: "versement" })}
+              action="Enregistrer la première opération" onAction={() => setModal({ open: true, type: "versement", mode: "admin" })}
               secondaryAction={importAccount ? "Importer un fichier" : undefined} onSecondaryAction={importAccount ? () => setImportOpen(true) : undefined} />
           ) : (
             <EmptyState icon={config.emptyNoOperation.icon} title={config.emptyNoOperation.title}
@@ -294,24 +330,27 @@ export function InvestmentAccountShell({
       ) : (
         <>
           {tab === "resume" && (
-            <ResumeTab config={config} model={model!} title={isAggregate ? config.aggregateTitle : selectedAccount!.name} range={range} setRange={setRange} canManage={canManage} marketLoading={marketLoading}
-              onGoto={setTab} onAddInvestment={() => setModal({ open: true, type: "versement" })}
+            <ResumeTab config={config} model={model!} title={isAggregate ? config.aggregateTitle : selectedAccount!.name} range={range} setRange={setRange} canManage={canManage} memberCanRecord={memberCanRecord} marketLoading={marketLoading}
+              monthlyProgress={monthlyProgress} hasPlan={hasPlan} onOpenRhythm={onOpenRhythm}
+              onGoto={setTab} onAddInvestment={() => setModal({ open: true, type: "versement", mode: "admin" })}
+              onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })}
               onReport={() => setNotice("Le report sera enregistré dans une prochaine version. Saisissez le versement le moment venu.")} recent={scopeOps} />
           )}
           {tab === "positions" && <PositionsTab config={config} model={model!} />}
           {tab === "historique" && <HistoriqueTab config={config} operations={scopeOps} accountNameById={accountNameById} canManage={canManage} onImport={importAccount ? () => setImportOpen(true) : undefined} />}
           {tab === "revenus" && <RevenusTab model={model!} operations={scopeOps} />}
-          {tab === "investir" && <InvestirTab config={config} model={model!} canManage={canManage} onAdd={(type) => setModal({ open: true, type })} />}
+          {tab === "investir" && <InvestirTab config={config} model={model!} canManage={canManage} memberCanRecord={memberCanRecord} onAdd={(type) => setModal({ open: true, type, mode: "admin" })} onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })} />}
           {tab === "performance" && <PerformanceTab model={model!} onGoto={setTab} />}
           {tab === "comprendre" && <ComprendreTab config={config} />}
         </>
       )}
 
-      {modal.open && canManage && writeAccounts.length > 0 && (
-        <InvestmentOperationModal config={config} accounts={writeAccounts} defaultAccountId={selectedAccount?.id ?? writeAccounts[0].id} defaultType={modal.type}
+      {modal.open && (canManage || (memberCanRecord && modal.mode === "member")) && writeAccounts.length > 0 && (
+        <InvestmentOperationModal config={config} accounts={writeAccounts} defaultAccountId={selectedAccount?.id ?? writeAccounts[0].id}
+          defaultType={modal.mode === "member" ? "achat" : modal.type} restrictToAchat={modal.mode === "member"}
           onClose={() => setModal((current) => ({ ...current, open: false }))}
-          onSubmit={submitOperation}
-          onSaved={() => { setModal((current) => ({ ...current, open: false })); setNotice("Opération enregistrée."); onReload(); }} />
+          onSubmit={modal.mode === "member" ? submitMemberOperation : submitOperation}
+          onSaved={() => { setModal((current) => ({ ...current, open: false })); setNotice(modal.mode === "member" ? "Achat enregistré." : "Opération enregistrée."); onReload(); }} />
       )}
       {setupIntent && canManage && (
         <InvestmentAccountSetup
@@ -338,10 +377,19 @@ export function InvestmentAccountShell({
 // ==========================================================================================
 // RÉSUMÉ
 // ==========================================================================================
-function ResumeTab({ config, model, title, range, setRange, canManage, marketLoading, onGoto, onAddInvestment, onReport, recent }: {
+// Libellé + classe CSS (réutilise .pea-status-*) de l'état de l'objectif mensuel.
+function regularStatus(status: MonthlyPlanProgress["status"]): { label: string; cls: string } {
+  if (status === "atteint") return { label: "Objectif atteint", cls: "investi" };
+  if (status === "en_cours") return { label: "En cours", cls: "partiellement_investi" };
+  if (status === "a_commencer") return { label: "À commencer", cls: "à_investir" };
+  return { label: "Objectif à définir", cls: "à_investir" };
+}
+
+function ResumeTab({ config, model, title, range, setRange, canManage, memberCanRecord, marketLoading, monthlyProgress, hasPlan, onOpenRhythm, onGoto, onAddInvestment, onMemberAdd, onReport, recent }: {
   config: EnvelopeConfig; model: AccountModel; title: string; range: "1M" | "3M" | "6M" | "1A" | "3A" | "TOUT";
-  setRange: (value: "1M" | "3M" | "6M" | "1A" | "3A" | "TOUT") => void; canManage: boolean; marketLoading: boolean;
-  onGoto: (tab: InvestmentTab) => void; onAddInvestment: () => void; onReport: () => void; recent: InvestmentOperation[];
+  setRange: (value: "1M" | "3M" | "6M" | "1A" | "3A" | "TOUT") => void; canManage: boolean; memberCanRecord: boolean; marketLoading: boolean;
+  monthlyProgress: MonthlyPlanProgress; hasPlan: boolean; onOpenRhythm?: () => void;
+  onGoto: (tab: InvestmentTab) => void; onAddInvestment: () => void; onMemberAdd: () => void; onReport: () => void; recent: InvestmentOperation[];
 }) {
   const ranges = supportedRanges(model.timeline);
   const activeRange = ranges.includes(range) ? range : "TOUT";
@@ -450,21 +498,32 @@ function ResumeTab({ config, model, title, range, setRange, canManage, marketLoa
           <section className="panel pea-regular">
             <h3 className="btc-panel-kicker">INVESTISSEMENT RÉGULIER</h3>
             <div className="pea-regular-head">
-              <div><small>Objectif mensuel</small><strong>À compléter</strong></div>
-              <div><small>Déjà investi ({model.monthly.monthLabel})</small><strong>{euro.format(model.monthly.investedThisMonth)}</strong></div>
+              <div><small>Objectif mensuel</small><strong>{monthlyProgress.monthlyTarget !== null ? euro.format(monthlyProgress.monthlyTarget) : "À définir"}</strong></div>
+              <div><small>Investi ce mois ({model.monthly.monthLabel})</small><strong>{euro.format(monthlyProgress.investedThisMonth)}</strong></div>
             </div>
-            <div className="pea-regular-status">
-              <span className={`pea-status pea-status-${model.monthly.status}`}>
-                {model.monthly.status === "investi" ? "Investi ce mois" : model.monthly.status === "partiellement_investi" ? "Partiellement investi" : model.monthly.status === "reporté" ? "Reporté" : "À investir"}
-              </span>
-              <small>L’objectif mensuel sera configurable dans un prochain lot ; la progression est calculée à partir des versements réels.</small>
-            </div>
-            {canManage && (
-              <div className="pea-regular-actions">
-                <button type="button" className="primary-button" onClick={onAddInvestment}>Enregistrer un investissement</button>
-                <button type="button" className="secondary-button" onClick={onReport}>Reporter ce mois</button>
+            {monthlyProgress.monthlyTarget !== null && (
+              <div className="pea-regular-progress" role="progressbar" aria-valuenow={Math.round(monthlyProgress.pct ?? 0)} aria-valuemin={0} aria-valuemax={100}>
+                <div className="pea-regular-progress-bar" style={{ width: `${monthlyProgress.pct ?? 0}%` }} />
               </div>
             )}
+            <div className="pea-regular-status">
+              <span className={`pea-status pea-status-${regularStatus(monthlyProgress.status).cls}`}>{regularStatus(monthlyProgress.status).label}</span>
+              <small>
+                {monthlyProgress.monthlyTarget !== null
+                  ? `${monthlyProgress.daysRemaining} jour(s) restant(s) ce mois-ci. Progression calculée sur vos achats réels.`
+                  : "Définissez un objectif mensuel pour suivre votre progression. Elle est calculée sur vos achats réels (jamais les versements)."}
+              </small>
+            </div>
+            <div className="pea-regular-actions">
+              {canManage && (
+                <>
+                  <button type="button" className="primary-button" onClick={onAddInvestment}>Enregistrer un investissement</button>
+                  <button type="button" className="secondary-button" onClick={onReport}>Reporter ce mois</button>
+                </>
+              )}
+              {memberCanRecord && <button type="button" className="primary-button" onClick={onMemberAdd}>Enregistrer un achat</button>}
+              {!hasPlan && memberCanRecord && onOpenRhythm && <button type="button" className="secondary-button" onClick={onOpenRhythm}>Définir mon rythme</button>}
+            </div>
           </section>
         )}
       </div>
@@ -755,8 +814,36 @@ const INVEST_CARD_META: Record<AccountOperationType, { icon: string; title: stri
   correction: { icon: "✏️", title: "Correction", desc: "Un ajustement de quantité ou de montant, tracé dans l’historique." },
 };
 
-function InvestirTab({ config, model, canManage, onAdd }: { config: EnvelopeConfig; model: AccountModel; canManage: boolean; onAdd: (type: AccountOperationType) => void }) {
+function InvestirTab({ config, model, canManage, memberCanRecord, onAdd, onMemberAdd }: { config: EnvelopeConfig; model: AccountModel; canManage: boolean; memberCanRecord: boolean; onAdd: (type: AccountOperationType) => void; onMemberAdd: () => void }) {
   if (!canManage) {
+    // Un membre peut enregistrer lui-même un ACHAT sur son propre compte (route self-service).
+    if (memberCanRecord) {
+      const card = INVEST_CARD_META.achat;
+      return (
+        <>
+          <section className="panel btc-invest-head">
+            <div className="btc-invest-intro">
+              <span className="soft-pill">INVESTIR</span>
+              <h2>Enregistrer un achat</h2>
+              <p>Enregistrez un achat d’ETF ou d’actions sur votre propre compte : le portefeuille (valeur, positions, prix de revient) est recalculé automatiquement à partir de vos opérations réelles. Aucun faux succès : l’enregistrement n’est confirmé qu’après réponse du serveur.</p>
+            </div>
+            <div className="btc-invest-price">
+              <div><small>Espèces disponibles</small><strong>{euro.format(model.cashEur)}</strong></div>
+              <div><small>Valeur totale</small><strong>{model.totalValueEur === null ? "—" : euro.format(model.totalValueEur)}</strong></div>
+            </div>
+          </section>
+          <div className="btc-parcours-grid pea-parcours-grid">
+            <button type="button" className="btc-parcours-card" onClick={onMemberAdd}>
+              <span className="btc-parcours-icon" aria-hidden="true">{card.icon}</span>
+              <strong>{card.title}</strong>
+              <p>{card.desc}</p>
+              <span className="btc-parcours-cta">Enregistrer →</span>
+            </button>
+          </div>
+          <p className="btc-chart-source">Les autres opérations (versement, vente, dividende…) restent gérées par l’administrateur.</p>
+        </>
+      );
+    }
     return (
       <section className="panel">
         <EmptyState icon="🔒" title="Les opérations sont gérées par l’administrateur"
@@ -913,8 +1000,8 @@ export function InvestmentSkeleton() {
 // ==========================================================================================
 // MODALE D'OPÉRATION (admin) — générique PEA / CTO
 // ==========================================================================================
-function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultType, onClose, onSubmit, onSaved }: {
-  config: EnvelopeConfig; accounts: InvestmentAccount[]; defaultAccountId: string; defaultType: AccountOperationType;
+function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultType, restrictToAchat = false, onClose, onSubmit, onSaved }: {
+  config: EnvelopeConfig; accounts: InvestmentAccount[]; defaultAccountId: string; defaultType: AccountOperationType; restrictToAchat?: boolean;
   onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>; onSaved: () => void;
 }) {
   const dialogRef = useDialogA11y(true, onClose);
@@ -985,13 +1072,20 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
               </select>
             </label>
           )}
-          <label className="pea-field">
-            <span>Type d’opération</span>
-            <select value={type} onChange={(event) => setType(event.target.value as AccountOperationType)}>
-              {config.investCards.map((value) => <option key={value} value={value}>{OP_LABEL[value]}</option>)}
-              {!config.investCards.includes("correction") && <option value="correction">Correction</option>}
-            </select>
-          </label>
+          {restrictToAchat ? (
+            <label className="pea-field">
+              <span>Type d’opération</span>
+              <input value="Achat" readOnly aria-readonly="true" />
+            </label>
+          ) : (
+            <label className="pea-field">
+              <span>Type d’opération</span>
+              <select value={type} onChange={(event) => setType(event.target.value as AccountOperationType)}>
+                {config.investCards.map((value) => <option key={value} value={value}>{OP_LABEL[value]}</option>)}
+                {!config.investCards.includes("correction") && <option value="correction">Correction</option>}
+              </select>
+            </label>
+          )}
           <label className="pea-field">
             <span>Date</span>
             <input type="date" value={date} max={todayISO()} onChange={(event) => setDate(event.target.value)} required />

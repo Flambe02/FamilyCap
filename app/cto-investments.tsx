@@ -9,7 +9,7 @@
 import type { Viewer } from "../lib/auth-types";
 import {
   InvestmentAccountShell,
-  type EnvelopeConfig, type InvestmentAccount, type InvestmentHolding, type InvestmentOperation,
+  type EnvelopeConfig, type InvestmentAccount, type InvestmentHolding, type InvestmentOperation, type ShellInvestmentPlan,
 } from "./investment-account";
 import "./cto-investments.css";
 
@@ -63,8 +63,11 @@ export function CtoInvestmentPage(props: {
   viewer: Viewer;
   isPreview: boolean;
   canManage: boolean;
+  memberCanRecord?: boolean;
+  investmentPlan?: ShellInvestmentPlan | null;
   onReload: () => void;
   onConfigure: () => void;
+  onOpenRhythm?: () => void;
 }) {
   return <InvestmentAccountShell config={CTO_CONFIG} {...props} />;
 }

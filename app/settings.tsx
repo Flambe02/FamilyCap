@@ -6,6 +6,7 @@ import { InvestmentAccessSettings } from "./investment-access-settings";
 import { AccountSettings } from "./settings-account";
 import { SecuritySettings } from "./settings-security";
 import { AccountsSettings } from "./settings-accounts";
+import { InvestmentRhythmSettings } from "./settings-investment-rhythm";
 import { LedgerSettings } from "./settings-ledger";
 import { NotificationsSettings } from "./settings-notifications";
 import { PrivacySettings } from "./settings-privacy";
@@ -18,7 +19,7 @@ import { supabaseBrowser } from "../lib/supabase-browser";
 import "./settings.css";
 
 type SectionId =
-  | "compte" | "securite" | "comptes" | "ledger" | "partage" | "notifications" | "confidentialite" | "aide"
+  | "compte" | "securite" | "comptes" | "rythme" | "ledger" | "partage" | "notifications" | "confidentialite" | "aide"
   | "admin-utilisateurs" | "admin-cadeaux" | "admin-wallets" | "admin-donnees";
 
 type NavSection = { id: SectionId; label: string; icon: NavIconId };
@@ -34,6 +35,7 @@ const GROUPS: NavGroup[] = [
   ] },
   { title: "Investissements", items: [
     { id: "comptes", label: "Mes comptes", icon: "wallet" },
+    { id: "rythme", label: "Mon rythme", icon: "trending-up" },
     { id: "ledger", label: "Ledger", icon: "key" },
     { id: "partage", label: "Partage familial", icon: "users" },
   ] },
@@ -106,6 +108,7 @@ export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboardi
           {activeSection === "compte" && <AccountSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onViewerChanged={onViewerChanged} />}
           {activeSection === "securite" && <SecuritySettings viewer={viewer} />}
           {activeSection === "comptes" && <AccountsSettings viewer={viewer} onNavigate={onNavigate} />}
+          {activeSection === "rythme" && <InvestmentRhythmSettings viewer={viewer} />}
           {activeSection === "ledger" && <LedgerSettings viewer={viewer} />}
           {activeSection === "partage" && <InvestmentAccessSettings />}
           {activeSection === "notifications" && <NotificationsSettings />}

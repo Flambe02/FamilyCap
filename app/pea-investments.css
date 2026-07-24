@@ -42,6 +42,8 @@
 .pea-regular-head { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .pea-regular-head small { display: block; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; }
 .pea-regular-head strong { font-family: var(--font-display-stack); font-size: 18px; font-weight: 600; }
+.pea-regular-progress { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.pea-regular-progress-bar { height: 100%; border-radius: 999px; background: var(--teal); transition: width .3s ease; min-width: 0; }
 .pea-regular-status { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
 .pea-regular-status small { color: var(--muted); font-size: 10px; line-height: 1.5; }
 .pea-status { align-self: flex-start; display: inline-flex; padding: 5px 12px; border-radius: 999px; font-size: 10px; font-weight: 800; }

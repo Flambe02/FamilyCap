@@ -9,6 +9,7 @@ import { NavIcon } from "./dashboard-ui";
 import { SettingsSection, SettingsSwitch, SettingsMessage, SettingsModal } from "./settings-ui";
 import { NotificationsSettings } from "./settings-notifications";
 import { AccountsSettings } from "./settings-accounts";
+import { InvestmentRhythmSettings } from "./settings-investment-rhythm";
 import { LedgerSettings } from "./settings-ledger";
 import { HelpSettings } from "./settings-help";
 import { downloadAccountExport } from "../lib/account-settings-client";
@@ -47,14 +48,14 @@ async function removeMemberPhoto(memberId: string): Promise<void> {
   if (!response.ok) throw new Error(result.error ?? "Suppression de la photo impossible.");
 }
 
-type SectionId = "compte" | "securite" | "comptes" | "ledger" | "partage" | "notifications" | "confidentialite" | "aide";
+type SectionId = "compte" | "securite" | "comptes" | "rythme" | "ledger" | "partage" | "notifications" | "confidentialite" | "aide";
 type NavSection = { id: SectionId; label: string; icon: NavIconId };
 type NavGroup = { title: string; items: NavSection[] };
 type Message = { text: string; tone: "success" | "error" | "info" };
 
 const GROUPS: NavGroup[] = [
   { title: "Compte", items: [{ id: "compte", label: "Mon compte", icon: "users" }, { id: "securite", label: "Sécurité", icon: "shield-check" }] },
-  { title: "Investissements", items: [{ id: "comptes", label: "Mes comptes", icon: "wallet" }, { id: "ledger", label: "Ledger", icon: "key" }, { id: "partage", label: "Partage familial", icon: "users" }] },
+  { title: "Investissements", items: [{ id: "comptes", label: "Mes comptes", icon: "wallet" }, { id: "rythme", label: "Mon rythme", icon: "trending-up" }, { id: "ledger", label: "Ledger", icon: "key" }, { id: "partage", label: "Partage familial", icon: "users" }] },
   { title: "Préférences", items: [{ id: "notifications", label: "Notifications", icon: "bell" }] },
   { title: "Confidentialité", items: [{ id: "confidentialite", label: "Données et confidentialité", icon: "book-open" }] },
   { title: "Aide", items: [{ id: "aide", label: "Aide et découverte", icon: "book-open" }] },
@@ -151,6 +152,7 @@ export function AdminMemberSettings({ memberName, onExit, onNavigate, onReplayOn
             {active === "compte" && <MemberAccount member={member} onSaved={reload} />}
             {active === "securite" && <MemberSecurity member={member} onSaved={reload} />}
             {active === "comptes" && <AccountsSettings viewer={memberAsViewer(member)} onNavigate={onNavigate} scopeOverride={member.investment_access_scope ?? "family"} />}
+            {active === "rythme" && <InvestmentRhythmSettings viewer={memberAsViewer(member)} memberId={member.id} readOnly />}
             {active === "ledger" && <LedgerSettings viewer={memberAsViewer(member)} />}
             {active === "partage" && <MemberSharing member={member} members={members} onSaved={reload} />}
             {active === "notifications" && <NotificationsSettings memberId={member.id} />}

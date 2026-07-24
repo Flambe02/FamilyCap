@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Viewer } from "../lib/auth-types";
 import type { View } from "../lib/navigation";
 import { authHeader } from "../lib/supabase-session";
+import { computeAccountModel, priceKeyOf, type AccountOperation, type InstrumentPrice } from "../lib/portfolio-account";
 import { SettingsSection, SettingsModal, SettingsMessage } from "./settings-ui";
 
 // Écran « Mes comptes » : vue simple des comptes appartenant au membre (Bitcoin cadeaux réels +
@@ -16,7 +17,8 @@ type PortfolioAccount = {
   accountNumberLast4?: string | null; ibanLast4?: string | null; openedAt?: string | null;
   monthlyTarget?: number | null; openingBalance?: number | null; notes?: string | null;
 };
-type PortfolioHolding = { account_id: string; quantity: number; last_price: number | null };
+type PortfolioHolding = { account_id: string; quantity: number; last_price: number | null; symbol?: string | null; isin?: string | null; name?: string | null; asset_type?: string | null };
+type PortfolioOperation = AccountOperation;
 type AccountLine = { key: string; name: string; type: string; valueEur: number | null; navigate?: View; account?: PortfolioAccount };
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -53,7 +55,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
     if (!giftsRes.ok) throw new Error(giftsBody.error ?? "Comptes indisponibles.");
     const ledgerBody = ledgerRes.ok ? await ledgerRes.json() as { bitcoinEur?: number | null } : null;
     const price = ledgerBody && Number(ledgerBody.bitcoinEur) > 0 ? Number(ledgerBody.bitcoinEur) : null;
-    const portfolioBody = portfolioRes.ok ? await portfolioRes.json() as { accounts?: PortfolioAccount[]; holdings?: PortfolioHolding[] } : { accounts: [], holdings: [] };
+    const portfolioBody = portfolioRes.ok ? await portfolioRes.json() as { accounts?: PortfolioAccount[]; holdings?: PortfolioHolding[]; operations?: PortfolioOperation[] } : { accounts: [], holdings: [], operations: [] };
     if (scopeOverride) {
       setVisible(scopeOverride === "family");
     } else {
@@ -73,18 +75,36 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
     const result: AccountLine[] = [];
     if (btc > 0) result.push({ key: "bitcoin", name: "Bitcoin cadeaux", type: "Bitcoin", valueEur: price ? btc * price : null, navigate: "bitcoin" });
 
-    // Comptes financiers du membre (hors Bitcoin, déjà couvert par les cadeaux) valorisés par positions.
+    // Comptes financiers du membre (hors Bitcoin, déjà couvert par les cadeaux).
+    // Valorisation COHÉRENTE avec l'écran PEA/CTO : dès qu'un compte porte des opérations
+    // (y compris un achat enregistré par le membre lui-même), sa valeur est DÉRIVÉE des opérations
+    // (source de vérité unique, lib/portfolio-account). En l'absence d'opération, on retombe sur le
+    // référentiel de positions `holdings` (cas d'un compte dont l'admin a saisi les positions en
+    // direct), afin de ne pas régresser. La progression mensuelle, elle, n'utilise jamais
+    // holdings.quantity (uniquement les achats de account_operations).
     const holdings = portfolioBody.holdings ?? [];
-    const valueByAccount = new Map<string, number>();
+    const operations = portfolioBody.operations ?? [];
+    const holdingsValueByAccount = new Map<string, number>();
     for (const holding of holdings) {
-      valueByAccount.set(holding.account_id, (valueByAccount.get(holding.account_id) ?? 0) + holding.quantity * (holding.last_price ?? 0));
+      holdingsValueByAccount.set(holding.account_id, (holdingsValueByAccount.get(holding.account_id) ?? 0) + holding.quantity * (holding.last_price ?? 0));
+    }
+    function accountValue(account: PortfolioAccount): number | null {
+      const accountOps = operations.filter((op) => op.accountId === account.id);
+      if ((account.accountType === "pea" || account.accountType === "securities") && accountOps.length > 0) {
+        const priceByKey = new Map<string, InstrumentPrice>();
+        for (const holding of holdings.filter((item) => item.account_id === account.id)) {
+          priceByKey.set(priceKeyOf({ isin: holding.isin ?? null, symbol: holding.symbol ?? null, name: holding.name ?? null }), { lastPrice: holding.last_price, lastPriceAt: null, assetType: holding.asset_type ?? null, name: holding.name ?? null });
+        }
+        return computeAccountModel({ operations: accountOps, priceByKey, accountType: account.accountType === "pea" ? "PEA" : "CTO" }).totalValueEur;
+      }
+      return holdingsValueByAccount.has(account.id) ? (holdingsValueByAccount.get(account.id) as number) : null;
     }
     for (const account of (portfolioBody.accounts ?? []).filter((item) => item.memberName === viewer.name && item.accountType !== "bitcoin")) {
       result.push({
         key: account.id,
         name: account.name?.trim() || TYPE_LABELS[account.accountType] || "Compte",
         type: TYPE_LABELS[account.accountType] ?? account.accountType,
-        valueEur: valueByAccount.has(account.id) ? (valueByAccount.get(account.id) as number) : null,
+        valueEur: accountValue(account),
         account,
       });
     }

@@ -48,6 +48,67 @@ export async function saveNotificationPreferences(preferences: NotificationPrefe
   if (!response.ok) throw new Error(result.error ?? "Enregistrement des préférences impossible.");
 }
 
+// ---- Plan d'investissement du membre (« Mon rythme d'investissement ») -------------------
+export type InstrumentPreference = "etf" | "stocks" | "both";
+
+export type InvestmentPlan = {
+  monthlyTarget: number | null;
+  targetAccountId: string | null;
+  targetDay: number | null;
+  instrumentPreference: InstrumentPreference;
+  remindersEnabled: boolean;
+  leaderboardOptIn: boolean;
+  effectiveFrom: string | null;
+};
+
+export type InvestmentPlanResult = { plan: InvestmentPlan | null; available: boolean };
+
+export type InvestmentPlanPayload = {
+  monthlyTarget: number;
+  targetAccountId: string | null;
+  targetDay: number | null;
+  instrumentPreference: InstrumentPreference;
+  remindersEnabled: boolean;
+  leaderboardOptIn: boolean;
+};
+
+// `memberId` (facultatif) est réservé à l'administrateur qui consulte le plan d'un membre.
+function investmentPlanUrl(memberId?: string) {
+  return "/api/investment-plan" + (memberId ? "?memberId=" + encodeURIComponent(memberId) : "");
+}
+
+export async function fetchInvestmentPlan(memberId?: string): Promise<InvestmentPlanResult> {
+  const response = await fetch(investmentPlanUrl(memberId), { headers: await authHeaders() });
+  const result = await response.json() as InvestmentPlanResult & { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Chargement du rythme impossible.");
+  return result;
+}
+
+export async function saveInvestmentPlan(payload: InvestmentPlanPayload, memberId?: string): Promise<void> {
+  const response = await fetch(investmentPlanUrl(memberId), {
+    method: "PUT",
+    headers: await authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json() as { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Enregistrement du rythme impossible.");
+}
+
+// Comptes d'investissement visibles (pour le sélecteur « compte utilisé »). Réutilise /api/portfolio ;
+// `memberId` déclenche l'aperçu admin (?asMember=), autorisé côté serveur pour un administrateur.
+export type InvestmentAccountLite = { id: string; name: string; institution: string | null; accountType: string; currency: string; memberName: string | null };
+
+export async function fetchInvestmentAccounts(memberId?: string): Promise<InvestmentAccountLite[]> {
+  const url = "/api/portfolio" + (memberId ? "?asMember=" + encodeURIComponent(memberId) : "");
+  const response = await fetch(url, { headers: await authHeaders() });
+  const result = await response.json() as { accounts?: Array<{ id: string; name: string; institution: string | null; accountType: string; currency: string; memberName: string | null }>; error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Chargement des comptes impossible.");
+  return (result.accounts ?? []).map((account) => ({
+    id: account.id, name: account.name, institution: account.institution ?? null,
+    accountType: account.accountType, currency: account.currency, memberName: account.memberName ?? null,
+  }));
+}
+
 export async function requestAccountDeactivation(confirm: string): Promise<void> {
   const response = await fetch("/api/account/deactivate", {
     method: "POST",
