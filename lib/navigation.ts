@@ -42,7 +42,7 @@ export const investmentSubNavigation: NavLeaf[] = [
   { id: "bitcoin", label: "Bitcoin", icon: "bitcoin", iconLabel: "Bitcoin" },
   { id: "investissements-pea", label: "PEA", icon: "landmark", iconLabel: "PEA" },
   { id: "investissements-comptetitres", label: "Compte-titres", icon: "landmark", iconLabel: "Compte-titres", short: "Titres" },
-  { id: "investissements-suggestions", label: "Suggestions mensuelles", icon: "star", iconLabel: "Suggestions mensuelles" },
+  { id: "investissements-suggestions", label: "Défis", icon: "star", iconLabel: "Défis" },
   { id: "investissements-historique", label: "Historique", icon: "list-checks", iconLabel: "Historique des investissements" },
   { id: "apprendre", label: "Comprendre", icon: "book-open", iconLabel: "Comprendre" },
 ];
@@ -66,7 +66,7 @@ export const familyNavigation: NavLeaf[] = [
 export const adminNavigation: NavLeaf[] = [
   { id: "transactions", label: "Opérations", icon: "list-checks", iconLabel: "Opérations" },
   { id: "famille-acces", label: "Famille & accès", icon: "users", iconLabel: "Famille & accès" },
-  { id: "administration-suggestions", label: "Suggestions", icon: "star", iconLabel: "Suggestions" },
+  { id: "administration-suggestions", label: "Défis & animation", icon: "star", iconLabel: "Défis & animation" },
   { id: "administration-globale", label: "Administration", icon: "shield-check", iconLabel: "Administration" },
 ];
 
@@ -89,11 +89,11 @@ export function titleForView(view: View): string {
     transactions: "Opérations",
     "investissements-pea": "PEA",
     "investissements-comptetitres": "Compte-titres",
-    "investissements-suggestions": "Suggestions mensuelles",
+    "investissements-suggestions": "Défis",
     "investissements-historique": "Historique",
     videos: "Souvenirs",
     "famille-roster": "Famille",
-    "administration-suggestions": "Suggestions",
+    "administration-suggestions": "Défis & animation",
     "administration-globale": "Administration",
     "famille-acces": "Famille & accès",
     apprendre: "Comprendre",

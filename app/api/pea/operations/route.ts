@@ -3,6 +3,7 @@ import { supabaseRest } from "../../../../lib/supabase-rest";
 import { buildOperationRecord, type OperationInput } from "../../../../lib/account-operation";
 import { instrumentKeyOf } from "../../../../lib/investment-import";
 import { loadImportAccount, loadImportContext, isOperationAccount } from "../../../../lib/investment-import-server";
+import { reconcileMemberForActive } from "../../../../lib/challenges-service";
 
 // Écriture des opérations de compte (PEA / compte-titres). Route GÉNÉRIQUE malgré son nom
 // historique `/api/pea/operations` : elle sert le PEA ET le compte-titres. Admin uniquement
@@ -60,6 +61,8 @@ export async function POST(request: Request) {
       headers: { prefer: "return=representation" },
       body: JSON.stringify({ ...built.record, account_id: body.accountId }),
     });
+    // Reconnaissance automatique du défi du membre porteur (best-effort ; n'affecte pas la réponse).
+    try { await reconcileMemberForActive(account.memberId); } catch { /* défis non déployés / réconciliation différée */ }
     return Response.json({ saved: true, id: rows[0]?.id }, { status: 201 });
   } catch (error) {
     return setupResponse(error);
@@ -71,10 +74,16 @@ export async function DELETE(request: Request) {
     await requireAdmin(request);
     const id = new URL(request.url).searchParams.get("id");
     if (!id) return Response.json({ error: "Opération manquante." }, { status: 400 });
+    // Membre porteur (avant suppression) pour recalculer sa progression de défi ensuite.
+    const owner = await supabaseRest<Array<{ member_id: string }>>(`account_operations?select=member_id&id=eq.${encodeURIComponent(id)}&limit=1`).catch(() => [] as Array<{ member_id: string }>);
     await supabaseRest(`account_operations?id=eq.${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: { prefer: "return=minimal" },
     });
+    // La suppression retire le lien (cascade) : on recalcule la progression et, si elle repasse
+    // sous l'objectif, une écriture négative de compensation est créée (best-effort).
+    const ownerId = owner[0]?.member_id;
+    if (ownerId) { try { await reconcileMemberForActive(ownerId); } catch { /* best-effort */ } }
     return Response.json({ deleted: true });
   } catch (error) {
     return setupResponse(error);

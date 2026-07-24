@@ -11,6 +11,8 @@ const AmatxiGifts = dynamic(() => import("./amatxi-gifts").then((module) => modu
 const Settings = dynamic(() => import("./settings").then((module) => module.Settings));
 const AdminMemberSettings = dynamic(() => import("./settings-admin-member").then((module) => module.AdminMemberSettings));
 const AdminUsers = dynamic(() => import("./admin-users").then((module) => module.AdminUsers));
+const ChallengesPage = dynamic(() => import("./challenges-page").then((module) => module.ChallengesPage));
+const AdminChallenges = dynamic(() => import("./admin-challenges").then((module) => module.AdminChallenges));
 const BitcoinInvestmentPage = dynamic(() => import("./bitcoin-investments").then((module) => module.BitcoinInvestmentPage));
 const PeaInvestmentPage = dynamic(() => import("./pea-investments").then((module) => module.PeaInvestmentPage));
 const CtoInvestmentPage = dynamic(() => import("./cto-investments").then((module) => module.CtoInvestmentPage));
@@ -670,12 +672,14 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             />
           </>
         )}
-        {view === "investissements-suggestions" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Suggestions mensuelles" description="Cette section sera connectée aux données existantes. Un futur outil de recommandation d’investissement mensuel (répartition PEA & titres) sera piloté depuis cet écran." />}
+        {view === "investissements-suggestions" && (isPreview
+          ? <ComingSoon eyebrow="DÉFIS" title="Défis" description="L’espace Défis d’un membre s’affiche avec son propre compte. Connectez-vous en tant que membre pour rejoindre un défi et suivre sa progression." />
+          : <ChallengesPage canAct={memberCanRecordOperation} onNavigate={navigate} />)}
         {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
         {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={effectiveViewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}
         {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "famille-acces" && effectiveViewer.role === "admin" && <AdminUsers />}
-        {view === "administration-suggestions" && effectiveViewer.role === "admin" && <ComingSoon eyebrow="ADMINISTRATION" title="Suggestions" description="Cette section sera connectée aux données existantes. Un futur outil de création et de suivi des suggestions mensuelles (répartition PEA & titres) sera piloté depuis cet écran." />}
+        {view === "administration-suggestions" && effectiveViewer.role === "admin" && <AdminChallenges />}
         {view === "administration-globale" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "apprendre" && <Learn />}
         {view === "parametres" && (isPreview ? <AdminMemberSettings memberName={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} onNavigate={navigate} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} onNavigate={navigate} onViewerChanged={onViewerChanged} />)}
@@ -731,7 +735,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
                 <p>Administration</p>
                 <button type="button" className="mobile-menu-link" onClick={() => { setView("transactions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="list-checks" /></span><span>Opérations</span></span>{transferRequests.length > 0 ? <em>{transferRequests.length}</em> : <span>›</span>}</button>
                 <button type="button" className="mobile-menu-link" onClick={() => { setView("famille-acces"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille &amp; accès</span></span><span>›</span></button>
-                <button type="button" className="mobile-menu-link" onClick={() => { setView("administration-suggestions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="star" /></span><span>Suggestions</span></span><span>›</span></button>
+                <button type="button" className="mobile-menu-link" onClick={() => { setView("administration-suggestions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="star" /></span><span>Défis &amp; animation</span></span><span>›</span></button>
                 <button type="button" className="mobile-menu-link" onClick={() => { setView("administration-globale"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="shield-check" /></span><span>Administration</span></span><span>›</span></button>
               </div>
             )}

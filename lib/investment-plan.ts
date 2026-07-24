@@ -134,8 +134,10 @@ type ProgressOperation = {
 };
 
 // Montant d'un achat : net_amount en priorité (coût de trésorerie réel = brut + frais), puis
-// repli brut, puis quantité × prix. Jamais une valeur inventée.
-function achatAmount(op: ProgressOperation): number {
+// repli brut, puis quantité × prix. Jamais une valeur inventée. Exporté pour être RÉUTILISÉ par
+// le moteur des Défis (lib/challenges.ts) — une seule formule de « montant déboursé », cohérente
+// avec buildOperationRecord/computeAccountModel.
+export function purchaseCashAmount(op: { netAmount?: number | null; grossAmount?: number | null; quantity?: number | null; unitPrice?: number | null }): number {
   if (op.netAmount !== null && op.netAmount !== undefined && Number.isFinite(Number(op.netAmount))) return Math.abs(Number(op.netAmount));
   if (op.grossAmount !== null && op.grossAmount !== undefined && Number.isFinite(Number(op.grossAmount))) return Math.abs(Number(op.grossAmount));
   const quantity = Number(op.quantity);
@@ -165,7 +167,7 @@ export function computeMonthlyPlanProgress(params: {
 
   const invested = params.operations
     .filter((op) => op.type === "achat" && typeof op.date === "string" && op.date.slice(0, 7) === monthKey && (idSet ? idSet.has(op.accountId) : true))
-    .reduce((sum, op) => sum + achatAmount(op), 0);
+    .reduce((sum, op) => sum + purchaseCashAmount(op), 0);
   const investedThisMonth = Math.round(invested * 100) / 100;
 
   const target = params.monthlyTarget !== null && params.monthlyTarget !== undefined && Number.isFinite(params.monthlyTarget) && params.monthlyTarget > 0

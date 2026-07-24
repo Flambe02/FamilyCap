@@ -3,6 +3,7 @@ import { supabaseRest } from "../../../lib/supabase-rest";
 import { buildOperationRecord, type OperationInput } from "../../../lib/account-operation";
 import { loadImportAccount } from "../../../lib/investment-import-server";
 import { authorizeMemberOperation } from "../../../lib/investment-plan";
+import { reconcileMemberForActive } from "../../../lib/challenges-service";
 
 // Saisie SELF-SERVICE d'un achat sur son PROPRE PEA / compte-titres, par le membre lui-même.
 // Route SÉPARÉE de l'écriture admin (/api/pea/operations, requireAdmin) : celle-ci n'est pas
@@ -54,6 +55,9 @@ export async function POST(request: Request) {
       headers: { prefer: "return=representation" },
       body: JSON.stringify({ ...built.record, account_id: body.accountId }),
     });
+    // Reconnaissance automatique du défi (best-effort) : un achat éligible fait progresser le
+    // défi courant du membre. N'affecte jamais la réponse d'enregistrement de l'opération.
+    try { await reconcileMemberForActive(account!.memberId); } catch { /* défis non déployés / réconciliation différée à l'ouverture de l'écran */ }
     return Response.json({ saved: true, id: rows[0]?.id }, { status: 201 });
   } catch (error) {
     return setupResponse(error);
