@@ -100,7 +100,14 @@ export async function POST(request: Request) {
     if (email === PRIMARY_ADMIN_EMAIL) return Response.json({ error: "Le compte administrateur existe deja." }, { status: 409 });
     const rows = await supabaseRest<Array<{ id: string }>>("family_members?on_conflict=email", { method: "POST", headers: { prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify({ name, email, role, birthday_day: birthday.day, birthday_month: birthday.month, birthday_year: birthday.year, is_active: true, access_status: body.sendInvite ? "invited" : "allowed", invited_at: body.sendInvite ? new Date().toISOString() : null }) });
     let invitation = { sent: false, reason: undefined as string | undefined };
-    if (body.sendInvite) { const { error } = await adminClient().auth.admin.inviteUserByEmail(email, { data: { name, family_member_id: rows[0]?.id }, redirectTo: body.redirectTo }); invitation = error ? { sent: false, reason: error.message } : { sent: true, reason: undefined }; }
+    if (body.sendInvite) {
+      const { error } = await adminClient().auth.admin.inviteUserByEmail(email, { data: { name, family_member_id: rows[0]?.id }, redirectTo: body.redirectTo });
+      invitation = error ? { sent: false, reason: error.message } : { sent: true, reason: undefined };
+      if (error) {
+        await supabaseRest("family_members?id=" + encodeURIComponent(rows[0]?.id ?? ""), { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify({ access_status: "invitation_failed" }) });
+        return Response.json({ saved: true, id: rows[0]?.id, invitation, error: "Le membre a été enregistré, mais l’invitation n’a pas été envoyée : " + error.message }, { status: 502 });
+      }
+    }
     return Response.json({ saved: true, id: rows[0]?.id, invitation }, { status: 201 });
   } catch (error) { return authErrorResponse(error); }
 }
@@ -114,7 +121,24 @@ export async function PATCH(request: Request) {
     if (isPrimaryAdmin(member) && (body.role !== undefined || body.isActive !== undefined || body.email !== undefined)) return Response.json({ error: "Le compte administrateur principal est protege." }, { status: 403 });
     const changes: Record<string, unknown> = {};
     if (body.name !== undefined) { const name = body.name.trim(); if (!name) return Response.json({ error: "Le nom est obligatoire." }, { status: 400 }); changes.name = name; }
-    if (body.email !== undefined) { const email = body.email.trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(email)) return Response.json({ error: "Adresse e-mail invalide." }, { status: 400 }); if (email !== member.email?.toLowerCase() && member.auth_user_id) { const { error } = await adminClient().auth.admin.updateUserById(member.auth_user_id, { email }); if (error) throw error; } else if (!member.auth_user_id) changes.email = email; }
+    if (body.email !== undefined) {
+      const email = body.email.trim().toLowerCase();
+      if (email === "") {
+        // Champ e-mail laissé vide : AUTORISÉ (enregistrement possible même sans e-mail). On
+        // efface l'adresse d'un membre sans compte de connexion (ex. enfant non encore invité) ;
+        // pour un membre disposant d'un compte auth, on ne touche pas à son identifiant de
+        // connexion (rien à faire ici) plutôt que de renvoyer une erreur bloquante.
+        if (!member.auth_user_id) changes.email = null;
+      } else if (!/^\S+@\S+\.\S+$/.test(email)) {
+        return Response.json({ error: "Adresse e-mail invalide." }, { status: 400 });
+      } else if (email !== member.email?.toLowerCase() && member.auth_user_id) {
+        const { error } = await adminClient().auth.admin.updateUserById(member.auth_user_id, { email });
+        if (error) throw error;
+        changes.email = email;
+      } else if (!member.auth_user_id) {
+        changes.email = email;
+      }
+    }
     if (body.role && ["admin", "adult", "viewer"].includes(body.role)) changes.role = body.role;
     if (body.birthday !== undefined) { const birthday = birthdayParts(body.birthday); changes.birthday_day = birthday.day; changes.birthday_month = birthday.month; changes.birthday_year = birthday.year; }
     if (body.isActive !== undefined) changes.is_active = body.isActive;
