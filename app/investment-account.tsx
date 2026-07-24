@@ -13,6 +13,7 @@ import type { Viewer } from "../lib/auth-types";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { authenticatedFetch, OP_LABEL, OP_ICON, OP_INFLOW } from "./investment-shared";
 import { InvestmentImportWizard } from "./investment-import-wizard";
+import { InvestmentAccountSetup, type SetupNext } from "./investment-account-setup";
 import {
   euro, euro0, dateOf, GainPill, BitcoinKpi, DonutChart, LegendRow,
   EvolutionChart, PeriodFilter, EmptyState, InfoNote, type ChartSeries,
@@ -100,6 +101,9 @@ export function InvestmentAccountShell({
   const [range, setRange] = useState<"1M" | "3M" | "6M" | "1A" | "3A" | "TOUT">("TOUT");
   const [modal, setModal] = useState<{ open: boolean; type: AccountOperationType }>({ open: false, type: "achat" });
   const [importOpen, setImportOpen] = useState(false);
+  // Assistant de création de compte, ouvert EN PLACE (plus de détour par Administration).
+  // `null` = fermé ; la valeur mémorise l'intention de départ pour proposer la bonne suite.
+  const [setupIntent, setSetupIntent] = useState<SetupNext | null>(null);
   const [notice, setNotice] = useState("");
 
   // Comptes de l'enveloppe visibles. Le partage familial est déjà appliqué côté serveur
@@ -187,6 +191,18 @@ export function InvestmentAccountShell({
     }
   }
 
+  // Compte créé : on le sélectionne, on rafraîchit le portefeuille, puis on enchaîne directement
+  // sur la suite choisie. Le compte n'existe pas encore dans `accounts` (rechargement asynchrone) :
+  // la modale d'opération / l'assistant d'import s'affichent dès que les données arrivent.
+  function handleAccountCreated(account: { id: string; name: string }, next: SetupNext) {
+    setSetupIntent(null);
+    setSelectedId(account.id);
+    onReload();
+    setNotice(`${account.name} est configuré.`);
+    if (next === "operation") setModal({ open: true, type: "versement" });
+    if (next === "import") setImportOpen(true);
+  }
+
   const loading = marketLoading && accounts.length === 0 && operations.length === 0;
   const headerTitle = isAggregate ? config.aggregateTitle : selectedAccount ? config.singularTitle(selectedAccount.memberName ?? selectedAccount.name) : config.singularTitle("");
   const tabs: { id: InvestmentTab; label: string }[] = [
@@ -224,7 +240,11 @@ export function InvestmentAccountShell({
             <>
               <button type="button" className="primary-button btc-cta" onClick={() => setModal({ open: true, type: "achat" })}><b>+</b> Enregistrer une opération</button>
               <button type="button" className="secondary-button btc-cta" disabled={!importAccount} title={importAccount ? undefined : "Choisissez un compte précis pour importer"} onClick={() => importAccount && setImportOpen(true)}>⬆ Importer un fichier</button>
+              <button type="button" className="secondary-button btc-cta" onClick={() => setSetupIntent("operation")}><b>+</b> Ajouter un compte</button>
             </>
+          )}
+          {canManage && !hasScope && !loading && (
+            <button type="button" className="primary-button btc-cta" onClick={() => setSetupIntent("operation")}><b>+</b> Configurer {config.kind === "CTO" ? "un compte-titres" : "un PEA"}</button>
           )}
         </div>
       </header>
@@ -242,9 +262,9 @@ export function InvestmentAccountShell({
           {canManage ? (
             <EmptyState icon={config.emptyNoAccount.icon}
               title={`Aucun ${config.kind === "CTO" ? "compte-titres" : "PEA"} configuré pour ce membre`}
-              description={`Configurez le compte ${config.kind === "CTO" ? "compte-titres" : "PEA"}, puis saisissez les opérations manuellement ou importez son historique.`}
-              action={`Configurer ${config.kind === "CTO" ? "un compte-titres" : "un PEA"}`} onAction={onConfigure}
-              secondaryAction="Importer un historique" onSecondaryAction={onConfigure} />
+              description="Renseignez le titulaire, la banque et les références du compte : les opérations pourront ensuite être saisies manuellement ou importées depuis un relevé."
+              action={`Configurer ${config.kind === "CTO" ? "un compte-titres" : "un PEA"}`} onAction={() => setSetupIntent("operation")}
+              secondaryAction="Importer un historique" onSecondaryAction={() => setSetupIntent("import")} />
           ) : (
             <EmptyState icon={config.emptyNoAccount.icon}
               title={`Aucun ${config.kind === "CTO" ? "compte-titres" : "PEA"} n’est encore configuré`}
@@ -283,6 +303,18 @@ export function InvestmentAccountShell({
           onClose={() => setModal((current) => ({ ...current, open: false }))}
           onSubmit={submitOperation}
           onSaved={() => { setModal((current) => ({ ...current, open: false })); setNotice("Opération enregistrée."); onReload(); }} />
+      )}
+      {setupIntent && canManage && (
+        <InvestmentAccountSetup
+          kind={config.kind}
+          accountType={config.accountType}
+          viewer={viewer}
+          existingAccounts={accounts}
+          intent={setupIntent}
+          onClose={() => setSetupIntent(null)}
+          onCreated={handleAccountCreated}
+          onOpenAdmin={isAdmin ? () => { setSetupIntent(null); onConfigure(); } : undefined}
+        />
       )}
       {importOpen && canManage && importAccount && (
         <InvestmentImportWizard account={importAccount}
