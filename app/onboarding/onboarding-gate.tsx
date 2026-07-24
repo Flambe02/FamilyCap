@@ -13,7 +13,7 @@ import { defaultOnboardingState, type OnboardingState } from "../../lib/onboardi
 //  - membre (adulte/jeune)     → tunnel obligatoire tant que le parcours n'est pas terminé ou
 //    reporté. Le report renvoie au tableau de bord (carte de reprise), sans réafficher le plein
 //    écran à chaque connexion. Aucun flash du dashboard : on rend un écran d'attente avant décision.
-export function OnboardingGate({ viewer, onSignOut }: { viewer: Viewer; onSignOut: () => void }) {
+export function OnboardingGate({ viewer, onSignOut, onViewerChanged }: { viewer: Viewer; onSignOut: () => void; onViewerChanged?: () => void }) {
   // Seuls les membres actifs concernés par les investissements passent par le tunnel obligatoire.
   const gated = viewer.role === "adult" || viewer.role === "child";
   const [phase, setPhase] = useState<"loading" | "onboarding" | "app">(gated ? "loading" : "app");
@@ -38,5 +38,5 @@ export function OnboardingGate({ viewer, onSignOut }: { viewer: Viewer; onSignOu
   if (phase === "onboarding") {
     return <OnboardingFlow viewer={viewer} mode="required" initialState={state} onDone={() => setPhase("app")} onDefer={() => setPhase("app")} />;
   }
-  return <FamilyDashboard viewer={viewer} onSignOut={onSignOut} />;
+  return <FamilyDashboard viewer={viewer} onSignOut={onSignOut} onViewerChanged={onViewerChanged} />;
 }

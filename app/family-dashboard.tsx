@@ -91,7 +91,7 @@ async function authenticatedFetch(url: string, init: RequestInit) {
   });
 }
 
-export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignOut: () => void }) {
+export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer: Viewer; onSignOut: () => void; onViewerChanged?: () => void }) {
   // Restaure la section Bitcoin depuis l'URL (#bitcoin/<onglet>) au chargement : un
   // rafraîchissement ne renvoie plus systématiquement à l'accueil ni au Résumé.
   const [view, setView] = useState<View>(() => {
@@ -657,7 +657,7 @@ export function FamilyDashboard({ viewer, onSignOut }: { viewer: Viewer; onSignO
         {view === "administration-suggestions" && effectiveViewer.role === "admin" && <ComingSoon eyebrow="ADMINISTRATION" title="Suggestions" description="Cette section sera connectée aux données existantes. Un futur outil de création et de suivi des suggestions mensuelles (répartition PEA & titres) sera piloté depuis cet écran." />}
         {view === "administration-globale" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
         {view === "apprendre" && <Learn />}
-        {view === "parametres" && (isPreview ? <AdminMemberSettings memberName={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} onNavigate={navigate} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} onNavigate={navigate} />)}
+        {view === "parametres" && (isPreview ? <AdminMemberSettings memberName={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} onNavigate={navigate} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} onNavigate={navigate} onViewerChanged={onViewerChanged} />)}
       </section>
 
       <nav className="mobile-nav" aria-label="Navigation mobile">

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import type { Viewer } from "../lib/auth-types";
@@ -42,31 +42,45 @@ export function AuthShell() {
     return () => { controller.abort(); listener.subscription.unsubscribe(); };
   }, []);
 
+  // Extrait de l'effet ci-dessous pour être rejouable : après un changement de photo de profil,
+  // l'avatar de la barre supérieure, de la sidebar et du menu mobile doit refléter la nouvelle
+  // valeur sans recharger la page (ils lisent tous `viewer.photoUrl`).
+  const fetchViewer = useCallback(async (accessToken: string, signal?: AbortSignal): Promise<Viewer> => {
+    const response = await fetch("/api/auth/me", { headers: { authorization: `Bearer ${accessToken}` }, signal });
+    // Le serveur peut répondre en texte brut (500 « Internal Server Error », page d'erreur
+    // de la plateforme…). On lit d'abord le texte puis on tente le JSON, pour ne jamais
+    // afficher un « Unexpected token … is not valid JSON » à la place d'un vrai message.
+    const raw = await response.text();
+    let result: { member?: Viewer; error?: string } = {};
+    try { if (raw) result = JSON.parse(raw) as { member?: Viewer; error?: string }; } catch { /* réponse non-JSON */ }
+    if (!response.ok || !result.member) {
+      throw new Error(result.error ?? (response.status >= 500
+        ? "Le serveur est momentanément indisponible. Réessaie dans un instant."
+        : "Accès familial non autorisé"));
+    }
+    return result.member;
+  }, []);
+
   useEffect(() => {
     if (!session) return;
     const controller = new AbortController();
-    void fetch("/api/auth/me", { headers: { authorization: `Bearer ${session.access_token}` }, signal: controller.signal })
-      .then(async (response) => {
-        // Le serveur peut répondre en texte brut (500 « Internal Server Error », page d'erreur
-        // de la plateforme…). On lit d'abord le texte puis on tente le JSON, pour ne jamais
-        // afficher un « Unexpected token … is not valid JSON » à la place d'un vrai message.
-        const raw = await response.text();
-        let result: { member?: Viewer; error?: string } = {};
-        try { if (raw) result = JSON.parse(raw) as { member?: Viewer; error?: string }; } catch { /* réponse non-JSON */ }
-        if (!response.ok || !result.member) {
-          throw new Error(result.error ?? (response.status >= 500
-            ? "Le serveur est momentanément indisponible. Réessaie dans un instant."
-            : "Accès familial non autorisé"));
-        }
-        setViewer(result.member);
-      })
+    void fetchViewer(session.access_token, controller.signal)
+      .then(setViewer)
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setAccessError(error instanceof Error ? error.message : "Accès refusé");
       })
       .finally(() => setReady(true));
     return () => controller.abort();
-  }, [session]);
+  }, [session, fetchViewer]);
+
+  // Rejoué après une écriture qui modifie le viewer lui-même (photo de profil). Échec
+  // silencieux volontaire : on conserve la valeur précédente plutôt que d'éjecter
+  // l'utilisateur vers l'écran « Accès non autorisé » sur un incident réseau passager.
+  const refreshViewer = useCallback(() => {
+    if (!session) return;
+    void fetchViewer(session.access_token).then(setViewer).catch(() => undefined);
+  }, [session, fetchViewer]);
 
   if (designPreview) return <FamilyDashboard viewer={{ id: "design-preview", email: "apercu@cap.family", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
   if (!ready) return <div className="auth-loading"><span><img src="/Labajo logo.png" alt="" width={48} height={48} /></span><p>Ouverture de LaBaJo &amp; Co…</p></div>;
@@ -75,7 +89,7 @@ export function AuthShell() {
   if (!session || !viewer) return <LoginScreen />;
   // La garde d'onboarding décide, avant tout rendu du dashboard, entre le tunnel obligatoire
   // (membre non encore onboardé) et l'application. Admin & lecteur familial ne sont jamais gardés.
-  return <OnboardingGate viewer={viewer} onSignOut={() => void supabaseBrowser.auth.signOut()} />;
+  return <OnboardingGate viewer={viewer} onSignOut={() => void supabaseBrowser.auth.signOut()} onViewerChanged={refreshViewer} />;
 }
 
 function LoginScreen() {

@@ -137,7 +137,10 @@ button.set-account-row:focus-visible{outline:3px solid rgba(29,112,107,.35);outl
 
 /* ---- Compte : bloc profil (photo + identité) + pied ---- */
 .set-account-hero{display:flex;align-items:center;gap:24px;margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid var(--line)}
-.set-avatar{width:112px;height:112px;font-size:32px;border-radius:50%;flex:0 0 auto;border:3px solid #faf9f5;box-shadow:0 4px 14px rgba(23,50,77,.12)}
+/* Sélecteur descendant volontaire : family.css est émis APRÈS settings.css (page.tsx importe
+   AuthShell puis family.css), donc un `.set-avatar` seul perdrait contre `.avatar` (36px) à
+   spécificité égale. Ne pas « simplifier » en `.set-avatar`, la photo redeviendrait minuscule. */
+.set-account-hero .set-avatar{width:112px;height:112px;font-size:32px;border-radius:50%;flex:0 0 auto;border:3px solid #faf9f5;box-shadow:0 4px 14px rgba(23,50,77,.12)}
 .set-avatar[src],.set-share-avatar[src]{object-fit:cover;display:block}
 .set-account-identity{display:flex;flex-direction:column;gap:12px;min-width:0}
 .set-account-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -196,7 +199,7 @@ button.set-account-row:focus-visible{outline:3px solid rgba(29,112,107,.35);outl
   .settings-back:focus-visible{outline:3px solid rgba(29,112,107,.35);outline-offset:2px;border-radius:8px}
   .set-section{padding:20px 18px;border-radius:14px}
   .set-account-hero{flex-direction:column;text-align:center;gap:16px;margin-bottom:20px;padding-bottom:20px}
-  .set-avatar{width:92px;height:92px;font-size:26px}
+  .set-account-hero .set-avatar{width:92px;height:92px;font-size:26px}
   .set-account-identity{align-items:center}
   .set-account-heading{justify-content:center}
   .set-avatar-actions{justify-content:center;width:100%}

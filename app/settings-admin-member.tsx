@@ -183,6 +183,9 @@ function MemberAccount({ member, onSaved }: { member: AdminMember; onSaved: () =
     try {
       const url = await uploadMemberPhoto(member.id, file);
       setPhotoUrl(url);
+      // Relit /api/admin/users : la liste des membres (et donc l'avatar affiché ailleurs dans
+      // l'écran d'aperçu) reflète la photo réellement enregistrée, pas seulement l'état local.
+      await onSaved();
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "Envoi de la photo impossible.");
     } finally {
@@ -195,6 +198,7 @@ function MemberAccount({ member, onSaved }: { member: AdminMember; onSaved: () =
     try {
       await removeMemberPhoto(member.id);
       setPhotoUrl(null);
+      await onSaved();
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "Suppression de la photo impossible.");
     } finally {

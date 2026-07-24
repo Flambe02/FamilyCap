@@ -38,7 +38,7 @@ function roleLabel(role: Viewer["role"]) {
 
 type Message = { text: string; tone: "success" | "error" | "info" };
 
-export function AccountSettings({ viewer, onSignOut, publishedVersion }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string }) {
+export function AccountSettings({ viewer, onSignOut, publishedVersion, onViewerChanged }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onViewerChanged?: () => void }) {
   const [email, setEmail] = useState(viewer.email);
   const [name, setName] = useState(viewer.name);
   const [day, setDay] = useState(viewer.birthdayDay?.toString() ?? "");
@@ -107,6 +107,10 @@ export function AccountSettings({ viewer, onSignOut, publishedVersion }: { viewe
     try {
       const url = await uploadOwnPhoto(file);
       setPhotoUrl(url);
+      // Recharge le viewer : sans cela l'avatar de la barre supérieure, de la sidebar et du
+      // menu mobile garde l'ancienne valeur jusqu'au prochain rechargement complet — ce qui
+      // donne l'impression que la photo n'a pas été enregistrée.
+      onViewerChanged?.();
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "Envoi de la photo impossible.");
     } finally {
@@ -119,6 +123,7 @@ export function AccountSettings({ viewer, onSignOut, publishedVersion }: { viewe
     try {
       await removeOwnPhoto();
       setPhotoUrl(null);
+      onViewerChanged?.();
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "Suppression de la photo impossible.");
     } finally {

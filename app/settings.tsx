@@ -60,7 +60,7 @@ const GROUPS: NavGroup[] = [
  * section active. Sur mobile : un index de sections, chaque catégorie ouvrant son propre écran
  * avec un bouton retour.
  */
-export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding, onResumeOnboarding, onNavigate }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void; onResumeOnboarding?: () => void; onNavigate?: (view: View) => void }) {
+export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding, onResumeOnboarding, onNavigate, onViewerChanged }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void; onResumeOnboarding?: () => void; onNavigate?: (view: View) => void; onViewerChanged?: () => void }) {
   const groups = GROUPS.filter((group) => !group.adminOnly || viewer.role === "admin");
   const allowed = groups.flatMap((group) => group.items.map((item) => item.id));
   const [active, setActive] = useState<SectionId>("compte");
@@ -103,7 +103,7 @@ export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboardi
         <div className="settings-panel-wrap">
           <button type="button" className="settings-back" onClick={() => setMobileView("index")} aria-label="Retour aux sections">‹ Sections</button>
 
-          {activeSection === "compte" && <AccountSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} />}
+          {activeSection === "compte" && <AccountSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onViewerChanged={onViewerChanged} />}
           {activeSection === "securite" && <SecuritySettings viewer={viewer} />}
           {activeSection === "comptes" && <AccountsSettings viewer={viewer} onNavigate={onNavigate} />}
           {activeSection === "ledger" && <LedgerSettings viewer={viewer} />}
