@@ -30,8 +30,8 @@ function isMissingPhotoColumn(error: unknown) {
 // select=... photo_url en tentative, avec repli si la migration 20260729_member_avatar n'a pas
 // encore ete jouee (colonne absente) — meme logique que language/display_currency dans
 // app/api/profile/route.ts.
-async function loadFamilyMemberRow(email: string): Promise<FamilyMemberRow | undefined> {
-  const base = `family_members?email=eq.${encodeURIComponent(email)}&is_active=eq.true&limit=1`;
+async function queryFamilyMemberRow(filter: string): Promise<FamilyMemberRow | undefined> {
+  const base = `family_members?${filter}&is_active=eq.true&limit=1`;
   try {
     const rows = await supabaseRest<FamilyMemberRow[]>(`${base}&select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year,photo_url,wallets(public_address)`);
     return rows[0];
@@ -40,6 +40,13 @@ async function loadFamilyMemberRow(email: string): Promise<FamilyMemberRow | und
     const rows = await supabaseRest<FamilyMemberRow[]>(`${base}&select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year,wallets(public_address)`);
     return rows[0];
   }
+}
+
+async function loadFamilyMemberRow(email: string, authUserId: string): Promise<FamilyMemberRow | undefined> {
+  // Le lien stable est auth_user_id. Le rapprochement par e-mail reste un
+  // repli utile pour les membres invités avant leur première connexion.
+  const linked = await queryFamilyMemberRow(`auth_user_id=eq.${encodeURIComponent(authUserId)}`);
+  return linked ?? queryFamilyMemberRow(`email=eq.${encodeURIComponent(email)}`);
 }
 
 export async function requireFamilyMember(request: Request): Promise<AuthenticatedMember> {
@@ -55,7 +62,7 @@ export async function requireFamilyMember(request: Request): Promise<Authenticat
   const user = await userResponse.json() as { id: string; email?: string };
   if (!user.email) throw Response.json({ error: "Adresse e-mail absente" }, { status: 403 });
 
-  const member = await loadFamilyMemberRow(user.email.toLowerCase());
+  const member = await loadFamilyMemberRow(user.email.toLowerCase(), user.id);
   if (!member) throw Response.json({ error: "Cette adresse n’est pas autorisée dans LaBaJo & Co" }, { status: 403 });
   return { authUserId: user.id, id: member.id, email: member.email, name: member.name, role: member.role, birthdayDay: member.birthday_day, birthdayMonth: member.birthday_month, birthdayYear: member.birthday_year, photoUrl: member.photo_url ?? null, walletAddress: member.wallets?.[0]?.public_address ?? null };
 }
