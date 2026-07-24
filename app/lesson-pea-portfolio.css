@@ -1,0 +1,54 @@
+/* Leçon « Le portefeuille PEA type » — carte COMPRENDRE. Réutilise les tokens et
+   patterns de family.css (.modal, .info-callout) et bitcoin-investments.css (.btc-table,
+   .btc-legend, .set-btn) ; ce fichier ne définit que les classes propres à cette leçon. */
+
+.pea-lesson-modal { width: min(760px, 96vw); max-height: 92vh; overflow: auto; }
+.pea-lesson-body { display: grid; gap: 26px; margin-top: 8px; }
+.pea-lesson-intro { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink); }
+
+.pea-lesson-section h3 { margin: 0 0 14px; font-size: 15px; font-weight: 700; color: var(--ink); }
+.pea-lesson-note { margin: 14px 0 0; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
+
+/* Allocation : donut + légende à côté du tableau */
+.pea-lesson-alloc { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; padding: 20px; background: var(--surface-subtle, #f8faf9); border: 1px solid var(--line); border-radius: 16px; }
+.pea-lesson-alloc-chart { display: flex; align-items: center; gap: 16px; flex: 1 1 220px; }
+.pea-lesson-table-wrap { flex: 1 1 220px; min-width: 200px; }
+.pea-lesson-table { font-size: 12px; }
+.pea-lesson-table td b { color: var(--ink); }
+
+/* Pourquoi cette allocation */
+.pea-lesson-why { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
+.pea-lesson-why article { padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.pea-lesson-why h4 { margin: 0 0 6px; font-size: 12px; color: var(--ink); }
+.pea-lesson-why p { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+/* Fiches ETF */
+.pea-etf-grid { display: grid; gap: 14px; }
+.pea-etf-card { border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; display: grid; gap: 12px; }
+.pea-etf-card > header { display: flex; gap: 14px; align-items: flex-start; }
+.pea-etf-alloc { flex: 0 0 auto; min-width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: var(--teal-soft); color: var(--teal); font-size: 13px; font-weight: 900; }
+.pea-etf-card h4 { margin: 0; font-size: 14px; color: var(--ink); line-height: 1.35; }
+.pea-etf-ticker { display: inline-block; margin-top: 6px; padding: 3px 8px; border-radius: 999px; background: #f0f3f3; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .4px; }
+.pea-etf-meta { display: grid; gap: 8px; margin: 0; padding: 12px 0; border-top: 1px solid #f0f3f3; border-bottom: 1px solid #f0f3f3; }
+.pea-etf-meta > div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; }
+.pea-etf-meta dt { margin: 0; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.pea-etf-meta dd { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink); flex-wrap: wrap; }
+.pea-etf-meta code { background: #f4f6f5; padding: 3px 7px; border-radius: 6px; font-size: 11px; letter-spacing: .3px; word-break: break-all; }
+.pea-etf-features { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pea-etf-features li { font-size: 11px; color: var(--muted); padding-left: 16px; position: relative; }
+.pea-etf-features li::before { content: "•"; position: absolute; left: 2px; color: var(--teal); font-weight: 900; }
+.pea-etf-link { justify-self: start; }
+
+/* Gestion du portefeuille */
+.pea-lesson-rules { margin: 0; padding-left: 20px; display: grid; gap: 10px; font-size: 12px; color: var(--ink); line-height: 1.5; }
+.pea-lesson-example { margin-top: 16px; padding: 16px 18px; border-radius: 14px; background: var(--surface-subtle, #f8faf9); border: 1px solid var(--line); }
+.pea-lesson-example strong { display: block; font-size: 11px; color: var(--teal); margin-bottom: 10px; }
+.pea-lesson-example ul { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; font-size: 12px; color: var(--ink); }
+.pea-lesson-example p { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+@media (max-width: 780px) {
+  .pea-lesson-alloc { flex-direction: column; align-items: stretch; }
+  .pea-lesson-why { grid-template-columns: 1fr; }
+  .pea-etf-meta > div { grid-template-columns: 1fr; gap: 3px; }
+  .pea-etf-link { width: 100%; text-align: center; }
+}

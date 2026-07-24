@@ -13,6 +13,7 @@ import { BitcoinInvestmentPage } from "./bitcoin-investments";
 import { PeaInvestmentPage } from "./pea-investments";
 import { CtoInvestmentPage } from "./cto-investments";
 import { SouvenirsPage } from "./souvenirs";
+import { PeaPortfolioLesson } from "./lesson-pea-portfolio";
 import type { AccountOperation } from "../lib/portfolio-account";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
@@ -950,14 +951,41 @@ function Portfolios({ viewer, requests, selectedMember, onOpenTransactions }: { 
   return <GiftPortfolio viewer={viewer} requests={requests} selectedMember={selectedMember} onOpenTransactions={onOpenTransactions} />;
 }
 
+type Lesson = { id: string; level: string; minutes: number; title: string; text: string; icon: string; color: string; cta?: string; onOpen?: () => void };
+
 function Learn() {
-  const lessons = [
-    { level: "LES BASES", title: "Pourquoi investir tôt ?", text: "Le temps et les intérêts composés sont les deux meilleurs alliés d’un jeune investisseur.", icon: "↗", color: "navy" },
-    { level: "BITCOIN", title: "Ledger, Binance : qui garde quoi ?", text: "Comprendre la différence entre une plateforme et un portefeuille dont on contrôle les clés.", icon: "₿", color: "amber" },
-    { level: "BOURSE", title: "Un ETF en 5 minutes", text: "Acheter en une fois un panier diversifié d’entreprises, avec des frais généralement réduits.", icon: "▥", color: "teal" },
-    { level: "SÉCURITÉ", title: "Les 24 mots ne se partagent jamais", text: "L’adresse publique se partage ; la phrase de récupération et la clé privée restent secrètes.", icon: "⌾", color: "coral" },
+  const [openLessonId, setOpenLessonId] = useState<string | null>(null);
+  const lessons: Lesson[] = [
+    { id: "invest-early", level: "LES BASES", minutes: 4, title: "Pourquoi investir tôt ?", text: "Le temps et les intérêts composés sont les deux meilleurs alliés d’un jeune investisseur.", icon: "↗", color: "navy" },
+    { id: "pea-portfolio-type", level: "PEA", minutes: 6, title: "Le portefeuille PEA type", text: "Une stratégie simple et diversifiée pour investir à long terme avec seulement trois ETF.", icon: "◕", color: "amber", cta: "Découvrir le portefeuille", onOpen: () => setOpenLessonId("pea-portfolio-type") },
+    { id: "etf-5min", level: "BOURSE", minutes: 6, title: "Un ETF en 5 minutes", text: "Acheter en une fois un panier diversifié d’entreprises, avec des frais généralement réduits.", icon: "▥", color: "teal" },
+    { id: "seed-words", level: "SÉCURITÉ", minutes: 7, title: "Les 24 mots ne se partagent jamais", text: "L’adresse publique se partage ; la phrase de récupération et la clé privée restent secrètes.", icon: "⌾", color: "coral" },
   ];
-  return <div className="page-stack"><section className="learn-head"><span className="soft-pill">BIBLIOTHÈQUE FAMILIALE</span><h2>Apprendre juste ce qu’il faut,<br />au bon moment.</h2><p>Des explications courtes, reliées à une vraie action dans le portefeuille.</p></section><section className="lesson-grid">{lessons.map((lesson, i) => <article className="lesson-card" key={lesson.title}><div className={`lesson-icon ${lesson.color}`}>{lesson.icon}</div><span>{lesson.level} · {i + 4} MIN</span><h3>{lesson.title}</h3><p>{lesson.text}</p><button>Commencer la leçon →</button></article>)}</section></div>;
+  return (
+    <div className="page-stack">
+      <section className="learn-head">
+        <span className="soft-pill">BIBLIOTHÈQUE FAMILIALE</span>
+        <h2>Apprendre juste ce qu’il faut,<br />au bon moment.</h2>
+        <p>Des explications courtes, reliées à une vraie action dans le portefeuille.</p>
+      </section>
+      <section className="lesson-grid">
+        {lessons.map((lesson) => (
+          <article className="lesson-card" key={lesson.id}>
+            <div className={`lesson-icon ${lesson.color}`}>{lesson.icon}</div>
+            <span>{lesson.level} · {lesson.minutes} MIN</span>
+            <h3>{lesson.title}</h3>
+            <p>{lesson.text}</p>
+            {lesson.onOpen ? (
+              <button type="button" onClick={lesson.onOpen}>{lesson.cta} →</button>
+            ) : (
+              <button>Commencer la leçon →</button>
+            )}
+          </article>
+        ))}
+      </section>
+      {openLessonId === "pea-portfolio-type" && <PeaPortfolioLesson onClose={() => setOpenLessonId(null)} />}
+    </div>
+  );
 }
 
 
