@@ -60,6 +60,7 @@ async function saveWallet(memberId: string, memberName: string, walletAddress?: 
   else if (!BTC_ADDRESS_RE.test(trimmed)) throw new Error("Adresse Bitcoin ou cle publique etendue (xpub/ypub/zpub) invalide.");
   const record: Record<string, unknown> = { member_id: memberId, member_name: memberName, label: "Ledger de " + memberName, custody: "Ledger", public_address: publicAddress, xpub, network: "bitcoin-mainnet", asset_code: "BTC" };
   try { await upsertWallet(record); } catch (error) {
+    if (error instanceof Error && /42P10|ON CONFLICT|unique|exclusion constraint/i.test(error.message)) throw new Error("La contrainte unique wallets(member_id) manque. Executez la migration 20260802_admin_upsert_constraints.sql dans Supabase.");
     const missingXpubColumn = error instanceof Error && /xpub/i.test(error.message) && /(PGRST|column|schema cache)/i.test(error.message);
     if (missingXpubColumn && xpub === null) { const withoutXpub = { ...record }; delete withoutXpub.xpub; await upsertWallet(withoutXpub); return; }
     if (missingXpubColumn) throw new Error("Suivi xpub indisponible : jouez d'abord la migration 20260727_wallet_xpub.sql dans Supabase.");
@@ -82,7 +83,12 @@ async function saveAccess(memberId: string, scope?: string, selectedIds?: unknow
 async function saveProductAccess(memberId: string, access?: ProductAccess) {
   if (!access) return;
   const rows = PRODUCTS.map((product) => ({ member_id: memberId, product, access_level: access[product] ?? "none" }));
-  await supabaseRest("member_product_access?on_conflict=member_id,product", { method: "POST", headers: { prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
+  try {
+    await supabaseRest("member_product_access?on_conflict=member_id,product", { method: "POST", headers: { prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
+  } catch (error) {
+    if (error instanceof Error && /42P10|ON CONFLICT|unique|exclusion constraint/i.test(error.message)) throw new Error("La contrainte unique member_product_access(member_id, product) manque. Executez la migration 20260802_admin_upsert_constraints.sql dans Supabase.");
+    throw error;
+  }
 }
 async function saveInvitation(memberId: string, email: string, status: string, actorId: string, sent: boolean) {
   await supabaseRest("invitations?member_id=eq." + encodeURIComponent(memberId) + "&status=in.(pending,sent)", { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify({ status: "cancelled" }) }).catch(() => undefined);
