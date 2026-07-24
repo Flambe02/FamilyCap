@@ -15,6 +15,7 @@ type AccountInput = {
   notes?: string;
   openedAt?: string;      // date d'ouverture (colonne opened_at — migration 20260725)
   monthlyTarget?: number; // objectif mensuel facultatif (colonne monthly_target — migration 20260725)
+  openingBalance?: number | null; // solde de départ déclaré (colonne opening_balance — migration 20260730)
   isActive?: boolean;
   importExistingWallets?: boolean;
 };
@@ -26,6 +27,9 @@ function setupResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erreur Supabase";
   if (message.includes("opened_at") || message.includes("monthly_target")) {
     return Response.json({ error: "La migration compte-titres (20260725_investment_multicurrency.sql) doit être appliquée pour la date d'ouverture et l'objectif mensuel.", setupRequired: true }, { status: 503 });
+  }
+  if (message.includes("opening_balance")) {
+    return Response.json({ error: "La migration du solde de départ (20260730_account_opening_balance.sql) doit être appliquée dans Supabase.", setupRequired: true }, { status: 503 });
   }
   if (message.includes("financial_accounts") || message.includes("PGRST205")) {
     return Response.json({ error: "La migration des comptes financiers doit être appliquée dans Supabase.", setupRequired: true }, { status: 503 });
@@ -88,6 +92,7 @@ export async function POST(request: Request) {
     };
     if (body.openedAt) record.opened_at = body.openedAt;
     if (body.monthlyTarget !== undefined && body.monthlyTarget !== null && Number.isFinite(Number(body.monthlyTarget))) record.monthly_target = Math.round(Number(body.monthlyTarget) * 100) / 100;
+    if (body.openingBalance !== undefined && body.openingBalance !== null && Number.isFinite(Number(body.openingBalance))) record.opening_balance = Math.round(Number(body.openingBalance) * 100) / 100;
 
     const rows = await supabaseRest<Array<{ id: string }>>("financial_accounts", {
       method: "POST",
@@ -114,6 +119,7 @@ export async function PATCH(request: Request) {
     if (body.notes !== undefined) changes.notes = body.notes.trim() || null;
     if (body.openedAt !== undefined) changes.opened_at = body.openedAt || null;
     if (body.monthlyTarget !== undefined) changes.monthly_target = body.monthlyTarget === null || !Number.isFinite(Number(body.monthlyTarget)) ? null : Math.round(Number(body.monthlyTarget) * 100) / 100;
+    if (body.openingBalance !== undefined) changes.opening_balance = body.openingBalance === null || !Number.isFinite(Number(body.openingBalance)) ? null : Math.round(Number(body.openingBalance) * 100) / 100;
     await supabaseRest(`financial_accounts?id=eq.${encodeURIComponent(body.id)}`, {
       method: "PATCH",
       headers: { prefer: "return=minimal" },

@@ -63,6 +63,7 @@ export function InvestmentAccountSetup({
   const [iban, setIban] = useState("");
   const [openedAt, setOpenedAt] = useState("");
   const [monthlyTarget, setMonthlyTarget] = useState("");
+  const [openingBalance, setOpeningBalance] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -114,6 +115,11 @@ export function InvestmentAccountSetup({
       const target = Number(monthlyTarget.replace(",", "."));
       if (!Number.isFinite(target) || target < 0) { setError("L’objectif mensuel doit être un montant positif."); return; }
       payload.monthlyTarget = target;
+    }
+    if (openingBalance.trim() !== "") {
+      const opening = Number(openingBalance.replace(",", "."));
+      if (!Number.isFinite(opening) || opening < 0) { setError("Le solde de départ doit être un montant positif."); return; }
+      payload.openingBalance = opening;
     }
     setSaving(true);
     try {
@@ -218,6 +224,14 @@ export function InvestmentAccountSetup({
               <span>Objectif mensuel (facultatif)</span>
               <input type="number" min="0" step="any" value={monthlyTarget} onChange={(event) => setMonthlyTarget(event.target.value)} placeholder="ex. 150" />
             </label>
+            <label className="pea-field">
+              <span>Solde de départ (facultatif)</span>
+              <input type="number" min="0" step="any" value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} placeholder="ex. 5000" />
+            </label>
+            <p className="imp-hint pea-field-wide">
+              Le solde de départ est une information de contexte : le montant déjà présent sur le compte au début du suivi.
+              La valeur et la performance restent calculées à partir des opérations enregistrées.
+            </p>
             <label className="pea-field pea-field-wide">
               <span>Note (facultatif)</span>
               <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Stratégie, bénéficiaire, particularité…" />

@@ -25,11 +25,18 @@ import {
 import "./pea-investments.css";
 
 // ---- Types d'entrée (formes renvoyées par /api/portfolio) --------------------------------
-export type InvestmentAccount = { id: string; name: string; institution?: string | null; accountType: string; currency: string; memberId?: string; memberName: string | null };
+export type InvestmentAccount = {
+  id: string; name: string; institution?: string | null; accountType: string; currency: string;
+  memberId?: string; memberName: string | null;
+  // Informations de contexte (renvoyées par /api/portfolio ; null tant que la colonne/migration
+  // correspondante n'existe pas). Affichées dans l'onglet « Infos », jamais injectées au moteur.
+  accountNumberLast4?: string | null; ibanLast4?: string | null; openedAt?: string | null;
+  monthlyTarget?: number | null; openingBalance?: number | null; notes?: string | null;
+};
 export type InvestmentHolding = { account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string };
 export type InvestmentOperation = AccountOperation;
 
-export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "performance" | "historique" | "comprendre";
+export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "performance" | "historique" | "comprendre" | "infos";
 
 // ---- Config d'enveloppe (PEA / CTO) ------------------------------------------------------
 export type EnvelopeConfig = {
@@ -75,7 +82,7 @@ function tabFromHash(prefix: string): InvestmentTab | null {
   if (typeof window === "undefined") return null;
   const match = new RegExp(`#${prefix}/([\\w-]+)`).exec(window.location.hash);
   const slug = match?.[1];
-  const tabs: InvestmentTab[] = ["resume", "positions", "investir", "revenus", "performance", "historique", "comprendre"];
+  const tabs: InvestmentTab[] = ["resume", "positions", "investir", "revenus", "performance", "historique", "comprendre", "infos"];
   return slug && (tabs as string[]).includes(slug) ? (slug as InvestmentTab) : null;
 }
 
@@ -208,7 +215,7 @@ export function InvestmentAccountShell({
   const tabs: { id: InvestmentTab; label: string }[] = [
     { id: "resume", label: "Résumé" }, { id: "positions", label: "Mes positions" }, { id: "investir", label: "Investir" },
     { id: "revenus", label: "Revenus" }, { id: "performance", label: "Performance" }, { id: "historique", label: "Historique" },
-    { id: "comprendre", label: "Comprendre" },
+    { id: "comprendre", label: "Comprendre" }, { id: "infos", label: "Infos" },
   ];
 
   return (
@@ -271,6 +278,8 @@ export function InvestmentAccountShell({
               description="Ce compte doit être configuré par l’administrateur de l’espace familial." />
           )}
         </section>
+      ) : tab === "infos" ? (
+        <InfosTab config={config} accounts={scopeAccounts} />
       ) : !model!.hasOperations ? (
         <section className="panel">
           {canManage ? (
@@ -822,6 +831,68 @@ function ComprendreTab({ config }: { config: EnvelopeConfig }) {
           <div key={item.q} className="pea-faq-item"><strong>{item.q}</strong><p>{item.a}</p></div>
         ))}
       </div>
+    </section>
+  );
+}
+
+// ==========================================================================================
+// INFOS (informations du compte — lecture seule ; édition dans Paramètres › Mes comptes)
+// ==========================================================================================
+function money(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("fr-FR", { style: "currency", currency: (currency || "EUR").toUpperCase() }).format(value);
+  } catch {
+    return `${qty.format(value)} ${currency || "EUR"}`;
+  }
+}
+
+function AccountInfoCard({ account, envLabel }: { account: InvestmentAccount; envLabel: string }) {
+  const rows: { label: string; value: string }[] = [
+    { label: "Titulaire", value: account.memberName ?? "—" },
+    { label: "Type de compte", value: envLabel },
+    { label: "Établissement", value: account.institution?.trim() || "—" },
+    { label: "Devise", value: (account.currency || "EUR").toUpperCase() },
+    { label: "N° de compte", value: account.accountNumberLast4 ? `•••• ${account.accountNumberLast4}` : "—" },
+    { label: "IBAN", value: account.ibanLast4 ? `•••• ${account.ibanLast4}` : "—" },
+    { label: "Date d’ouverture", value: account.openedAt ? dateOf(account.openedAt) : "—" },
+    { label: "Objectif mensuel", value: account.monthlyTarget != null ? money(account.monthlyTarget, account.currency) : "—" },
+    { label: "Solde de départ", value: account.openingBalance != null ? money(account.openingBalance, account.currency) : "—" },
+  ];
+  return (
+    <article className="pea-info-card">
+      <header className="pea-info-card-head">
+        <strong>{account.name}</strong>
+        <span className="soft-pill">{envLabel}</span>
+      </header>
+      <dl className="pea-info-grid">
+        {rows.map((row) => (
+          <div key={row.label} className="pea-info-row">
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {account.notes?.trim() ? <p className="pea-info-note"><span>Note</span>{account.notes.trim()}</p> : null}
+    </article>
+  );
+}
+
+function InfosTab({ config, accounts }: { config: EnvelopeConfig; accounts: InvestmentAccount[] }) {
+  const envLabel = config.kind === "CTO" ? "Compte-titres" : "PEA";
+  if (accounts.length === 0) {
+    return <section className="panel"><EmptyState icon="ℹ️" title="Aucun compte" description="Sélectionnez un compte pour afficher ses informations." /></section>;
+  }
+  return (
+    <section className="panel pea-infos">
+      <div className="inv-positions-head">
+        <h3 className="btc-panel-kicker">{accounts.length > 1 ? "INFORMATIONS DES COMPTES" : "INFORMATIONS DU COMPTE"}</h3>
+      </div>
+      <div className="pea-infos-list">
+        {accounts.map((account) => <AccountInfoCard key={account.id} account={account} envLabel={envLabel} />)}
+      </div>
+      <p className="btc-chart-source">
+        Ces informations sont renseignées à la configuration du compte. L’administrateur peut les modifier dans Paramètres&nbsp;› Mes comptes. Le solde de départ est indiqué à titre de contexte&nbsp;: la valeur et la performance restent calculées à partir des opérations réelles.
+      </p>
     </section>
   );
 }

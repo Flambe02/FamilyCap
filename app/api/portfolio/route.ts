@@ -21,7 +21,29 @@ function accountVisible(accountType: string, flags: MemberShareFlags): boolean {
 // partagés avec lui (scope « famille » ou autorisation explicite) ; seul l'admin voit toute la
 // famille. La clé service-role reste strictement serveur et ne fuit jamais au client.
 
-type AccountRow = { id: string; name: string; institution: string | null; account_type: string; currency: string; member_id: string };
+type AccountRow = {
+  id: string; name: string; institution: string | null; account_type: string; currency: string; member_id: string;
+  account_number_last4?: string | null; iban_last4?: string | null; opened_at?: string | null;
+  monthly_target?: number | null; opening_balance?: number | null; notes?: string | null;
+};
+
+// Colonnes de base (toujours présentes) + colonnes de contexte ajoutées par les migrations
+// 20260725 (opened_at / monthly_target) et 20260730 (opening_balance). On tente la sélection
+// riche ; si une colonne manque (migration pas encore jouée), on retombe sur la base sans erreur.
+const ACCOUNT_SELECT_BASE = "id,name,institution,account_type,currency,member_id";
+const ACCOUNT_SELECT_FULL = `${ACCOUNT_SELECT_BASE},account_number_last4,iban_last4,opened_at,monthly_target,opening_balance,notes`;
+
+async function fetchAccounts(filter: string): Promise<AccountRow[]> {
+  try {
+    return await supabaseRest<AccountRow[]>(`financial_accounts?select=${ACCOUNT_SELECT_FULL}&is_active=eq.true${filter}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/opening_balance|opened_at|monthly_target|account_number_last4|iban_last4|42703|PGRST20[0-9]/.test(message)) {
+      return await supabaseRest<AccountRow[]>(`financial_accounts?select=${ACCOUNT_SELECT_BASE}&is_active=eq.true${filter}`);
+    }
+    throw error;
+  }
+}
 type HoldingRow = { account_id: string; asset_type: string | null; name: string | null; symbol: string | null; isin: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at: string | null; currency: string };
 type MemberRow = { id: string; name: string };
 type OperationRow = {
@@ -46,9 +68,7 @@ export async function GET(request: Request) {
     const scope = await viewableInvestmentScope(scopeViewer);
     const scopeFilter = scope === null ? "" : `&member_id=in.(${[...scope.keys()].map((id) => encodeURIComponent(id)).join(",")})`;
 
-    const rawAccountRows = await supabaseRest<AccountRow[]>(
-      `financial_accounts?select=id,name,institution,account_type,currency,member_id&is_active=eq.true${scopeFilter}`,
-    );
+    const rawAccountRows = await fetchAccounts(scopeFilter);
     // Deuxième passe par classe : un membre peut partager son CTO mais pas son PEA.
     const accountRows = scope === null
       ? rawAccountRows
@@ -80,6 +100,12 @@ export async function GET(request: Request) {
       currency: account.currency,
       memberId: account.member_id,
       memberName: nameById.get(account.member_id) ?? null,
+      accountNumberLast4: account.account_number_last4 ?? null,
+      ibanLast4: account.iban_last4 ?? null,
+      openedAt: account.opened_at ?? null,
+      monthlyTarget: account.monthly_target === null || account.monthly_target === undefined ? null : Number(account.monthly_target),
+      openingBalance: account.opening_balance === null || account.opening_balance === undefined ? null : Number(account.opening_balance),
+      notes: account.notes ?? null,
     }));
     const holdings = holdingRows.map((holding) => ({
       account_id: holding.account_id,

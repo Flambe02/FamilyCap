@@ -181,3 +181,19 @@
 .imp-badge.imp-conf-high { background: var(--teal-soft); color: var(--teal); }
 .imp-badge.imp-conf-medium { background: #fbeecb; color: #8a5200; }
 .imp-badge.imp-conf-low { background: #fbe0dd; color: #b23a30; }
+
+/* Onglet « Infos » : informations du compte (lecture seule) */
+.pea-infos-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 4px; }
+.pea-info-card { border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; background: #fff; }
+.pea-info-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.pea-info-card-head strong { font-family: var(--font-display-stack); font-size: 17px; font-weight: 600; color: var(--ink); }
+.pea-info-grid { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+.pea-info-row { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pea-info-row dt { font-size: 9.5px; font-weight: 900; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); }
+.pea-info-row dd { margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; word-break: break-word; }
+.pea-info-note { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink); }
+.pea-info-note span { display: block; font-size: 9.5px; font-weight: 900; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+@media (max-width: 780px) {
+  .pea-infos-list { grid-template-columns: 1fr; }
+  .pea-info-grid { grid-template-columns: 1fr 1fr; }
+}
