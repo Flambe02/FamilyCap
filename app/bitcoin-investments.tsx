@@ -100,10 +100,24 @@ export function BitcoinInvestmentPage({
     return map;
   }, [pendingTransfers]);
 
-  // Périmètre Bitcoin en vue membre : soi + les membres qui ont ouvert leur classe BTC au
-  // viewer (partage familial par classe, renvoyé par /api/gifts). L'admin garde la vue famille.
+  // Périmètre "moi seul" : pilote tout le Résumé/Performance/Conservation/Investir — un
+  // membre ne doit voir QUE son propre portefeuille dans ces écrans, jamais l'agrégat famille.
+  const ownScope = useMemo(() => {
+    if (isAdmin) return { records, memberBalances, totalBtc, totalValueEur: totalBitcoinValueEur };
+    const sRecords = records.filter((record) => record.member_name === viewer.name);
+    const sBalances = memberBalances.filter((balance) => balance.name === viewer.name);
+    const sTotalBtc = sBalances.reduce((sum, balance) => sum + balance.btc, 0);
+    const sTotalValue = sBalances.some((balance) => balance.currentValueEur !== null)
+      ? sBalances.reduce((sum, balance) => sum + (balance.currentValueEur ?? 0), 0)
+      : bitcoinEur !== null ? sTotalBtc * bitcoinEur : null;
+    return { records: sRecords, memberBalances: sBalances, totalBtc: sTotalBtc, totalValueEur: sTotalValue };
+  }, [isAdmin, viewer.name, records, memberBalances, totalBtc, totalBitcoinValueEur, bitcoinEur]);
+
+  // Périmètre "partagé" : soi + les membres qui ont ouvert leur classe BTC au viewer (partage
+  // familial par classe, renvoyé par /api/gifts). Sert UNIQUEMENT à la liste « Répartition par
+  // membre » du Résumé — c'est le seul endroit où on montre les BTC d'un autre membre.
   // Repli sûr sur soi uniquement si la liste des membres partagés n'est pas disponible.
-  const scoped = useMemo(() => {
+  const sharedScope = useMemo(() => {
     if (isAdmin) return { records, memberBalances, totalBtc, totalValueEur: totalBitcoinValueEur };
     const allowed = viewableMembers && viewableMembers.length > 0 ? new Set(viewableMembers) : new Set([viewer.name]);
     const sRecords = records.filter((record) => allowed.has(record.member_name));
@@ -116,9 +130,14 @@ export function BitcoinInvestmentPage({
   }, [isAdmin, viewer.name, viewableMembers, records, memberBalances, totalBtc, totalBitcoinValueEur, bitcoinEur]);
 
   const model = useMemo(() => computeBitcoinModel({
-    records: scoped.records, bitcoinEur, memberBalances: scoped.memberBalances,
-    totalBtc: scoped.totalBtc, totalValueEur: scoped.totalValueEur, pendingByMember,
-  }), [scoped, bitcoinEur, pendingByMember]);
+    records: ownScope.records, bitcoinEur, memberBalances: ownScope.memberBalances,
+    totalBtc: ownScope.totalBtc, totalValueEur: ownScope.totalValueEur, pendingByMember,
+  }), [ownScope, bitcoinEur, pendingByMember]);
+
+  const memberBreakdown = useMemo(() => computeBitcoinModel({
+    records: sharedScope.records, bitcoinEur, memberBalances: sharedScope.memberBalances,
+    totalBtc: sharedScope.totalBtc, totalValueEur: sharedScope.totalValueEur, pendingByMember,
+  }).members, [sharedScope, bitcoinEur, pendingByMember]);
 
   const pendingBtc = useMemo(() => pendingTransfers.reduce((sum, request) => sum + (request.btcAmount ?? 0), 0), [pendingTransfers]);
   const binanceKpiBtc = model.custody.binance.btc + model.custody.unclassified.btc;
@@ -176,7 +195,7 @@ export function BitcoinInvestmentPage({
 
       {activeTab === "resume" && (
         <ResumeTab
-          model={model} valueLabel={valueLabel} bitcoinEur={bitcoinEur} marketLoading={marketLoading}
+          model={model} memberBreakdown={memberBreakdown} valueLabel={valueLabel} bitcoinEur={bitcoinEur} marketLoading={marketLoading}
           pendingCount={pendingTransfers.length} pendingBtc={pendingBtc} binanceKpiBtc={binanceKpiBtc}
           period={period} setPeriod={setPeriod} isAdmin={isAdmin} onGoto={setTab}
         />
@@ -214,8 +233,8 @@ export function BitcoinInvestmentPage({
 // ======================================================================================
 // RÉSUMÉ
 // ======================================================================================
-function ResumeTab({ model, valueLabel, bitcoinEur, marketLoading, pendingCount, pendingBtc, binanceKpiBtc, period, setPeriod, isAdmin, onGoto }: {
-  model: ReturnType<typeof computeBitcoinModel>; valueLabel: string; bitcoinEur: number | null; marketLoading: boolean;
+function ResumeTab({ model, memberBreakdown, valueLabel, bitcoinEur, marketLoading, pendingCount, pendingBtc, binanceKpiBtc, period, setPeriod, isAdmin, onGoto }: {
+  model: ReturnType<typeof computeBitcoinModel>; memberBreakdown: MemberSummary[]; valueLabel: string; bitcoinEur: number | null; marketLoading: boolean;
   pendingCount: number; pendingBtc: number; binanceKpiBtc: number;
   period: "1M" | "6M" | "1A" | "TOUT"; setPeriod: (value: "1M" | "6M" | "1A" | "TOUT") => void; isAdmin: boolean;
   onGoto: (tab: BitcoinTab) => void;
@@ -271,7 +290,7 @@ function ResumeTab({ model, valueLabel, bitcoinEur, marketLoading, pendingCount,
         <section className="panel btc-alloc-card">
           <h3 className="btc-panel-kicker">RÉPARTITION PAR MEMBRE</h3>
           <ul className="btc-member-mini">
-            {model.members.map((member) => (
+            {memberBreakdown.map((member) => (
               <li key={member.name}>
                 <MemberAvatar initials={member.initials} color={member.color} size={30} />
                 <span className="btc-member-mini-name">{member.name}</span>
