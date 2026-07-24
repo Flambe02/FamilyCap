@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/onboarding-state.test.mjs tests/youtube.test.mjs tests/video-visibility.test.mjs tests/portfolio-account.test.mjs tests/investment-import.test.mjs tests/xlsx-lite.test.mjs tests/document-extraction.test.mjs tests/bitcoin-xpub.test.mjs tests/gift-custody.test.mjs",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/onboarding-state.test.mjs tests/youtube.test.mjs tests/video-visibility.test.mjs tests/portfolio-account.test.mjs tests/investment-import.test.mjs tests/xlsx-lite.test.mjs tests/portfolio-snapshot-import.test.mjs tests/document-extraction.test.mjs tests/bitcoin-xpub.test.mjs tests/gift-custody.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
@@ -21,7 +21,8 @@
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",

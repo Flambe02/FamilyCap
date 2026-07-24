@@ -87,11 +87,26 @@ export const EXTRACTION_JSON_INSTRUCTION = `Réponds UNIQUEMENT avec un objet JS
 }
 Règles STRICTES : confidence est un nombre entre 0 et 1. N'invente AUCUNE valeur : si une information est absente, mets value=null et confidence basse. Ne calcule ni total de portefeuille, ni prix moyen, ni performance. Recopie le texte source de chaque opération dans source_text.`;
 
-function fieldValue<T>(field: ExtractedField<T> | undefined): T | null {
-  return field && field.value !== undefined ? field.value : null;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
-function fieldConf(field: ExtractedField<unknown> | undefined): number {
-  const c = field ? Number(field.confidence) : 0;
+
+// Le prompt demande { value, confidence }, mais les modèles peuvent renvoyer une valeur
+// directe malgré cette consigne. Tolérer les deux formes évite de transformer une extraction
+// lisible en ligne entièrement vide et permet de la soumettre quand même à la validation humaine.
+function fieldValue<T>(field: unknown): T | null {
+  if (field === null || field === undefined) return null;
+  if (isRecord(field) && Object.prototype.hasOwnProperty.call(field, "value")) {
+    return (field.value ?? null) as T | null;
+  }
+  return field as T;
+}
+
+function fieldConf(field: unknown): number {
+  if (field === null || field === undefined) return 0;
+  const c = isRecord(field) && Object.prototype.hasOwnProperty.call(field, "confidence")
+    ? Number(field.confidence)
+    : 0.65; // valeur directe : confiance prudente, toujours à vérifier dans l'UI
   return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
 }
 function num(value: unknown): number | null {
@@ -104,6 +119,57 @@ function str(value: unknown): string | null {
 }
 
 const CURRENCY_RE = /^[A-Z]{3}$/;
+
+function firstDefined(record: Record<string, unknown>, names: string[]): unknown {
+  for (const name of names) {
+    if (record[name] !== undefined && record[name] !== null) return record[name];
+  }
+  return null;
+}
+
+/**
+ * Normalise les variantes de forme que peuvent produire les modèles multimodaux.
+ * La validation métier reste ensuite entièrement déterministe.
+ */
+export function normalizeRawExtraction(input: unknown): RawExtraction {
+  const root = isRecord(input) ? input : {};
+  const document = isRecord(root.document)
+    ? root.document
+    : isRecord(root.metadata) ? root.metadata : {};
+  const rawOperations = Array.isArray(root.operations)
+    ? root.operations
+    : Array.isArray(root.transactions) ? root.transactions
+      : Array.isArray(root.entries) ? root.entries
+        : isRecord(root.data) && Array.isArray(root.data.operations) ? root.data.operations : [];
+
+  const operations = rawOperations.filter(isRecord).map((entry) => {
+    const rawType = firstDefined(entry, ["type", "operation_type", "operationType", "action"]);
+    const normalizedType = normalizeType(String(fieldValue<unknown>(rawType) ?? ""));
+    const genericAmount = firstDefined(entry, ["amount", "total", "value"]);
+    const securityOperation = normalizedType === "achat" || normalizedType === "vente" || normalizedType === "transfer_in" || normalizedType === "transfer_out";
+    return {
+      date: firstDefined(entry, ["date", "operation_date", "operationDate"]),
+      type: rawType,
+      isin: firstDefined(entry, ["isin", "ISIN"]),
+      ticker: firstDefined(entry, ["ticker", "symbol", "symbol_code"]),
+      instrument_name: firstDefined(entry, ["instrument_name", "instrumentName", "asset_name", "assetName", "security", "name"]),
+      quantity: firstDefined(entry, ["quantity", "qty"]),
+      unit_price: firstDefined(entry, ["unit_price", "unitPrice", "price"]),
+      gross_amount: firstDefined(entry, ["gross_amount", "grossAmount"]) ?? (securityOperation ? genericAmount : null),
+      fees: firstDefined(entry, ["fees", "fee", "charges"]),
+      taxes: firstDefined(entry, ["taxes", "tax"]),
+      net_amount: firstDefined(entry, ["net_amount", "netAmount"]) ?? (!securityOperation ? genericAmount : null),
+      currency: firstDefined(entry, ["currency", "ccy"]),
+      exchange_rate: firstDefined(entry, ["exchange_rate", "exchangeRate", "fx_rate"]),
+      external_reference: firstDefined(entry, ["external_reference", "externalReference", "reference", "transaction_id"]),
+      source_text: String(fieldValue<unknown>(firstDefined(entry, ["source_text", "sourceText", "raw_text", "rawText"])) ?? "") || undefined,
+      page: num(firstDefined(entry, ["page", "page_number", "pageNumber"])),
+      warnings: Array.isArray(entry.warnings) ? entry.warnings.filter((warning): warning is string => typeof warning === "string") : [],
+    };
+  });
+
+  return { document, operations } as RawExtraction;
+}
 
 export function validateExtraction(raw: RawExtraction, options: { accountCurrency: string; thresholds?: ExtractionThresholds }): {
   document: { institution: string | null; accountType: string | null; currency: string | null; holder: string | null; period: string | null };

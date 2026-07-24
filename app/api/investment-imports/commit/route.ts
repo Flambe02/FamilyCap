@@ -16,7 +16,8 @@ import { loadImportAccount, loadImportContext, isOperationAccount, MAX_ROWS } fr
 
 export const runtime = "nodejs";
 
-type NewInstrument = { isin?: string | null; ticker?: string | null; name?: string | null; assetType?: string | null; currency?: string | null };
+type NewInstrument = { isin?: string | null; ticker?: string | null; name?: string | null; assetType?: string | null; currency?: string | null; lastPrice?: number | null; lastPriceAt?: string | null };
+type SnapshotInput = { asOfDate?: string; positions?: Array<{ isin?: string | null; ticker?: string | null; name?: string | null; currency?: string | null; lastPrice?: number | null; lastPriceAt?: string | null }> };
 type CommitBody = {
   accountId?: string;
   filename?: string;
@@ -26,6 +27,7 @@ type CommitBody = {
   mapping?: unknown;
   operations?: NormalizedOp[];
   newInstruments?: NewInstrument[];
+  portfolioSnapshot?: SnapshotInput;
 };
 
 const ASSET_TYPES = new Set(["stock", "etf", "fund", "bond", "crypto", "cash", "other"]);
@@ -101,7 +103,9 @@ export async function POST(request: Request) {
           fees: advancedOp.fees ?? undefined, taxes: advancedOp.taxes ?? undefined, currency: advancedOp.currency,
           exchangeRate: advancedOp.exchangeRate ?? undefined, note: advancedOp.note ?? undefined,
         },
-        { memberId: account.memberId, source: body.sourceKind === "ai_scan" ? "ai_scan" : "import", externalReference: extRef, importFingerprint: fingerprint },
+        context.importTracking
+          ? { memberId: account.memberId, source: body.sourceKind === "ai_scan" ? "ai_scan" : "import", externalReference: extRef, importFingerprint: fingerprint }
+          : { memberId: account.memberId, source: body.sourceKind === "ai_scan" ? "ai_scan" : "import" },
       );
       if (!built.ok) { errors.push({ line, error: built.error }); continue; }
 
@@ -131,6 +135,7 @@ export async function POST(request: Request) {
 
     // ---- PASSE 2 : écriture ----
     // Lot d'import (member_id dérivé du compte ; imported_by = administrateur).
+    if (context.importTracking) {
     const batchRows = await supabaseRest<Array<{ id: string }>>("investment_import_batches", {
       method: "POST",
       headers: { prefer: "return=representation" },
@@ -149,23 +154,31 @@ export async function POST(request: Request) {
     if (!batchId) throw new Error("Création du lot d'import impossible.");
 
     // Instruments manquants validés (aucun cours inventé : last_price null).
+    }
     const createdInstruments = await createMissingHoldings(account.id, body.newInstruments ?? [], context.holdings);
+    if (body.portfolioSnapshot?.positions?.length) {
+      await updateSnapshotPrices(account.id, body.portfolioSnapshot, context.holdings);
+    }
 
     // Rattachement de chaque opération à son lot, puis insertion ATOMIQUE (tableau = tout ou rien).
-    const records = toInsert.map((record) => ({ ...record, account_id: account.id, import_batch_id: batchId }));
+    const records = toInsert.map((record) => ({
+      ...record,
+      account_id: account.id,
+      ...(context.importTracking && batchId ? { import_batch_id: batchId } : {}),
+    }));
     await supabaseRest("account_operations", {
       method: "POST",
       headers: { prefer: "return=minimal" },
       body: JSON.stringify(records),
     });
 
-    await supabaseRest(`investment_import_batches?id=eq.${encodeURIComponent(batchId)}`, {
+    if (batchId) await supabaseRest(`investment_import_batches?id=eq.${encodeURIComponent(batchId)}`, {
       method: "PATCH",
       headers: { prefer: "return=minimal" },
       body: JSON.stringify({ status: "completed", imported_rows: records.length, duplicate_rows: duplicates, error_rows: 0, completed_at: new Date().toISOString() }),
     });
 
-    return Response.json({ batchId, imported: records.length, duplicates, newInstruments: createdInstruments, message: `${records.length} opération(s) importée(s).` }, { status: 201 });
+    return Response.json({ batchId, imported: records.length, duplicates, newInstruments: createdInstruments, tracking: context.importTracking ? "complete" : "limited", message: `${records.length} opération(s) importée(s).` }, { status: 201 });
   } catch (error) {
     // Échec après création du lot → on marque le lot 'failed' (les opérations n'ont PAS été
     // insérées de façon partielle : l'insert est atomique). Best-effort, on n'écrase pas l'erreur.
@@ -199,11 +212,38 @@ async function createMissingHoldings(accountId: string, requested: NewInstrument
         asset_type: ASSET_TYPES.has(instrument.assetType ?? "") ? instrument.assetType : "other",
         symbol: ticker, isin, name,
         quantity: 0, average_cost: null, currency: (instrument.currency || "EUR").toUpperCase(),
-        market_provider: "manual", last_price: null, last_price_at: null, // aucun cours inventé
+        last_price: Number.isFinite(Number(instrument.lastPrice)) ? Number(instrument.lastPrice) : null,
+        last_price_at: instrument.lastPriceAt || null,
+        market_provider: instrument.lastPrice === null || instrument.lastPrice === undefined ? "manual" : "file_import",
       }),
     });
     existing.push({ isin, symbol: ticker, name });
     created++;
   }
   return created;
+}
+
+async function updateSnapshotPrices(
+  accountId: string,
+  snapshot: SnapshotInput,
+  holdings: Array<{ id: string; isin: string | null; symbol: string | null; name: string | null }>,
+) {
+  for (const position of snapshot.positions ?? []) {
+    const lastPrice = position.lastPrice === null || position.lastPrice === undefined ? null : Number(position.lastPrice);
+    if (lastPrice === null || !Number.isFinite(lastPrice) || lastPrice < 0) continue;
+    const match = matchInstrument(
+      { isin: position.isin ?? null, ticker: position.ticker ?? null, instrumentName: position.name ?? null },
+      holdings,
+    );
+    if (!match.holdingId) continue;
+    await supabaseRest(`holdings?id=eq.${encodeURIComponent(match.holdingId)}&account_id=eq.${encodeURIComponent(accountId)}`, {
+      method: "PATCH",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify({
+        last_price: lastPrice,
+        last_price_at: position.lastPriceAt || snapshot.asOfDate || null,
+        market_provider: "file_import",
+      }),
+    });
+  }
 }

@@ -54,7 +54,13 @@ export async function POST(request: Request) {
 
     const { document, operations } = validateExtraction(raw, { accountCurrency: account.currency, thresholds: config.thresholds });
     if (operations.length === 0) {
-      return Response.json({ error: "Aucune opération détectée dans ce document. Vérifiez qu'il s'agit d'un relevé lisible, ou utilisez le CSV." }, { status: 422 });
+      return Response.json({
+        error: "Le document a été transmis à l'IA, mais aucune ligne d'opération exploitable n'a été retranscrite. Vérifiez que le relevé est net et non protégé, puis réessayez ou utilisez le CSV.",
+        code: "no_operations_detected",
+        provider: provider.name,
+        document,
+        extraction: { documentDetected: Boolean(document.institution || document.accountType || document.period || document.holder), operationsDetected: 0 },
+      }, { status: 422 });
     }
 
     const context = await loadImportContext(account);

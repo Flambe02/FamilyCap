@@ -74,6 +74,18 @@ test("tableToHeaderRows : sépare en-tête / lignes", () => {
   assert.deepEqual(rows, [["2026-01-05", "410.5"]]);
 });
 
+test("tableToHeaderRows : ignore les lignes de contexte d'un relevé courtier", () => {
+  const { header, rows, preamble } = tableToHeaderRows([
+    ["Portefeuille 123"],
+    ["24/07/2026"],
+    ["Libellé", "Cours", "Qté", "PRU", "ISIN"],
+    ["AIR LIQUIDE", "176,52", "10", "166,04", "FR0000120073"],
+  ]);
+  assert.deepEqual(header, ["Libellé", "Cours", "Qté", "PRU", "ISIN"]);
+  assert.equal(rows.length, 1);
+  assert.equal(preamble.length, 2);
+});
+
 test("parseXlsx : rejette un non-ZIP", () => {
   assert.throws(() => parseXlsx(Buffer.from("pas un xlsx")), /ZIP|XLSX/);
 });

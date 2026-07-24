@@ -30,6 +30,7 @@ export type ImportContext = {
   holdings: HoldingRef[];
   existingFingerprints: Set<string>;
   existingExternalRefs: Set<string>;
+  importTracking: boolean;
   openingQuantities: Record<string, number>;
   allowAdvanced: boolean; // migration 20260725 jouée (taxes / exchange_rate / transferts)
 };
@@ -75,12 +76,25 @@ async function detectAdvanced(): Promise<boolean> {
   }
 }
 
+async function detectImportTracking(): Promise<boolean> {
+  try {
+    await Promise.all([
+      supabaseRest<unknown[]>("account_operations?select=external_reference&limit=1"),
+      supabaseRest<unknown[]>("investment_import_batches?select=id&limit=1"),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function loadImportContext(account: ImportAccount): Promise<ImportContext> {
   const kind: "PEA" | "CTO" = account.accountType === "pea" ? "PEA" : "CTO";
-  const [holdingRows, operationRows, allowAdvanced] = await Promise.all([
+  const [holdingRows, operationRows, allowAdvanced, importTracking] = await Promise.all([
     supabaseRest<HoldingRow[]>(`holdings?select=id,account_id,asset_type,name,symbol,isin,quantity,average_cost,last_price,last_price_at,currency&account_id=eq.${encodeURIComponent(account.id)}`),
     fetchExistingOperations(account.id),
     detectAdvanced(),
+    detectImportTracking(),
   ]);
 
   const holdings: HoldingRef[] = holdingRows.map((h) => ({ id: h.id, isin: h.isin, symbol: h.symbol, name: h.name }));
@@ -105,7 +119,7 @@ export async function loadImportContext(account: ImportAccount): Promise<ImportC
     openingQuantities[instrumentKey({ isin: position.isin, ticker: position.ticker, assetName: position.name })] = position.quantity;
   }
 
-  return { account, kind, holdings, existingFingerprints, existingExternalRefs, openingQuantities, allowAdvanced };
+  return { account, kind, holdings, existingFingerprints, existingExternalRefs, openingQuantities, allowAdvanced, importTracking };
 }
 
 async function fetchExistingOperations(accountId: string): Promise<OperationRow[]> {

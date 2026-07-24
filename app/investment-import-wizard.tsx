@@ -15,24 +15,29 @@ import {
   buildTemplateCsv, IMPORT_FIELDS,
   type ImportField, type NormalizedOp, type PreviewRow, type PreviewSummary, type RowStatus,
 } from "../lib/investment-import";
+import type { SnapshotPosition, SnapshotRowMeta } from "../lib/portfolio-snapshot-import";
 
 type TargetAccount = { id: string; name: string; kind: "PEA" | "CTO"; currency: string; memberName: string | null };
 type KnownHolding = { id: string; isin: string | null; symbol: string | null; name: string | null };
 
 type PreviewResponse = {
   account: TargetAccount;
+  mode?: "operations" | "snapshot";
+  snapshot?: { asOfDate: string; positions: SnapshotPosition[] };
+  document?: { institution: string | null; accountType: string | null; currency: string | null; holder: string | null; period: string | null };
+  provider?: string;
   columns: string[];
   mapping: Record<ImportField, number>;
   dateFormat: "iso" | "fr" | "us";
   allowAdvanced: boolean;
   knownHoldings: KnownHolding[];
   summary: PreviewSummary;
-  rows: PreviewRow[];
+  rows: Array<PreviewRow & { snapshot?: SnapshotRowMeta }>;
 };
 
 // Ligne éditable côté client (copie corrigeable de la prévisualisation serveur). Les champs ai*
 // ne sont présents que pour un scan IA (confiance / texte source / page).
-type EditableRow = PreviewRow & { include: boolean; createInstrument: boolean; aiBand?: "high" | "medium" | "low"; aiConfidence?: number; aiSourceText?: string | null; aiPage?: number | null };
+type EditableRow = PreviewRow & { snapshot?: SnapshotRowMeta; include: boolean; createInstrument: boolean; aiBand?: "high" | "medium" | "low"; aiConfidence?: number; aiSourceText?: string | null; aiPage?: number | null };
 type ImportMode = "file" | "ai";
 
 const FIELD_LABEL: Record<ImportField, string> = {
@@ -67,10 +72,11 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
   const [rows, setRows] = useState<EditableRow[]>([]);
   const [mapping, setMapping] = useState<Record<ImportField, number> | null>(null);
   const [dateFormat, setDateFormat] = useState<"iso" | "fr" | "us">("fr");
+  const [snapshotDate, setSnapshotDate] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | "anomalies">("all");
-  const [result, setResult] = useState<{ imported: number; duplicates: number; newInstruments: number } | null>(null);
+  const [result, setResult] = useState<{ imported: number; duplicates: number; newInstruments: number; tracking?: "complete" | "limited" } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function runPreview(nextMapping?: Record<ImportField, number>, nextDateFormat?: "iso" | "fr" | "us") {
@@ -82,6 +88,7 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
       form.append("accountId", account.id);
       if (nextMapping) form.append("mapping", JSON.stringify(nextMapping));
       if (nextDateFormat) form.append("dateFormat", nextDateFormat);
+      if (snapshotDate) form.append("snapshotDate", snapshotDate);
       const response = await authenticatedFetch("/api/investment-imports/preview", { method: "POST", body: form });
       const data = (await response.json().catch(() => ({}))) as PreviewResponse & { error?: string };
       if (!response.ok) { setError(data.error ?? "Analyse impossible."); setBusy(false); return; }
@@ -91,9 +98,9 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
       setRows(data.rows.map((row) => ({
         ...row,
         include: row.status !== "error" && row.status !== "duplicate_certain",
-        createInstrument: false,
+        createInstrument: data.mode === "snapshot" && !row.instrumentHoldingId,
       })));
-      setStep(3);
+      setStep(data.mode === "snapshot" ? 4 : 3);
     } catch {
       setError("Réseau indisponible.");
     }
@@ -108,8 +115,12 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
       form.append("file", file);
       form.append("accountId", account.id);
       const response = await authenticatedFetch("/api/investment-imports/scan", { method: "POST", body: form });
-      const data = (await response.json().catch(() => ({}))) as (PreviewResponse & { error?: string });
-      if (!response.ok) { setError(data.error ?? "Analyse IA impossible."); setBusy(false); return; }
+      const data = (await response.json().catch(() => ({}))) as (PreviewResponse & { error?: string; code?: string });
+      if (!response.ok) {
+        const documentHint = data.document?.institution ? ` Document reconnu : ${data.document.institution}${data.document.period ? ` · période ${data.document.period}` : ""}.` : "";
+        setError(`${data.error ?? "Analyse IA impossible."}${documentHint}`);
+        setBusy(false); return;
+      }
       setPreview(data);
       setRows(data.rows.map((row) => {
         const editable = row as EditableRow;
@@ -142,25 +153,47 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
     // Instruments à créer (uniquement ceux cochés, non reconnus, avec au moins un identifiant).
     const newInstruments = included
       .filter((row) => row.createInstrument && !row.instrumentHoldingId)
-      .map((row) => ({ isin: row.op.isin, ticker: row.op.ticker, name: row.op.instrumentName ?? row.op.ticker ?? row.op.isin, assetType: "other", currency: row.op.currency }))
+      .map((row) => ({
+        isin: row.op.isin,
+        ticker: row.op.ticker,
+        name: row.op.instrumentName ?? row.op.ticker ?? row.op.isin,
+        assetType: "other",
+        currency: row.op.currency,
+        lastPrice: row.snapshot?.lastPrice ?? null,
+        lastPriceAt: row.snapshot?.asOfDate ?? null,
+      }))
       .filter((instrument) => instrument.name);
+    const portfolioSnapshot = preview.mode === "snapshot" && preview.snapshot
+      ? {
+          asOfDate: preview.snapshot.asOfDate,
+          positions: included.map((row) => ({
+            isin: row.op.isin,
+            ticker: row.op.ticker,
+            name: row.op.instrumentName,
+            currency: row.op.currency,
+            lastPrice: row.snapshot?.lastPrice ?? null,
+            lastPriceAt: row.snapshot?.asOfDate ?? preview.snapshot?.asOfDate ?? null,
+          })),
+        }
+      : undefined;
     try {
       const response = await authenticatedFetch("/api/investment-imports/commit", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           accountId: account.id, filename: file?.name, sourceKind: mode === "ai" ? "ai_scan" : "file",
-          fileType: mode === "ai" ? (file?.type.includes("pdf") ? "pdf" : "image") : (file?.name.toLowerCase().endsWith(".xlsx") ? "xlsx" : "csv"),
+          fileType: mode === "ai" ? (file?.type.includes("pdf") ? "pdf" : "image") : (file?.name.toLowerCase().endsWith(".xls") ? "xls" : file?.name.toLowerCase().endsWith(".xlsx") ? "xlsx" : "csv"),
           mapping: mode === "ai" ? null : mapping,
           operations: included.map((row) => row.op),
           newInstruments,
+          portfolioSnapshot,
         }),
       });
-      const data = (await response.json().catch(() => ({}))) as { imported?: number; duplicates?: number; newInstruments?: number; error?: string; invalidLines?: Array<{ line: number; error: string }> };
+      const data = (await response.json().catch(() => ({}))) as { imported?: number; duplicates?: number; newInstruments?: number; tracking?: "complete" | "limited"; error?: string; invalidLines?: Array<{ line: number; error: string }> };
       if (!response.ok) {
         setError(data.error ?? "Import impossible." + (data.invalidLines?.length ? ` (${data.invalidLines.length} ligne(s) invalide(s))` : ""));
         setBusy(false); return;
       }
-      setResult({ imported: data.imported ?? 0, duplicates: data.duplicates ?? 0, newInstruments: data.newInstruments ?? 0 });
+      setResult({ imported: data.imported ?? 0, duplicates: data.duplicates ?? 0, newInstruments: data.newInstruments ?? 0, tracking: data.tracking });
       setStep(6);
       onDone();
     } catch {
@@ -220,17 +253,20 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                 role="button" tabIndex={0}
                 onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") inputRef.current?.click(); }}
               >
-                <input ref={inputRef} type="file"
-                  accept={mode === "ai" ? ".pdf,image/png,image/jpeg,image/webp,application/pdf" : ".csv,.txt,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+          <input ref={inputRef} type="file"
+                  accept={mode === "ai" ? ".pdf,image/png,image/jpeg,image/webp,application/pdf" : ".csv,.txt,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
                   hidden onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
                 <span className="imp-drop-icon" aria-hidden="true">{mode === "ai" ? "🧾" : "📄"}</span>
-                <strong>{file ? file.name : mode === "ai" ? "Glissez un PDF ou une image de relevé, ou cliquez" : "Glissez un fichier CSV ou XLSX ici, ou cliquez pour choisir"}</strong>
-                <small>{mode === "ai" ? "PDF, PNG, JPG ou WEBP. Relevés numériques nets de préférence." : "Formats acceptés : CSV ou XLSX. Taille max 2 Mo."}</small>
+                <strong>{file ? file.name : mode === "ai" ? "Glissez un PDF ou une image de relevé, ou cliquez" : "Glissez un fichier CSV ou Excel ici, ou cliquez pour choisir"}</strong>
+                <small>{mode === "ai" ? "PDF, PNG, JPG ou WEBP. Relevés numériques nets de préférence." : "Formats acceptés : CSV, XLS ou XLSX. Taille max 2 Mo."}</small>
               </div>
               {mode === "file" ? (
                 <div className="imp-templates">
                   <button type="button" className="btc-link" onClick={() => download(`modele-import-${account.kind.toLowerCase()}.csv`, buildTemplateCsv())}>⬇ Télécharger le modèle CSV</button>
-                  <span className="imp-hint">Le modèle contient des lignes d’exemple (versement, achat, dividende, frais, vente) — à remplacer par vos données.</span>
+                  <span className="imp-hint">Le modèle contient des opérations. Un relevé avec Libellé, Qté, PRU, Cours et ISIN sera reconnu comme portefeuille instantané.</span>
+                  <label className="imp-inline">Date du relevé (si absente du fichier)
+                    <input type="date" value={snapshotDate} onChange={(event) => setSnapshotDate(event.target.value)} />
+                  </label>
                 </div>
               ) : (
                 <p className="imp-hint">L’IA lit le document et propose des opérations à vérifier. Aucune donnée n’est enregistrée automatiquement. Le fichier n’est pas conservé. L’écriture manuscrite, les photos floues ou les relevés protégés ne sont pas garantis — préférez alors le CSV ou la saisie manuelle.</p>
@@ -274,7 +310,9 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
           {/* Étape 4 — prévisualisation + correction */}
           {step === 4 && preview && summary && (
             <div className="imp-panel">
-              {mode === "ai" && <p className="imp-ai-banner" role="note">✨ Les données ont été extraites automatiquement. Vérifiez-les avant de confirmer. Les lignes à faible confiance sont décochées par défaut.</p>}
+              {mode === "ai" && <p className="imp-ai-banner" role="note">✨ Lecture et retranscription terminées{preview.provider ? ` avec ${preview.provider}` : ""}. Vérifiez les données avant de confirmer. Les lignes à faible confiance sont décochées par défaut.</p>}
+              {preview.mode === "snapshot" && <p className="imp-ai-banner" role="note">📊 Relevé de portefeuille détecté — date du relevé : {preview.snapshot?.asOfDate ?? "—"}. Les positions seront enregistrées comme solde initial, puis valorisées avec le cours fourni. Le flux est identique pour le PEA et le compte-titres.</p>}
+              {mode === "ai" && preview.document && <p className="imp-hint">Document reconnu : {preview.document.institution ?? "établissement non identifié"}{preview.document.holder ? ` · ${preview.document.holder}` : ""}{preview.document.period ? ` · ${preview.document.period}` : ""}.</p>}
               <div className="imp-summary">
                 <span><b>{summary.total}</b> lignes</span>
                 <span className="imp-ok"><b>{included.filter((r) => r.errors.length === 0).length}</b> à importer</span>
@@ -286,7 +324,7 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
               <label className="imp-inline"><input type="checkbox" checked={filter === "anomalies"} onChange={(event) => setFilter(event.target.checked ? "anomalies" : "all")} /> N’afficher que les anomalies</label>
               <div className="responsive-table imp-table-wrap">
                 <table className="btc-table imp-table">
-                  <thead><tr><th>#</th><th>Statut</th><th>Date</th><th>Type</th><th>Instrument</th><th>Qté</th><th>Prix</th><th>Montant</th><th>Devise</th>{mode === "ai" && <th>Confiance IA</th>}<th>Importer</th></tr></thead>
+                  <thead><tr><th>#</th><th>Statut</th><th>Date</th><th>Type</th><th>Instrument</th><th>Qté</th><th>{preview.mode === "snapshot" ? "PRU" : "Prix"}</th>{preview.mode === "snapshot" && <th>Cours</th>}{preview.mode === "snapshot" && <th>Var./veille</th>}<th>{preview.mode === "snapshot" ? "Valorisation" : "Montant"}</th>{preview.mode === "snapshot" && <th>+/- value</th>}<th>Devise</th>{mode === "ai" && <th>Confiance IA</th>}<th>Importer</th></tr></thead>
                   <tbody>
                     {visibleRows.map((row) => {
                       const unknownInstrument = !row.instrumentHoldingId && (row.op.type === "achat" || row.op.type === "vente" || row.op.type === "dividende" || row.op.type === "transfer_in" || row.op.type === "transfer_out");
@@ -311,7 +349,10 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                           </td>
                           <td className="num">{row.op.quantity ?? "—"}</td>
                           <td className="num">{row.op.unitPrice ?? "—"}</td>
-                          <td className="num">{row.op.amount ?? "—"}</td>
+                          {preview.mode === "snapshot" && <td className="num">{row.snapshot?.lastPrice ?? "—"}</td>}
+                          {preview.mode === "snapshot" && <td className="num">{row.snapshot?.dayChangePct === null || row.snapshot?.dayChangePct === undefined ? "—" : `${row.snapshot.dayChangePct} %`}</td>}
+                          <td className="num">{preview.mode === "snapshot" ? (row.snapshot?.currentValue ?? "—") : (row.op.amount ?? "—")}</td>
+                          {preview.mode === "snapshot" && <td className="num">{row.snapshot?.gainEur ?? "—"}{row.snapshot?.gainPct === null || row.snapshot?.gainPct === undefined ? "" : ` (${row.snapshot.gainPct} %)`}</td>}
                           <td>{row.op.currency}</td>
                           {mode === "ai" && (
                             <td>
@@ -356,6 +397,7 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
               <span className="imp-result-icon" aria-hidden="true">✓</span>
               <h3>Import terminé</h3>
               <p><b>{result.imported}</b> opération(s) importée(s){result.duplicates ? `, ${result.duplicates} doublon(s) exclus` : ""}{result.newInstruments ? `, ${result.newInstruments} instrument(s) créé(s)` : ""}.</p>
+              {result.tracking === "limited" && <p className="imp-hint">Import enregistré. La migration de traçabilité des imports n&apos;est pas encore appliquée : le portefeuille fonctionne, mais l&apos;historique détaillé et le dédoublonnage inter-imports seront complets après application de la migration Supabase.</p>}
               <p className="imp-hint">Le portefeuille (valeur, positions, prix de revient) a été recalculé à partir des opérations.</p>
               <div className="pea-form-actions">
                 <button type="button" className="primary-button" onClick={onClose}>Terminer</button>

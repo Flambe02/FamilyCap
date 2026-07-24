@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateExtraction, DEFAULT_THRESHOLDS } from "../lib/document-extraction/extract.ts";
+import { validateExtraction, normalizeRawExtraction, DEFAULT_THRESHOLDS } from "../lib/document-extraction/extract.ts";
 
 const f = (value, confidence = 0.95, page = 1) => ({ value, confidence, page });
 const opts = { accountCurrency: "EUR" };
@@ -78,4 +78,20 @@ test("validateExtraction : document (compte détecté)", () => {
 
 test("validateExtraction : seuils par défaut cohérents", () => {
   assert.ok(DEFAULT_THRESHOLDS.high > DEFAULT_THRESHOLDS.low);
+});
+
+test("normalizeRawExtraction : accepte les valeurs directes renvoyées par un modèle", () => {
+  const raw = normalizeRawExtraction({
+    transactions: [{
+      operation_date: "2026-07-15", action: "buy", assetName: "Air Liquide",
+      quantity: 2, price: 176.5, amount: 353, currency: "EUR", sourceText: "15/07 Achat Air Liquide 2 x 176,50",
+    }],
+  });
+  const { operations } = validateExtraction(raw, opts);
+  assert.equal(operations.length, 1);
+  assert.equal(operations[0].op.type, "achat");
+  assert.equal(operations[0].op.quantity, 2);
+  assert.equal(operations[0].op.unitPrice, 176.5);
+  assert.equal(operations[0].op.amount, 353);
+  assert.equal(operations[0].band, "medium");
 });

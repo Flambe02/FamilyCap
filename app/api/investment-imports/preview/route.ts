@@ -3,7 +3,10 @@ import {
   parseCsv, autoMapHeaders, buildPreview, detectDateFormat, IMPORT_FIELDS,
   type ImportField, type DateFormat,
 } from "../../../../lib/investment-import";
-import { parseXlsx, tableToHeaderRows } from "../../../../lib/xlsx-lite";
+import { parseSpreadsheet, tableToHeaderRows } from "../../../../lib/xlsx-lite";
+import {
+  autoMapSnapshotHeaders, buildSnapshotPreview, extractSnapshotDate, isPortfolioSnapshotHeader,
+} from "../../../../lib/portfolio-snapshot-import";
 import {
   loadImportAccount, loadImportContext, isOperationAccount, MAX_FILE_BYTES, MAX_ROWS,
 } from "../../../../lib/investment-import-server";
@@ -43,6 +46,7 @@ export async function POST(request: Request) {
     const file = form.get("file");
     const accountId = String(form.get("accountId") ?? "").trim();
     const dateFormatRaw = String(form.get("dateFormat") ?? "").trim();
+    const snapshotDateRaw = String(form.get("snapshotDate") ?? "").trim();
     const mappingOverride = parseMapping(form.get("mapping") ? String(form.get("mapping")) : null);
 
     if (!accountId) return Response.json({ error: "Le compte est obligatoire." }, { status: 400 });
@@ -60,22 +64,55 @@ export async function POST(request: Request) {
 
     let header: string[];
     let rows: string[][];
+    let preamble: string[][] = [];
     if (kind === "xlsx") {
       try {
-        const matrix = parseXlsx(Buffer.from(await file.arrayBuffer()));
-        ({ header, rows } = tableToHeaderRows(matrix));
+        const matrix = parseSpreadsheet(Buffer.from(await file.arrayBuffer()));
+        ({ header, rows, preamble } = tableToHeaderRows(matrix));
       } catch (parseError) {
         const message = parseError instanceof Error ? parseError.message : "XLSX illisible.";
         return Response.json({ error: `${message} Vous pouvez exporter le relevé en CSV puis réessayer.` }, { status: 422 });
       }
     } else {
-      ({ header, rows } = parseCsv(await file.text()));
+      const parsed = parseCsv(await file.text());
+      ({ header, rows, preamble } = tableToHeaderRows([parsed.header, ...parsed.rows]));
     }
     if (header.length === 0 || rows.length === 0) return Response.json({ error: "Aucune ligne de données détectée (vérifiez l'en-tête et le séparateur)." }, { status: 422 });
     if (rows.length > MAX_ROWS) return Response.json({ error: `Trop de lignes (${rows.length} > ${MAX_ROWS}). Fractionnez le fichier.` }, { status: 413 });
 
-    const mapping = mappingOverride ?? autoMapHeaders(header);
     const context = await loadImportContext(account);
+    if (isPortfolioSnapshotHeader(header)) {
+      const asOfDate = extractSnapshotDate(preamble, snapshotDateRaw);
+      if (!asOfDate) {
+        return Response.json({
+          error: "Ce fichier ressemble à un relevé de portefeuille. La date du relevé est obligatoire (format JJ/MM/AAAA).",
+          code: "snapshot_date_required",
+          mode: "snapshot",
+          columns: header,
+        }, { status: 422 });
+      }
+      const snapshot = buildSnapshotPreview({
+        rows,
+        mapping: autoMapSnapshotHeaders(header),
+        asOfDate,
+        accountCurrency: account.currency,
+        holdings: context.holdings,
+      });
+      return Response.json({
+        mode: "snapshot",
+        snapshot: { asOfDate, positions: snapshot.positions },
+        account: { id: account.id, name: account.name, kind: context.kind, currency: account.currency, memberName: account.memberName },
+        columns: header,
+        mapping: autoMapHeaders(header),
+        dateFormat: "fr",
+        allowAdvanced: context.allowAdvanced,
+        knownHoldings: context.holdings,
+        summary: snapshot.summary,
+        rows: snapshot.rows,
+      });
+    }
+
+    const mapping = mappingOverride ?? autoMapHeaders(header);
     const dateFormat: DateFormat = (dateFormatRaw === "fr" || dateFormatRaw === "us" || dateFormatRaw === "iso")
       ? dateFormatRaw
       : detectDateFormat(rows.map((r) => (mapping.date >= 0 ? r[mapping.date] ?? "" : "")));

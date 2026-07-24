@@ -10,6 +10,7 @@
 // (l'appelant proposera l'export CSV).
 
 import { inflateRawSync } from "node:zlib";
+import * as XLSX from "xlsx";
 
 type ZipEntry = { name: string; method: number; compressedSize: number; localHeaderOffset: number };
 
@@ -143,9 +144,57 @@ export function parseXlsx(buffer: Buffer): string[][] {
   return parseSheet(extractEntry(buffer, sheetEntry), shared);
 }
 
+/**
+ * Lit les anciens .xls BIFF et les .xlsx modernes. Cette fonction est serveur uniquement :
+ * le navigateur ne reçoit jamais le classeur ni la dépendance Excel.
+ */
+export function parseSpreadsheet(buffer: Buffer): string[][] {
+  const workbook = XLSX.read(buffer, {
+    type: "buffer",
+    cellDates: false,
+    raw: false,
+    dateNF: "dd/mm/yyyy",
+  });
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0] ?? ""];
+  if (!firstSheet) throw new Error("Classeur Excel vide (aucune feuille trouvée).");
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, {
+    header: 1,
+    raw: false,
+    defval: "",
+    blankrows: true,
+  });
+  return rows.map((row) => row.map((cell) => String(cell ?? "")));
+}
+
 /** Découpe un tableau brut (XLSX/CSV) en en-tête + lignes de données (ignore les lignes vides). */
-export function tableToHeaderRows(matrix: string[][]): { header: string[]; rows: string[][] } {
+export function tableToHeaderRows(matrix: string[][]): { header: string[]; rows: string[][]; preamble: string[][] } {
   const nonEmpty = matrix.filter((r) => r.some((c) => String(c ?? "").trim() !== ""));
-  const header = (nonEmpty[0] ?? []).map((c) => String(c ?? "").trim());
-  return { header, rows: nonEmpty.slice(1) };
+  if (nonEmpty.length === 0) return { header: [], rows: [], preamble: [] };
+
+  // Les exports de courtiers placent souvent le portefeuille, le titulaire et la date
+  // avant la vraie ligne d'en-tête. On choisit la ligne qui ressemble le plus à un tableau
+  // financier, sans imposer un format unique PEA/CTO.
+  const keywords = new Set([
+    "date", "type", "operation", "libelle", "valeur", "cours", "prix", "dev", "devise",
+    "qte", "quantite", "quantity", "pru", "valorisation", "montant", "isin", "poids",
+    "ticker", "symbol", "amount", "price", "quantity", "currency",
+  ]);
+  const keyOf = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const score = (row: string[]) => row.reduce((total, cell) => {
+    const key = keyOf(String(cell ?? ""));
+    return total + (keywords.has(key) ? 1 : 0);
+  }, 0);
+
+  let headerIndex = 0;
+  let bestScore = score(nonEmpty[0] ?? []);
+  for (let index = 1; index < nonEmpty.length; index++) {
+    const candidateScore = score(nonEmpty[index]);
+    if (candidateScore > bestScore) {
+      headerIndex = index;
+      bestScore = candidateScore;
+    }
+  }
+  const header = (nonEmpty[headerIndex] ?? []).map((c) => String(c ?? "").trim());
+  return { header, rows: nonEmpty.slice(headerIndex + 1), preamble: nonEmpty.slice(0, headerIndex) };
 }

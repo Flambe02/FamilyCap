@@ -3,7 +3,7 @@
 // getDocumentProvider().extract(...) et reçoit une RawExtraction, validée ensuite par extract.ts.
 // La clé d'API n'est JAMAIS envoyée au navigateur (aucune variable préfixée NEXT_PUBLIC_).
 
-import { EXTRACTION_JSON_INSTRUCTION, type RawExtraction, DEFAULT_THRESHOLDS, type ExtractionThresholds } from "./extract.ts";
+import { EXTRACTION_JSON_INSTRUCTION, normalizeRawExtraction, type RawExtraction, DEFAULT_THRESHOLDS, type ExtractionThresholds } from "./extract.ts";
 
 export type ExtractInput = { base64: string; mediaType: string; filename: string };
 export type DocumentProvider = { name: string; extract(input: ExtractInput): Promise<RawExtraction> };
@@ -50,7 +50,7 @@ function parseJsonBlock(text: string): RawExtraction {
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("Réponse IA sans JSON exploitable.");
-  return JSON.parse(candidate.slice(start, end + 1)) as RawExtraction;
+  return normalizeRawExtraction(JSON.parse(candidate.slice(start, end + 1)));
 }
 
 // Fournisseur Anthropic (Claude) via l'API Messages, en fetch brut (aucune dépendance SDK).
@@ -92,7 +92,17 @@ function anthropicProvider(config: DocumentAiConfig): DocumentProvider {
   };
 }
 
-// Fournisseur OpenAI (Vision) — squelette symétrique ; activé via OPENAI_API_KEY + DOCUMENT_AI_PROVIDER=openai.
+function responseText(data: { output_text?: string; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> }): string {
+  if (data.output_text) return data.output_text;
+  return (data.output ?? [])
+    .flatMap((message) => message.content ?? [])
+    .filter((content) => content.type === "output_text")
+    .map((content) => content.text ?? "")
+    .join("\n");
+}
+
+// Fournisseur OpenAI. Les images passent par Chat Completions ; les PDF passent par Responses
+// et input_file, car un PDF n'est pas une image_url valide.
 function openaiProvider(config: DocumentAiConfig): DocumentProvider {
   return {
     name: "openai",
@@ -102,25 +112,41 @@ function openaiProvider(config: DocumentAiConfig): DocumentProvider {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 60000);
       try {
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        const isPdf = input.mediaType === "application/pdf";
+        const endpoint = isPdf ? "https://api.openai.com/v1/responses" : "https://api.openai.com/v1/chat/completions";
+        const body = isPdf
+          ? {
+              model: config.model,
+              input: [{
+                role: "user",
+                content: [
+                  { type: "input_text", text: `${EXTRACTION_JSON_INSTRUCTION}\n\nExtrais le compte et toutes les opérations de ce relevé (${input.filename}). Maximum ${config.maxPages} pages.` },
+                  { type: "input_file", filename: input.filename, file_data: `data:${input.mediaType};base64,${input.base64}` },
+                ],
+              }],
+              text: { format: { type: "json_object" } },
+            }
+          : {
+              model: config.model,
+              response_format: { type: "json_object" },
+              messages: [
+                { role: "system", content: EXTRACTION_JSON_INSTRUCTION },
+                { role: "user", content: [
+                  { type: "text", text: `Extrais le compte et toutes les opérations de ce relevé (${input.filename}). Si une ligne est lisible mais incertaine, inclus-la avec une confiance basse et un avertissement.` },
+                  { type: "image_url", image_url: { url: `data:${input.mediaType};base64,${input.base64}`, detail: "high" } },
+                ] },
+              ],
+            };
+        const response = await fetch(endpoint, {
           method: "POST",
           headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
           signal: controller.signal,
-          body: JSON.stringify({
-            model: config.model,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: EXTRACTION_JSON_INSTRUCTION },
-              { role: "user", content: [
-                { type: "text", text: `Extrais le compte et toutes les opérations de ce relevé (${input.filename}).` },
-                { type: "image_url", image_url: { url: `data:${input.mediaType};base64,${input.base64}` } },
-              ] },
-            ],
-          }),
+          body: JSON.stringify(body),
         });
         if (!response.ok) throw new Error(`Fournisseur IA: ${response.status} ${(await response.text().catch(() => "")).slice(0, 200)}`);
-        const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        return parseJsonBlock(data.choices?.[0]?.message?.content ?? "");
+        const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; output_text?: string; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
+        const text = isPdf ? responseText(data) : data.choices?.[0]?.message?.content ?? "";
+        return parseJsonBlock(text);
       } finally {
         clearTimeout(timer);
       }
