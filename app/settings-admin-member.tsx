@@ -224,11 +224,14 @@ function MemberAccount({ member, onSaved }: { member: AdminMember; onSaved: () =
         {photoUrl
           ? <img className="avatar admin set-avatar" src={photoUrl} alt="" aria-hidden="true" />
           : <span className="avatar admin set-avatar" aria-hidden="true">{initials}</span>}
-        <div>
-          <strong>{member.name}</strong><span>{roleLabel(member.role)}</span>
+        <div className="set-account-identity">
+          <div className="set-account-heading">
+            <strong>{member.name}</strong>
+            <span className="set-role-badge">{roleLabel(member.role)}</span>
+          </div>
           <div className="set-avatar-actions">
             <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void pickPhoto(file); }} />
-            <button type="button" className="set-btn" onClick={() => photoInputRef.current?.click()} disabled={photoBusy}>{photoBusy ? "Envoi…" : photoUrl ? "Changer la photo" : "Ajouter une photo"}</button>
+            <button type="button" className="set-btn-primary" onClick={() => photoInputRef.current?.click()} disabled={photoBusy}>{photoBusy ? "Envoi…" : photoUrl ? "Changer la photo" : "Ajouter une photo"}</button>
             {photoUrl && <button type="button" className="set-btn set-btn-quiet" onClick={() => void clearPhoto()} disabled={photoBusy}>Supprimer</button>}
           </div>
           {photoError && <p className="set-message error" role="status">{photoError}</p>}
