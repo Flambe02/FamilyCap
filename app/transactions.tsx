@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { saveGift, savePersonalInvestment } from "../lib/gifts-client";
-import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, MEMBER_NAMES, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 import "./transactions.css";
@@ -56,21 +55,9 @@ function addLedgerCostBasis(map: Map<string, LedgerCostBasis>, key: string, cost
   map.set(key, { costEur: current.costEur + costEur, quantityBtc: current.quantityBtc + quantityBtc });
 }
 
-export const initialTransactions: TransactionRecord[] = GIFT_HISTORY.map((gift) => ({
-  id: `history-${gift.member.toLowerCase()}-${gift.occasion}-${gift.giftDate}`,
-  date: gift.giftDate,
-  member: gift.member,
-  kind: gift.occasion,
-  asset: "Bitcoin",
-  account: "À rapprocher : Ledger ou Binance commun",
-  amount: gift.amountEur,
-  quantity: gift.btcAmount,
-  author: "Administrateur",
-  authorRole: "Administrateur",
-  status: "À compléter",
-  reference: "Tableau familial",
-  note: gift.note,
-}));
+// Les cadeaux historiques sont fournis par /api/gifts après authentification.
+// Aucun montant financier n'est embarqué dans le bundle client initial.
+export const initialTransactions: TransactionRecord[] = [];
 
 const memberNames = MEMBER_NAMES;
 const memberBirthdays = FAMILY_MEMBERS.map((member) => ({ member: member.name, monthDay: BIRTHDAY_MONTH_DAY[member.name] }));
@@ -101,13 +88,13 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
         fetch(isAdmin ? "/api/ledger" : "/api/ledger?priceOnly=1", { signal: controller.signal, headers }),
       ]);
       if (!giftResponse.ok || !ledgerResponse.ok) throw new Error("Historique financier indisponible");
-      const giftResult = await giftResponse.json() as { records?: GiftApiRecord[] };
+      const giftResult = await giftResponse.json() as { records?: GiftApiRecord[]; deletedRecords?: GiftApiRecord[] };
       const ledgerResult = await ledgerResponse.json() as { bitcoinEur?: number | null; wallets?: Array<{ member: string; transactions?: Array<{ txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number }> }> };
       const nextBitcoinEur = Number(ledgerResult.bitcoinEur);
       setBitcoinEur(Number.isFinite(nextBitcoinEur) && nextBitcoinEur > 0 ? nextBitcoinEur : null);
       const giftRecords = giftResult.records ?? [];
-      setDeletedGiftKeys(giftRecords.filter((record) => record.is_deleted).map((record) => record.member_name + "|" + record.occasion + "|" + record.gift_date.slice(0, 4)));
-      setGiftTransactions(giftRecords.filter((record) => !record.is_deleted).filter((record) => record.gift_date > "2025-12-31" || GIFT_HISTORY.some((gift) => gift.member === record.member_name && gift.occasion === record.occasion && gift.giftDate.slice(0, 4) === record.gift_date.slice(0, 4))).map((record) => ({
+      setDeletedGiftKeys((giftResult.deletedRecords ?? []).map((record) => record.member_name + "|" + record.occasion + "|" + record.gift_date.slice(0, 4)));
+      setGiftTransactions(giftRecords.filter((record) => !record.is_deleted).map((record) => ({
         id: "gift-" + record.id,
         date: record.gift_date,
         member: record.member_name,

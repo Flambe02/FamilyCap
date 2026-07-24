@@ -20,13 +20,11 @@ function isIOS() {
 
 export function InstallAppCard() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installed, setInstalled] = useState(false);
+  const [installed, setInstalled] = useState(isStandalone);
   const [message, setMessage] = useState("");
-  const [ios, setIos] = useState(false);
+  const [ios] = useState(isIOS);
 
   useEffect(() => {
-    setInstalled(isStandalone());
-    setIos(isIOS());
     function onBeforeInstall(event: Event) {
       event.preventDefault();
       setDeferredPrompt(event as BeforeInstallPromptEvent);

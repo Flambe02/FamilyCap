@@ -146,6 +146,12 @@ export async function PATCH(request: Request) {
     if (next.status === "completed" && !next.completedAt) next.completedAt = now;
     if (next.status === "deferred") next.deferredAt = now;
 
+    // Appliquer d'abord la portée réelle : en cas d'échec, on ne persiste pas un état
+    // d'onboarding qui prétendrait que la confidentialité a été configurée.
+    if (typeof body.privacyChoice === "string" && PRIVACY.has(body.privacyChoice as PrivacyChoice)) {
+      await applyPrivacyScope(targetId, body.privacyChoice as PrivacyChoice);
+    }
+
     await supabaseRest("user_onboarding?on_conflict=member_id", {
       method: "POST",
       headers: { prefer: "resolution=merge-duplicates,return=minimal" },
@@ -164,12 +170,6 @@ export async function PATCH(request: Request) {
         updated_at: now,
       }),
     });
-
-    // Le choix de confidentialité n'est appliqué au périmètre réel que lorsqu'il est explicitement
-    // fourni dans cette requête (jamais en rejouant l'état, jamais en mode visite).
-    if (typeof body.privacyChoice === "string" && PRIVACY.has(body.privacyChoice as PrivacyChoice)) {
-      await applyPrivacyScope(targetId, body.privacyChoice as PrivacyChoice).catch(() => undefined);
-    }
 
     return Response.json({ saved: true, state: next });
   } catch (error) {

@@ -6,7 +6,6 @@ import { TransferRequest } from "./back-office";
 import type { Viewer } from "../lib/auth-types";
 import { GiftPortfolio } from "./gift-portfolio";
 import { saveGift } from "../lib/gifts-client";
-import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import "./administration.css";
 
@@ -108,33 +107,21 @@ function GiftSynthesis() {
   useEffect(() => { const timer = window.setTimeout(() => { void load().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Synthèse indisponible.")); }, 0); return () => window.clearTimeout(timer); }, [load]);
 
   const records = useMemo(() => {
-    const storedByKey = new Map<string, GiftSummaryRecord>();
-    for (const gift of stored) {
-      const key = summaryKey(gift.member_name, gift.occasion, gift.gift_date);
-      const current = storedByKey.get(key);
-      if (!current || (current.is_deleted && !gift.is_deleted)) storedByKey.set(key, gift);
-    }
-    const history = GIFT_HISTORY.flatMap((gift) => {
-      const saved = storedByKey.get(summaryKey(gift.member, gift.occasion, gift.giftDate));
-      if (saved?.is_deleted) return [];
-      return [saved ? { ...saved, member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate, purchase_date: saved.purchase_date || gift.purchaseDate, amount_eur: saved.amount_eur, btc_amount: saved.btc_amount, note: saved.note ?? gift.note } : {
-        member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate, purchase_date: gift.purchaseDate, amount_eur: gift.amountEur, btc_amount: gift.btcAmount, custody: "Binance commun" as const, note: gift.note,
-      }];
-    });
-    const historicalKeys = new Set(GIFT_HISTORY.map((gift) => summaryKey(gift.member, gift.occasion, gift.giftDate)));
-    return [...history, ...stored.filter((gift) => !historicalKeys.has(summaryKey(gift.member_name, gift.occasion, gift.gift_date)) && !gift.is_deleted)];
+    return stored.filter((gift) => !gift.is_deleted);
   }, [stored]);
 
   const periods = useMemo(() => {
     const unique = new Map<string, GiftPeriod>();
-    for (const gift of GIFT_HISTORY) unique.set(`${gift.occasion}:${gift.giftDate}:${gift.occasion === "Anniversaire" ? gift.member : "all"}`, { date: gift.giftDate, occasion: gift.occasion, member: gift.occasion === "Anniversaire" ? gift.member : undefined });
+    for (const gift of stored.filter((record) => !record.is_deleted)) {
+      if (gift.occasion === "Anniversaire" || gift.occasion === "Noël") unique.set(`${gift.occasion}:${gift.gift_date}:${gift.occasion === "Anniversaire" ? gift.member_name : "all"}`, { date: gift.gift_date, occasion: gift.occasion, member: gift.occasion === "Anniversaire" ? gift.member_name : undefined });
+    }
     for (const member of giftSummaryMembers) {
       const date = `${currentYear}-${birthdayDates[member.name]}`;
       unique.set(`Anniversaire:${date}:${member.name}`, { date, occasion: "Anniversaire", member: member.name });
     }
     unique.set(`Noël:${currentYear}-12-25:all`, { date: `${currentYear}-12-25`, occasion: "Noël" });
     return [...unique.values()].sort((left,right) => left.date.localeCompare(right.date));
-  }, [currentYear]);
+  }, [currentYear, stored]);
   const availableYears = useMemo(() => [...new Set(periods.map((period) => Number(period.date.slice(0, 4))))].filter(Number.isFinite).sort((left, right) => right - left), [periods]);
   const activeYear = availableYears.includes(selectedYear) ? selectedYear : (availableYears[0] ?? currentYear);
   const yearPeriods = useMemo(() => periods.filter((period) => Number(period.date.slice(0, 4)) === activeYear), [activeYear, periods]);

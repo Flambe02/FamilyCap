@@ -18,7 +18,6 @@ import {
 const ledgerWithFee = { custody: "Ledger", btc_amount: 0.00061163, ledger_amount: 0.00059163, txid: "58354c88" };
 const ledgerNoFee = { custody: "Ledger", btc_amount: 0.00053083, ledger_amount: 0.00053083, txid: "58354c88" };
 const onBinance = { custody: "Binance commun", btc_amount: 0.001, ledger_amount: null };
-const toReconcile = { custody: "À rapprocher", btc_amount: 0.002, ledger_amount: null };
 
 test("un transfert Ledger net de frais n'est PAS considere comme Binance", () => {
   assert.equal(isLedgerGift(ledgerWithFee), true);

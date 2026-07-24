@@ -354,7 +354,15 @@ function OperationList({ operations, onOpen }: { operations: ReturnType<typeof c
         const icon: string = op.custody === "Ledger" ? "🛡️" : op.origin === "cadeau_amatxi" ? "🎁" : op.origin === "investissement_personnel" ? "📈" : "👥";
         const place = op.custody === "Ledger" ? "Ledger" : op.custody === "À classer" ? "À classer" : "Binance";
         return (
-          <li key={op.key} className={onOpen ? "clickable" : undefined} onClick={onOpen ? () => onOpen(op.member) : undefined}>
+          <li
+            key={op.key}
+            className={onOpen ? "clickable" : undefined}
+            role={onOpen ? "button" : undefined}
+            tabIndex={onOpen ? 0 : undefined}
+            aria-label={onOpen ? `Voir les opérations de ${op.member}` : undefined}
+            onClick={onOpen ? () => onOpen(op.member) : undefined}
+            onKeyDown={onOpen ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(op.member); } } : undefined}
+          >
             <span className="btc-ops-mark" aria-hidden="true">{icon}</span>
             <div className="btc-ops-info"><strong>{op.label}</strong><small>{op.member}</small></div>
             <div className="btc-ops-amount"><b>+{op.btcAmount.toFixed(8)} BTC</b><small>{euro.format(op.amountEur)}</small></div>

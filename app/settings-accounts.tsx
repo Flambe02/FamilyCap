@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { Viewer } from "../lib/auth-types";
 import type { View } from "../lib/navigation";
 import { supabaseBrowser } from "../lib/supabase-browser";
-import { GIFT_HISTORY } from "../lib/gift-history";
 import { SettingsSection } from "./settings-ui";
 
 // Écran « Mes comptes » : vue simple des comptes appartenant au membre (Bitcoin cadeaux réels +
@@ -22,8 +21,6 @@ const TYPE_LABELS: Record<string, string> = {
   bitcoin: "Bitcoin", pea: "PEA", securities: "Compte-titres", bank: "Compte courant",
   savings: "Épargne", crypto_exchange: "Plateforme crypto", other: "Autre",
 };
-
-function giftKey(member: string, occasion: string, date: string) { return `${member}|${occasion}|${date}`; }
 
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabaseBrowser.auth.getSession();
@@ -58,18 +55,10 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
       setVisible((accessBody?.scope ?? "family") === "family");
     }
 
-    // Bitcoin cadeaux : cadeaux du membre (Supabase + historique figé, Supabase prioritaire),
-    // valorisés au cours en direct — même logique que le tableau de bord, aucun montant fictif.
-    const db = (giftsBody.records ?? []).map((record) => ({ ...record, amount_eur: Number(record.amount_eur), btc_amount: Number(record.btc_amount), ledger_amount: record.ledger_amount == null ? null : Number(record.ledger_amount), is_deleted: Boolean(record.is_deleted) }));
-    const stored = new Map(db.map((record) => [giftKey(record.member_name, record.occasion, record.gift_date), record]));
-    const historyKeys = new Set(GIFT_HISTORY.map((gift) => giftKey(gift.member, gift.occasion, gift.giftDate)));
-    const history = GIFT_HISTORY.filter((gift) => gift.member === viewer.name).flatMap((gift) => {
-      const found = stored.get(giftKey(gift.member, gift.occasion, gift.giftDate));
-      if (found?.is_deleted) return [];
-      return [found ?? { member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate, amount_eur: gift.amountEur, btc_amount: gift.btcAmount, custody: undefined, ledger_amount: null, is_deleted: false }];
-    });
-    const extras = db.filter((record) => record.member_name === viewer.name && !record.is_deleted && !historyKeys.has(giftKey(record.member_name, record.occasion, record.gift_date)));
-    const memberGifts = [...history, ...extras];
+    // L'API renvoie les cadeaux actifs et l'historique fusionné dans le périmètre autorisé.
+    const memberGifts = (giftsBody.records ?? [])
+      .filter((record) => record.member_name === viewer.name && !record.is_deleted)
+      .map((record) => ({ ...record, amount_eur: Number(record.amount_eur), btc_amount: Number(record.btc_amount), ledger_amount: record.ledger_amount == null ? null : Number(record.ledger_amount) }));
     const btc = memberGifts.reduce((sum, record) => {
       const owned = record.custody === "Ledger" && Number(record.ledger_amount) > 0 ? Number(record.ledger_amount) : Number(record.btc_amount);
       return sum + Math.max(0, owned || 0);

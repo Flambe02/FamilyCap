@@ -33,7 +33,10 @@ export function AdminUsers() {
     if (!response.ok) throw new Error(result.error ?? "Chargement impossible");
     setUsers(result.users ?? []);
   }, []);
-  useEffect(() => { void loadUsers().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Supabase indisponible")); }, [loadUsers]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadUsers().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Supabase indisponible")); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadUsers]);
 
   async function request(path: string, init: RequestInit, fallback: string) {
     const response = await fetch(path, { ...init, headers: { ...(await authHeaders()), ...(init.headers ?? {}) } });

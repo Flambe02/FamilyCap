@@ -15,7 +15,10 @@ export function ContextualTip({ tipId, memberId, title, body, cta, onCta }: {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    try { setVisible(window.localStorage.getItem(tipKey(tipId, memberId)) !== "1"); } catch { setVisible(false); }
+    const timer = window.setTimeout(() => {
+      try { setVisible(window.localStorage.getItem(tipKey(tipId, memberId)) !== "1"); } catch { setVisible(false); }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [tipId, memberId]);
 
   if (!visible) return null;

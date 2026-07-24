@@ -11,7 +11,7 @@
 // Aucune donnée fictive : si une origine n'existe pas encore dans les données réelles,
 // son bucket vaut 0 et l'UI l'affiche honnêtement.
 
-import { computePurchasePriceData, type PurchaseSourceRecord } from "./gift-history";
+import { computePurchasePriceData, type PurchaseSourceRecord } from "./purchase-price";
 import { FAMILY_MEMBERS, type MemberColor } from "./family-roster";
 
 export type BitcoinGiftRecord = {

@@ -6,7 +6,6 @@ import type { TransferRequest } from "./back-office";
 import type { TransactionShortcut } from "./transactions";
 import { supabaseBrowser } from "../lib/supabase-browser";
 import { saveGift, type GiftSavePayload } from "../lib/gifts-client";
-import { GIFT_HISTORY } from "../lib/gift-history";
 import { heldBtc, ledgerBalanceBtc, isBinanceGift, transferFeesBtc, unreconciledLedgerBtc } from "../lib/gift-custody";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
@@ -46,16 +45,6 @@ const people: MemberInfo[] = FAMILY_MEMBERS.map((member) => ({
   day: member.birthdayDay,
   month: member.birthdayMonth,
   color: member.color,
-}));
-const historical: Omit<GiftRecord, "origin">[] = GIFT_HISTORY.map((gift) => ({
-  member_name: gift.member,
-  occasion: gift.occasion,
-  gift_date: gift.giftDate,
-  purchase_date: gift.purchaseDate,
-  amount_eur: gift.amountEur,
-  btc_amount: gift.btcAmount,
-  custody: "Binance commun" as const,
-  note: gift.note,
 }));
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const monthYear = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
@@ -108,11 +97,12 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus, selected
   const [requestedGiftIds, setRequestedGiftIds] = useState<string[]>([]);
   const [activeEnvelope, setActiveEnvelope] = useState<"total" | "btc" | "pea" | "cto">("btc");
   const [reconciliationOpen, setReconciliationOpen] = useState(false);
+  const [nowTimestamp] = useState(() => Date.now());
 
   const load = useCallback(async () => {
     const giftResult = await request("/api/gifts");
     const ledgerResult = await request(isAdmin ? "/api/ledger" : "/api/ledger?priceOnly=1");
-    setDatabaseRecords((giftResult.records ?? []).map((record: GiftRecord) => ({ ...record, amount_eur: Number(record.amount_eur), btc_amount: Number(record.btc_amount), ledger_amount: record.ledger_amount ? Number(record.ledger_amount) : null, origin: "database" })));
+    setDatabaseRecords((giftResult.records ?? []).map((record: Omit<GiftRecord, "origin"> & { origin?: string }) => ({ ...record, amount_eur: Number(record.amount_eur), btc_amount: Number(record.btc_amount), ledger_amount: record.ledger_amount ? Number(record.ledger_amount) : null, origin: record.origin === "history" ? "historical" as const : "database" as const })));
     setLedger(ledgerResult);
   }, [isAdmin]);
   useEffect(() => {
@@ -126,19 +116,9 @@ export function GiftPortfolio({ viewer, requests = [], onRequestStatus, selected
   }, [load]);
 
   const allRecords = useMemo(() => {
-    const historyKeys = new Set(historical.map(keyOf));
-    const history: GiftRecord[] = [];
-    for (const truth of historical) {
-      const stored = databaseRecords.find((record) => keyOf(record) === keyOf(truth));
-      if (stored?.is_deleted) continue;
-      history.push(stored
-        ? { ...stored, member_name: truth.member_name, occasion: truth.occasion, gift_date: truth.gift_date, purchase_date: stored.purchase_date || truth.purchase_date, amount_eur: stored.amount_eur, btc_amount: stored.btc_amount, note: stored.note ?? truth.note, origin: "database" }
-        : { ...truth, origin: "historical" });
-    }
-    const extraDatabaseRecords = databaseRecords.filter((record) => !historyKeys.has(keyOf(record)) && !record.is_deleted);
-    const recordedKeys = new Set([...extraDatabaseRecords, ...history].map(keyOf));
+    const recordedKeys = new Set(databaseRecords.filter((record) => !record.is_deleted).map(keyOf));
     const expected = expectedRecords().filter((record) => !recordedKeys.has(keyOf(record)));
-    return [...extraDatabaseRecords, ...history, ...expected].sort((a, b) => b.gift_date.localeCompare(a.gift_date));
+    return [...databaseRecords.filter((record) => !record.is_deleted), ...expected].sort((a, b) => b.gift_date.localeCompare(a.gift_date));
   }, [databaseRecords]);
   const records = allRecords.filter((record) => record.member_name === selected);
   const recorded = records.filter((record) => record.origin !== "expected");
@@ -162,7 +142,7 @@ const person = people.find((item) => item.name === selected) ?? people[0];
   const today = new Date();
   const nextBirthday = new Date(Date.UTC(today.getUTCFullYear(), person.month - 1, person.day));
   if (nextBirthday.getTime() < Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) nextBirthday.setUTCFullYear(today.getUTCFullYear() + 1);
-  const daysUntilBirthday = Math.max(0, Math.ceil((nextBirthday.getTime() - Date.now()) / 86400000));
+  const daysUntilBirthday = Math.max(0, Math.ceil((nextBirthday.getTime() - nowTimestamp) / 86400000));
   const currentValueEur = ledger?.bitcoinEur ? totalBtc * ledger.bitcoinEur : null;
   const theoreticalGainEur = currentValueEur === null ? null : currentValueEur - totalEur;
   const theoreticalGainPct = theoreticalGainEur === null || totalEur <= 0 ? null : theoreticalGainEur / totalEur * 100;

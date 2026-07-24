@@ -34,10 +34,12 @@ export function OnboardingChecklist({ viewer, navigate, onResume }: {
 
   useEffect(() => {
     let cancelled = false;
-    try { setDismissed(window.localStorage.getItem(dismissKey(viewer.id)) === "1"); } catch { /* ignore */ }
+    const timer = window.setTimeout(() => {
+      try { setDismissed(window.localStorage.getItem(dismissKey(viewer.id)) === "1"); } catch { /* ignore */ }
+    }, 0);
     void loadOnboardingState(viewer.id).then(({ state: loaded }) => { if (!cancelled) setState(loaded); });
     void loadOnboardingContext().then((ctx) => { if (!cancelled) setContext(ctx); });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [viewer.id]);
 
   const readFlag = (key: string) => {

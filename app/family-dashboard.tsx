@@ -1,19 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsView, type GiftSaveResult, type GiftSource, type TransactionShortcut } from "./transactions";
-import { TransferRequest } from "./back-office";
-import { Administration } from "./administration";
-import { GiftPortfolio } from "./gift-portfolio";
-import { AmatxiGifts } from "./amatxi-gifts";
-import { Settings } from "./settings";
-import { AdminMemberSettings } from "./settings-admin-member";
-import { AdminUsers } from "./admin-users";
-import { BitcoinInvestmentPage } from "./bitcoin-investments";
-import { PeaInvestmentPage } from "./pea-investments";
-import { CtoInvestmentPage } from "./cto-investments";
-import { SouvenirsPage } from "./souvenirs";
-import { PeaPortfolioLesson } from "./lesson-pea-portfolio";
+import type { TransferRequest } from "./back-office";
+
+const Administration = dynamic(() => import("./administration").then((module) => module.Administration));
+const GiftPortfolio = dynamic(() => import("./gift-portfolio").then((module) => module.GiftPortfolio));
+const AmatxiGifts = dynamic(() => import("./amatxi-gifts").then((module) => module.AmatxiGifts));
+const Settings = dynamic(() => import("./settings").then((module) => module.Settings));
+const AdminMemberSettings = dynamic(() => import("./settings-admin-member").then((module) => module.AdminMemberSettings));
+const AdminUsers = dynamic(() => import("./admin-users").then((module) => module.AdminUsers));
+const BitcoinInvestmentPage = dynamic(() => import("./bitcoin-investments").then((module) => module.BitcoinInvestmentPage));
+const PeaInvestmentPage = dynamic(() => import("./pea-investments").then((module) => module.PeaInvestmentPage));
+const CtoInvestmentPage = dynamic(() => import("./cto-investments").then((module) => module.CtoInvestmentPage));
+const SouvenirsPage = dynamic(() => import("./souvenirs").then((module) => module.SouvenirsPage));
+const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((module) => module.PeaPortfolioLesson));
 import type { AccountOperation } from "../lib/portfolio-account";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
@@ -23,7 +25,6 @@ import { ContextualTip } from "./onboarding/contextual-tips";
 import { loadOnboardingState } from "../lib/onboarding/onboarding-client";
 import { onboardingCopy } from "../lib/onboarding/onboarding-copy";
 import type { OnboardingState } from "../lib/onboarding/onboarding-types";
-import { GIFT_HISTORY } from "../lib/gift-history";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { NavIcon, PanelTitle } from "./dashboard-ui";
@@ -62,9 +63,6 @@ type PortfolioAccount = { id: string; name: string; institution?: string | null;
 type PortfolioHolding = { account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string };
 type PortfolioOperation = AccountOperation;
 
-function familyGiftKey(record: Pick<FamilyGiftRecord, "member_name" | "occasion" | "gift_date">) {
-  return `${record.member_name}|${record.occasion}|${record.gift_date}`;
-}
 
 // `missing` is a placeholder count, not derived from real gift records \u2014 see audit \u00a719.
 const MISSING_PLACEHOLDER: Record<string, number> = { Thibault: 5, Uhaina: 4, Paul: 4, Aurore: 4, Thomas: 5 };
@@ -226,18 +224,8 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
     void loadFamilyMarketSummary();
     return () => controller.abort();
   }, [viewer.role, familyReloadToken, previewMemberId]);
-  const familyGiftRecords = useMemo(() => {
-    const storedByKey = new Map(familyRecords.map((record) => [familyGiftKey(record), record]));
-    const historyKeys = new Set(GIFT_HISTORY.map((gift) => familyGiftKey({ member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate })));
-    const history = GIFT_HISTORY.flatMap((gift) => {
-      const key = familyGiftKey({ member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate });
-      const stored = storedByKey.get(key);
-      if (stored?.is_deleted) return [];
-      return [stored ?? { member_name: gift.member, occasion: gift.occasion, gift_date: gift.giftDate, amount_eur: gift.amountEur, btc_amount: gift.btcAmount }];
-    });
-    const extras = familyRecords.filter((record) => !record.is_deleted && !historyKeys.has(familyGiftKey(record)));
-    return [...history, ...extras];
-  }, [familyRecords]);
+  // L'API renvoie déjà l'historique fusionné et filtré selon le périmètre de l'utilisateur.
+  const familyGiftRecords = useMemo(() => familyRecords.filter((record) => !record.is_deleted), [familyRecords]);
   const memberBalances = useMemo<FamilyMemberBalance[]>(() => members.map((member) => {
     const btc = familyGiftRecords.filter((record) => record.member_name === member.name).reduce((sum, record) => { const ownedBtc = record.custody === "Ledger" && Number(record.ledger_amount) > 0 ? Number(record.ledger_amount) : Number(record.btc_amount); return sum + Math.max(0, ownedBtc || 0); }, 0);
     return { name: member.name, btc, currentValueEur: bitcoinEur && bitcoinEur > 0 ? btc * bitcoinEur : null };
@@ -1030,5 +1018,3 @@ function FamilyRoster({ memberBalances, onOpenMember }: { memberBalances: Family
     </div>
   );
 }
-
-

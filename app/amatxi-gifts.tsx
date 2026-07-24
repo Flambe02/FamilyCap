@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import type { Viewer } from "../lib/auth-types";
 import { supabaseBrowser } from "../lib/supabase-browser";
-import { GIFT_HISTORY } from "../lib/gift-history";
 import { InvestmentModal, type GiftEditingInput, type GiftSaveResult } from "./transactions";
 import { useDialogA11y } from "./use-dialog-a11y";
 import "./amatxi-gifts.css";
@@ -40,6 +39,7 @@ type ApiGiftRecord = {
   confirmations?: number;
   note?: string | null;
   is_deleted?: boolean;
+  origin?: string;
 };
 
 type GiftEntry = {
@@ -57,6 +57,7 @@ type GiftEntry = {
   blockchainStatus?: string;
   confirmations?: number;
   note?: string | null;
+  is_deleted?: boolean;
   origin: "database" | "historical";
 };
 
@@ -86,18 +87,6 @@ async function authHeaders(): Promise<Record<string, string>> {
   const session = (await supabaseBrowser.auth.getSession()).data.session;
   return session?.access_token ? { authorization: "Bearer " + session.access_token } : {};
 }
-
-const historical: GiftEntry[] = GIFT_HISTORY.map((gift) => ({
-  member: gift.member,
-  occasion: gift.occasion,
-  giftDate: gift.giftDate,
-  purchaseDate: gift.purchaseDate,
-  amountEur: gift.amountEur,
-  btcAmount: gift.btcAmount,
-  custody: "Binance commun",
-  note: gift.note,
-  origin: "historical",
-}));
 
 function toEditingInput(entry: GiftEntry): GiftEditingInput {
   return {
@@ -152,7 +141,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
       blockchainStatus: record.blockchain_status,
       confirmations: record.confirmations,
       note: record.note ?? null,
-      origin: "database" as const,
+      origin: record.origin === "history" ? "historical" : "database",
     })));
     if (ledgerResponse.ok) {
       const ledgerResult = await ledgerResponse.json() as LedgerPriceResponse;
@@ -181,10 +170,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
   }
 
   const allGifts = useMemo(() => {
-    const historyKeys = new Set(historical.map(giftKey));
-    const merged = historical.map((entry) => databaseRecords.find((record) => giftKey(record) === giftKey(entry)) ?? entry);
-    const extras = databaseRecords.filter((record) => !historyKeys.has(giftKey(record)));
-    return [...merged, ...extras].sort((a, b) => b.giftDate.localeCompare(a.giftDate));
+    return databaseRecords.filter((record) => !record.is_deleted).sort((a, b) => b.giftDate.localeCompare(a.giftDate));
   }, [databaseRecords]);
 
   const scopedGifts = useMemo(() => isAdmin ? allGifts : allGifts.filter((gift) => gift.member === viewer.name), [allGifts, isAdmin, viewer.name]);

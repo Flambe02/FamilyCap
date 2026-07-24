@@ -43,6 +43,10 @@ function hasMissingLedgerAuditColumn(error: unknown) {
   return error instanceof Error && error.message.includes("PGRST204") && /ledger_(force_reason|value_forced)/i.test(error.message);
 }
 
+function hasMissingAtomicTransferFunction(error: unknown) {
+  return error instanceof Error && error.message.includes("PGRST202") && /apply_ledger_transfer/i.test(error.message);
+}
+
 function withoutUnavailableLedgerAuditColumns(records: Record<string, unknown>[], forceReason: string | null) {
   return records.map((record) => {
     const fallback = { ...record };
@@ -71,7 +75,9 @@ export async function POST(request: Request) {
       return error("Virement, adresse, date et cadeaux \u00e0 transf\u00e9rer sont obligatoires.");
     }
     if (!/^[0-9a-f]{64}$/i.test(txid)) return error("Le TxID Bitcoin est invalide.");
-    if (giftIds.some((id) => !/^[0-9a-f-]{36}$/i.test(id))) return error("Un identifiant de cadeau est invalide.");
+    if (giftIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) return error("Un identifiant de cadeau est invalide.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(transferDate) || new Date(`${transferDate}T00:00:00.000Z`).toISOString().slice(0, 10) !== transferDate) return error("La date du transfert est invalide.");
+    if (!/^(?:[13][a-km-zA-HJ-NP-Z1-9]{25,62}|(?:bc1|tb1)[a-z0-9]{11,71})$/.test(publicAddress)) return error("L'adresse Bitcoin est invalide.");
 
     const idFilter = giftIds.join(",");
     const gifts = await supabaseRest<StoredGift[]>(
@@ -143,19 +149,40 @@ export async function POST(request: Request) {
       };
     });
 
+    const atomicUpdates = updatedRecords.map((record) => ({
+      id: record.id,
+      custody: record.custody,
+      transfer_date: record.transfer_date,
+      ledger_amount: record.ledger_amount,
+      ledger_value_forced: record.ledger_value_forced,
+      ledger_force_reason: record.ledger_force_reason,
+      public_address: record.public_address,
+      txid: record.txid,
+      blockchain_status: record.blockchain_status,
+      confirmations: record.confirmations,
+    }));
     try {
-      await supabaseRest("gift_records?on_conflict=id", {
+      await supabaseRest("rpc/apply_ledger_transfer", {
         method: "POST",
-        headers: { prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify(updatedRecords),
+        body: JSON.stringify({ p_updates: atomicUpdates, p_txid: txid, p_received_sats: receivedSats }),
       });
     } catch (caught) {
-      if (!hasMissingLedgerAuditColumn(caught)) throw caught;
-      await supabaseRest("gift_records?on_conflict=id", {
-        method: "POST",
-        headers: { prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify(withoutUnavailableLedgerAuditColumns(updatedRecords, forceReason)),
-      });
+      if (!hasMissingAtomicTransferFunction(caught)) throw caught;
+      // Compatibilité avec les projets n'ayant pas encore exécuté la migration atomique.
+      try {
+        await supabaseRest("gift_records?on_conflict=id", {
+          method: "POST",
+          headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify(updatedRecords),
+        });
+      } catch (fallbackError) {
+        if (!hasMissingLedgerAuditColumn(fallbackError)) throw fallbackError;
+        await supabaseRest("gift_records?on_conflict=id", {
+          method: "POST",
+          headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify(withoutUnavailableLedgerAuditColumns(updatedRecords, forceReason)),
+        });
+      }
     }
 
     return Response.json({

@@ -43,7 +43,8 @@ async function saveWallet(memberId: string, memberName: string, walletAddress?: 
   } catch (error) {
     const missingXpubColumn = error instanceof Error && /xpub/i.test(error.message) && /(PGRST|column|schema cache)/i.test(error.message);
     if (missingXpubColumn && xpub === null) {
-      const { xpub: _omitted, ...withoutXpub } = record;
+      const withoutXpub = { ...record };
+      delete withoutXpub.xpub;
       await upsertWallet(withoutXpub);
       return;
     }

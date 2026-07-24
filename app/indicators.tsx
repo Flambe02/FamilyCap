@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { computePurchasePriceData, PURCHASE_PRICE_MEMBERS, type PurchaseSourceRecord } from "../lib/gift-history";
+import { computePurchasePriceData, PURCHASE_PRICE_MEMBERS, type PurchaseSourceRecord } from "../lib/purchase-price";
 import { BIRTHDAY_LABEL_LONG } from "../lib/family-roster";
 import "./indicators.css";
 

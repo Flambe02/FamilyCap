@@ -14,6 +14,7 @@ export function AuthShell() {
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [ready, setReady] = useState(false);
   const [setupMode, setSetupMode] = useState(false);
+  const [serviceError, setServiceError] = useState("");
   const [accessError, setAccessError] = useState("");
   // Aperçu design réservé au développement local (?preview=dashboard) : n'a aucun effet en production.
   const [designPreview] = useState(() => process.env.NODE_ENV === "development" && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("preview") === "dashboard");
@@ -22,16 +23,25 @@ export function AuthShell() {
     const controller = new AbortController();
     void fetch("/api/supabase/status", { signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) return { connected: false };
-        return response.json() as Promise<{ connected?: boolean }>;
+        if (!response.ok) return { connected: false, reason: "connection_failed" };
+        return response.json() as Promise<{ connected?: boolean; reason?: string }>;
       })
       .then(async (status) => {
-        if (!status.connected) { setSetupMode(true); setReady(true); return; }
+        if (!status.connected) {
+          if (status.reason === "secret_missing") setSetupMode(true);
+          else setServiceError("Le service familial est temporairement indisponible.");
+          setReady(true);
+          return;
+        }
         const { data } = await supabaseBrowser.auth.getSession();
         setSession(data.session);
         if (!data.session) setReady(true);
       })
-      .catch(() => { setSetupMode(true); setReady(true); });
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setServiceError("Le service familial est temporairement indisponible.");
+        setReady(true);
+      });
 
     const { data: listener } = supabaseBrowser.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
@@ -84,12 +94,17 @@ export function AuthShell() {
 
   if (designPreview) return <FamilyDashboard viewer={{ id: "design-preview", email: "apercu@cap.family", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
   if (!ready) return <div className="auth-loading"><span><img src="/Labajo logo.png" alt="" width={48} height={48} /></span><p>Ouverture de LaBaJo &amp; Co…</p></div>;
+  if (serviceError) return <ServiceUnavailable message={serviceError} />;
   if (setupMode) return <FamilyDashboard viewer={{ id: "local-admin", email: "florent.lambert@gmail.com", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
   if (accessError) return <AccessDenied message={accessError} onSignOut={() => void supabaseBrowser.auth.signOut()} />;
   if (!session || !viewer) return <LoginScreen />;
   // La garde d'onboarding décide, avant tout rendu du dashboard, entre le tunnel obligatoire
   // (membre non encore onboardé) et l'application. Admin & lecteur familial ne sont jamais gardés.
   return <OnboardingGate viewer={viewer} onSignOut={() => void supabaseBrowser.auth.signOut()} onViewerChanged={refreshViewer} />;
+}
+
+function ServiceUnavailable({ message }: { message: string }) {
+  return <main className="access-denied"><span aria-hidden="true">!</span><h1>Service indisponible</h1><p>{message}</p><button type="button" onClick={() => window.location.reload()}>Réessayer</button></main>;
 }
 
 function LoginScreen() {

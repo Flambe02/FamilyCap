@@ -13,7 +13,7 @@ export function useDialogA11y(active: boolean, onClose: () => void) {
     if (!active) return;
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
-    const backdrop = dialog?.closest<HTMLElement>(".modal-backdrop, .onboarding-backdrop");
+    const backdrop = dialog?.closest<HTMLElement>(".modal-backdrop, .onboarding-backdrop, .amatxi-modal-backdrop");
     const hiddenSiblings = Array.from(backdrop?.parentElement?.children ?? []).filter((element): element is HTMLElement => element instanceof HTMLElement && element !== backdrop).map((element) => ({ element, hadInert: element.hasAttribute("inert"), ariaHidden: element.getAttribute("aria-hidden") }));
     hiddenSiblings.forEach(({ element }) => { element.setAttribute("inert", ""); element.setAttribute("aria-hidden", "true"); });
     const previousOverflow = document.body.style.overflow;

@@ -8,6 +8,11 @@ const ESPLORA_API = "https://blockstream.info/api";
 // utilisees. MAX borne le nombre d'appels reseau par chaine pour un compte tres actif.
 const GAP_LIMIT = 20;
 const MAX_ADDRESSES_PER_CHAIN = 60;
+const EXTERNAL_TIMEOUT_MS = 10_000;
+
+function fetchExternal(input: string, init: RequestInit = {}) {
+  return fetch(input, { ...init, signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS) });
+}
 
 type WalletSource = { member: string; address: string; xpub: string | null };
 
@@ -50,7 +55,7 @@ function sum(values: number[]) {
 }
 
 async function fetchAddressSummary(address: string): Promise<AddressSummary> {
-  const response = await fetch(`${ESPLORA_API}/address/${address}`, { headers: { accept: "application/json" } });
+  const response = await fetchExternal(`${ESPLORA_API}/address/${address}`, { headers: { accept: "application/json" } });
   if (!response.ok) throw new Error("Lecture d'adresse impossible.");
   return response.json() as Promise<AddressSummary>;
 }
@@ -60,7 +65,7 @@ async function getAddressTransactions(address: string) {
   let path = `${ESPLORA_API}/address/${address}/txs`;
 
   for (let pageCount = 0; pageCount < 20; pageCount += 1) {
-    const response = await fetch(path, { headers: { accept: "application/json" } });
+    const response = await fetchExternal(path, { headers: { accept: "application/json" } });
     if (!response.ok) throw new Error("Lecture des transactions impossible.");
     const page = await response.json() as ChainTransaction[];
     transactions.push(...page);
@@ -191,25 +196,29 @@ async function getXpubWallet(member: string, extendedKey: string, tipHeight: num
   };
 }
 
+let bitcoinPriceCache: { value: number | null; source: string | null; expiresAt: number } | null = null;
+
 async function getBitcoinEurPrice() {
+  if (bitcoinPriceCache && bitcoinPriceCache.expiresAt > Date.now()) return bitcoinPriceCache;
+  const fallback: { value: number | null; source: string | null } = { value: null, source: null };
   try {
-    const response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur", { headers: { accept: "application/json" } });
+    const response = await fetchExternal("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur", { headers: { accept: "application/json" } });
     if (response.ok) {
       const result = await response.json() as { bitcoin?: { eur?: number } };
-      if (result.bitcoin?.eur) return { value: result.bitcoin.eur, source: "CoinGecko" };
+      if (result.bitcoin?.eur) return bitcoinPriceCache = { value: result.bitcoin.eur, source: "CoinGecko", expiresAt: Date.now() + 30_000 };
     }
   } catch {
     // Une seconde source publique est utilisée ci-dessous.
   }
 
   try {
-    const response = await fetch("https://api.kraken.com/0/public/Ticker?pair=XBTEUR", { headers: { accept: "application/json" } });
-    if (!response.ok) return { value: null, source: null };
-    const result = await response.json() as { result?: { XXBTZEUR?: { c?: string[] } } };
-    const price = Number(result.result?.XXBTZEUR?.c?.[0]);
-    return Number.isFinite(price) ? { value: price, source: "Kraken" } : { value: null, source: null };
+    const response = await fetchExternal("https://api.kraken.com/0/public/Ticker?pair=XBTEUR", { headers: { accept: "application/json" } });
+    if (!response.ok) return bitcoinPriceCache = { ...fallback, expiresAt: Date.now() + 10_000 };
+    const krakenResult = await response.json() as { result?: { XXBTZEUR?: { c?: string[] } } };
+    const price = Number(krakenResult.result?.XXBTZEUR?.c?.[0]);
+    return bitcoinPriceCache = Number.isFinite(price) ? { value: price, source: "Kraken", expiresAt: Date.now() + 30_000 } : { value: null, source: null, expiresAt: Date.now() + 10_000 };
   } catch {
-    return { value: null, source: null };
+    return bitcoinPriceCache = { ...fallback, expiresAt: Date.now() + 10_000 };
   }
 }
 
@@ -227,7 +236,7 @@ export async function GET(request: Request) {
       );
     }
     const [tipResponse, bitcoinPrice, wallets] = await Promise.all([
-      fetch(`${ESPLORA_API}/blocks/tip/height`),
+      fetchExternal(`${ESPLORA_API}/blocks/tip/height`),
       getBitcoinEurPrice(),
       loadWallets(),
     ]);
