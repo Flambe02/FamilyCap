@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Viewer } from "../lib/auth-types";
 import type { NavIconId, View } from "../lib/navigation";
 import { supabaseBrowser } from "../lib/supabase-browser";
+import { authHeader } from "../lib/supabase-session";
 import { NavIcon } from "./dashboard-ui";
 import { SettingsSection, SettingsSwitch, SettingsMessage, SettingsModal } from "./settings-ui";
 import { NotificationsSettings } from "./settings-notifications";
@@ -60,8 +61,7 @@ const GROUPS: NavGroup[] = [
 ];
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabaseBrowser.auth.getSession();
-  return { authorization: "Bearer " + (data.session?.access_token ?? ""), "content-type": "application/json" };
+  return { ...(await authHeader()), "content-type": "application/json" };
 }
 
 export function AdminMemberSettings({ memberName, onExit, onNavigate, onReplayOnboarding, onResumeOnboarding }: { memberName: string; onExit: () => void; onNavigate?: (view: View) => void; onReplayOnboarding?: () => void; onResumeOnboarding?: () => void }) {

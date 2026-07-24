@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Viewer } from "../lib/auth-types";
 import type { View } from "../lib/navigation";
-import { supabaseBrowser } from "../lib/supabase-browser";
+import { authHeader } from "../lib/supabase-session";
 import { SettingsSection, SettingsModal, SettingsMessage } from "./settings-ui";
 
 // Écran « Mes comptes » : vue simple des comptes appartenant au membre (Bitcoin cadeaux réels +
@@ -27,8 +27,7 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabaseBrowser.auth.getSession();
-  return { authorization: "Bearer " + (data.session?.access_token ?? "") };
+  return authHeader();
 }
 
 export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer: Viewer; onNavigate?: (view: View) => void; scopeOverride?: "family" | "selected" }) {

@@ -18,7 +18,7 @@ const SouvenirsPage = dynamic(() => import("./souvenirs").then((module) => modul
 const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((module) => module.PeaPortfolioLesson));
 import type { AccountOperation } from "../lib/portfolio-account";
 import type { Viewer } from "../lib/auth-types";
-import { supabaseBrowser } from "../lib/supabase-browser";
+import { getAccessToken } from "../lib/supabase-session";
 import { OnboardingFlow } from "./onboarding/onboarding-flow";
 import { OnboardingChecklist } from "./onboarding/onboarding-checklist";
 import { ContextualTip } from "./onboarding/contextual-tips";
@@ -80,12 +80,12 @@ const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR"
 const euroCompact = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
 async function authenticatedFetch(url: string, init: RequestInit) {
-  const { data } = await supabaseBrowser.auth.getSession();
+  const token = await getAccessToken();
   return fetch(url, {
     ...init,
     headers: {
       ...init.headers,
-      ...(data.session ? { authorization: "Bearer " + data.session.access_token } : {}),
+      ...(token ? { authorization: "Bearer " + token } : {}),
     },
   });
 }
@@ -136,6 +136,14 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [viewer.role]);
+  // Sélecteur d'aperçu « Vue <membre> » piloté par la VRAIE liste Supabase (family_members), et
+  // non par la liste codée en dur (FAMILY_MEMBERS) qui contenait des fantômes — ex. « Aurore »,
+  // absente de la base — provoquant « Membre introuvable » dans les Paramètres. On exclut
+  // l'administrateur lui-même (déjà couvert par « Vue admin ») et les comptes désactivés.
+  const previewMembers = useMemo(
+    () => adminMembers.filter((member) => member.is_active !== false && member.id !== viewer.id).map((member) => ({ name: member.name })),
+    [adminMembers, viewer.id],
+  );
   const previewMemberRecord = previewMember ? adminMembers.find((member) => member.name === previewMember) ?? null : null;
   // Aperçu admin fidèle : en « Vue <membre> », on demande au serveur le périmètre de CE membre
   // (partage familial par classe) au lieu de la vue admin globale — sinon la répartition retombe
@@ -501,7 +509,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
                   <div className="mobile-quick-switch-backdrop" onClick={() => setQuickSwitchOpen(false)} />
                   <div className="mobile-quick-switch-menu" role="listbox" aria-label="Choisir la vue affichée">
                     <button type="button" role="option" aria-selected={!isPreview} className={!isPreview ? "active" : ""} onClick={() => { changePreview(null); setQuickSwitchOpen(false); }}>Admin</button>
-                    {members.map((member) => <button key={member.name} type="button" role="option" aria-selected={previewMember === member.name} className={previewMember === member.name ? "active" : ""} onClick={() => { changePreview(member.name); setQuickSwitchOpen(false); }}>{member.name}</button>)}
+                    {previewMembers.map((member) => <button key={member.name} type="button" role="option" aria-selected={previewMember === member.name} className={previewMember === member.name ? "active" : ""} onClick={() => { changePreview(member.name); setQuickSwitchOpen(false); }}>{member.name}</button>)}
                   </div>
                 </>}
               </div>
@@ -514,7 +522,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           <div className="top-actions">
             {viewer.role === "admin" && <div className="view-mode-switch" role="group" aria-label="Choisir la vue affichée">
               <button type="button" className={!isPreview ? "active" : ""} onClick={() => changePreview(null)}>Vue admin</button>
-              <label><span className="sr-only">Voir comme un membre</span><select value={previewMember ?? "Thibault"} onChange={(event) => changePreview(event.target.value)}>{members.map((member) => <option key={member.name} value={member.name}>Vue {member.name}</option>)}</select></label>
+              <label><span className="sr-only">Voir comme un membre</span><select value={previewMember ?? previewMembers[0]?.name ?? ""} onChange={(event) => changePreview(event.target.value)}>{previewMembers.map((member) => <option key={member.name} value={member.name}>Vue {member.name}</option>)}</select></label>
             </div>}
             <button className="icon-button" aria-label="Notifications - aucune nouvelle notification">
               <span aria-hidden="true">♢</span>
@@ -550,7 +558,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
                   <div className="topbar-user-backdrop" onClick={() => setQuickSwitchOpen(false)} />
                   <div className="topbar-user-menu" role="listbox" aria-label="Choisir la vue affichée">
                     <button type="button" role="option" aria-selected={!isPreview} className={!isPreview ? "active" : ""} onClick={() => { changePreview(null); setQuickSwitchOpen(false); }}>Vue admin</button>
-                    {members.map((member) => <button key={member.name} type="button" role="option" aria-selected={previewMember === member.name} className={previewMember === member.name ? "active" : ""} onClick={() => { changePreview(member.name); setQuickSwitchOpen(false); }}>Vue {member.name}</button>)}
+                    {previewMembers.map((member) => <button key={member.name} type="button" role="option" aria-selected={previewMember === member.name} className={previewMember === member.name ? "active" : ""} onClick={() => { changePreview(member.name); setQuickSwitchOpen(false); }}>Vue {member.name}</button>)}
                   </div>
                 </>
               )}
@@ -675,7 +683,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             <p>Voir l’app comme</p>
             <div className="mobile-view-chips" role="group" aria-label="Choisir la vue affichée">
               <button type="button" className={!isPreview ? "active" : ""} aria-pressed={!isPreview} onClick={() => { changePreview(null); setMobileMenuOpen(false); }}>Admin</button>
-              {members.map((member) => <button key={member.name} type="button" className={previewMember === member.name ? "active" : ""} aria-pressed={previewMember === member.name} onClick={() => { changePreview(member.name); setMobileMenuOpen(false); }}>{member.name}</button>)}
+              {previewMembers.map((member) => <button key={member.name} type="button" className={previewMember === member.name ? "active" : ""} aria-pressed={previewMember === member.name} onClick={() => { changePreview(member.name); setMobileMenuOpen(false); }}>{member.name}</button>)}
             </div>
           </div>
         )}

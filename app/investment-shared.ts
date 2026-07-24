@@ -4,12 +4,12 @@
 // d'import (investment-import-wizard.tsx). Isolés ici pour éviter tout cycle d'import entre ces
 // deux modules. Aucune logique métier : juste l'appel authentifié et les libellés d'opération.
 
-import { supabaseBrowser } from "../lib/supabase-browser";
+import { getAccessToken } from "../lib/supabase-session";
 import type { AccountOperationType } from "../lib/portfolio-account";
 
 export async function authenticatedFetch(url: string, init: RequestInit = {}) {
-  const { data } = await supabaseBrowser.auth.getSession();
-  return fetch(url, { ...init, headers: { ...init.headers, ...(data.session ? { authorization: "Bearer " + data.session.access_token } : {}) } });
+  const token = await getAccessToken();
+  return fetch(url, { ...init, headers: { ...init.headers, ...(token ? { authorization: "Bearer " + token } : {}) } });
 }
 
 export const OP_LABEL: Record<AccountOperationType, string> = {
