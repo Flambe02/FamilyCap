@@ -111,7 +111,7 @@ export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboardi
           {activeSection === "notifications" && <NotificationsSettings />}
           {activeSection === "confidentialite" && <PrivacySettings viewer={viewer} onGoToSection={selectSection} onSignOut={onSignOut} />}
           {activeSection === "aide" && <HelpSettings viewer={viewer} onReplay={onReplayOnboarding} onResume={onResumeOnboarding} onNavigate={onNavigate} onGoToSection={selectSection} />}
-          {activeSection === "admin-utilisateurs" && viewer.role === "admin" && <div className="set-section"><AdminUsers /></div>}
+          {activeSection === "admin-utilisateurs" && viewer.role === "admin" && <div className="admin-console-settings"><AdminUsers /></div>}
           {activeSection === "admin-cadeaux" && viewer.role === "admin" && <GiftSettings />}
           {activeSection === "admin-wallets" && viewer.role === "admin" && <WalletSettings />}
           {activeSection === "admin-donnees" && viewer.role === "admin" && <DataSettings />}
