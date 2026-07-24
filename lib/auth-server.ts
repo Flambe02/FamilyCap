@@ -51,7 +51,7 @@ export async function requireFamilyMember(request: Request): Promise<Authenticat
   const userResponse = await fetch(`${runtime.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`, {
     headers: { apikey: runtime.SUPABASE_PUBLISHABLE_KEY, authorization: `Bearer ${token}` },
   });
-  if (!userResponse.ok) throw Response.json({ error: "Session invalide" }, { status: 401 });
+  if (!userResponse.ok) throw Response.json({ error: SESSION_EXPIRED_MESSAGE, code: "session_expired" }, { status: 401 });
   const user = await userResponse.json() as { id: string; email?: string };
   if (!user.email) throw Response.json({ error: "Adresse e-mail absente" }, { status: 403 });
 
@@ -68,9 +68,24 @@ export async function requireAdmin(request: Request) {
   return member;
 }
 
+const SESSION_EXPIRED_MESSAGE = "Ta session a expiré. Reconnecte-toi pour continuer.";
+
+// Un token expiré — ou signé sous une ancienne clé de signature après une rotation des clés
+// JWT du projet Supabase (« unrecognized JWT kid … for algorithm ES256 ») — fait remonter le
+// message technique brut de GoTrue/PostgREST. On ne le divulgue jamais tel quel : on renvoie un
+// 401 « session expirée » (avec un code) que le client sait présenter avec un bouton de
+// reconnexion, au lieu d'un 500 exposant les détails internes du jeton.
+function isAuthTokenError(message: string) {
+  return /\bjwt\b|\btoken\b|\bkid\b|signature|jw[st]\b|expired|session/i.test(message);
+}
+
 export function authErrorResponse(error: unknown) {
   if (error instanceof Response) return error;
-  return Response.json({ error: error instanceof Error ? error.message : "Erreur d’authentification" }, { status: 500 });
+  const message = error instanceof Error ? error.message : "";
+  if (isAuthTokenError(message)) {
+    return Response.json({ error: SESSION_EXPIRED_MESSAGE, code: "session_expired" }, { status: 401 });
+  }
+  return Response.json({ error: message || "Erreur d’authentification" }, { status: 500 });
 }
 
 /**

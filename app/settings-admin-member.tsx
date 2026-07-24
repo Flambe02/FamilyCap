@@ -67,19 +67,32 @@ async function authHeaders(): Promise<Record<string, string>> {
 export function AdminMemberSettings({ memberName, onExit, onNavigate, onReplayOnboarding, onResumeOnboarding }: { memberName: string; onExit: () => void; onNavigate?: (view: View) => void; onReplayOnboarding?: () => void; onResumeOnboarding?: () => void }) {
   const [members, setMembers] = useState<AdminMember[] | null>(null);
   const [error, setError] = useState("");
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [active, setActive] = useState<SectionId>("compte");
   const [mobileView, setMobileView] = useState<"index" | "detail">("index");
 
   const reload = useCallback(async () => {
     const response = await fetch("/api/admin/users", { headers: await authHeaders() });
-    const result = await response.json() as { users?: AdminMember[]; error?: string };
-    if (!response.ok) throw new Error(result.error ?? "Chargement impossible.");
+    const result = await response.json() as { users?: AdminMember[]; error?: string; code?: string };
+    if (!response.ok) {
+      const failure = new Error(result.error ?? "Chargement impossible.") as Error & { sessionExpired?: boolean };
+      // Token périmé / clé de signature retirée : le serveur renvoie 401 + code (cf. authErrorResponse).
+      failure.sessionExpired = response.status === 401 || result.code === "session_expired";
+      throw failure;
+    }
     setMembers(result.users ?? []);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => { try { await reload(); } catch (caught) { if (!cancelled) setError(caught instanceof Error ? caught.message : "Chargement impossible."); } })();
+    void (async () => {
+      try { await reload(); }
+      catch (caught) {
+        if (cancelled) return;
+        setSessionExpired(Boolean(caught && typeof caught === "object" && (caught as { sessionExpired?: boolean }).sessionExpired));
+        setError(caught instanceof Error ? caught.message : "Chargement impossible.");
+      }
+    })();
     return () => { cancelled = true; };
   }, [reload]);
 
@@ -103,7 +116,14 @@ export function AdminMemberSettings({ memberName, onExit, onNavigate, onReplayOn
       </div>
 
       {error && !member ? (
-        <div className="set-section"><p className="set-message error" role="status">{error}</p></div>
+        <div className="set-section">
+          <p className="set-message error" role="status">{error}</p>
+          {sessionExpired && (
+            <div className="set-actions">
+              <button type="button" className="set-btn-primary" onClick={() => void supabaseBrowser.auth.signOut()}>Se reconnecter</button>
+            </div>
+          )}
+        </div>
       ) : !members ? (
         <div className="set-section"><p className="set-hint">Chargement…</p></div>
       ) : !member ? (
