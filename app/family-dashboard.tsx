@@ -28,7 +28,7 @@ import { ContextualTip } from "./onboarding/contextual-tips";
 import { loadOnboardingState } from "../lib/onboarding/onboarding-client";
 import { onboardingCopy } from "../lib/onboarding/onboarding-copy";
 import type { OnboardingState } from "../lib/onboarding/onboarding-types";
-import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT } from "../lib/family-roster";
+import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT, formatBirthday, type MemberName } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { NavIcon, PanelTitle } from "./dashboard-ui";
 import {
@@ -142,6 +142,22 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [viewer.role]);
+  // Anniversaires RÉELS de la famille (Supabase = source de vérité unique, /api/family/birthdays),
+  // pour TOUT viewer (pas seulement l'admin) : le bandeau anniversaire et « La famille, en un coup
+  // d'œil » ne doivent plus dériver du repli statique FAMILY_MEMBERS (Aurore/Uhaina avaient dérivé,
+  // audit du 2026-07-25). `null` tant que non chargé → homeBirthdayInfo retombe sur le repli.
+  const [familyBirthdays, setFamilyBirthdays] = useState<Record<string, { day: number; month: number }> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void authenticatedFetch("/api/family/birthdays", {}).then((response) => response.json())
+      .then((result: { members?: Array<{ name: string; birthdayDay: number; birthdayMonth: number }> }) => {
+        if (cancelled) return;
+        const map: Record<string, { day: number; month: number }> = {};
+        for (const member of result.members ?? []) map[member.name] = { day: member.birthdayDay, month: member.birthdayMonth };
+        setFamilyBirthdays(map);
+      }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
   // Sélecteur d'aperçu « Vue <membre> » piloté par la VRAIE liste Supabase (family_members), et
   // non par la liste codée en dur (FAMILY_MEMBERS) qui contenait des fantômes — ex. « Aurore »,
   // absente de la base — provoquant « Membre introuvable » dans les Paramètres. On exclut
@@ -329,10 +345,10 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
         amountEur: euro.format(Number(record.amount_eur) || 0),
         date: dateFmt.format(new Date(record.gift_date)),
       }));
-    const birthday = homeBirthdayInfo(effectiveViewer.name, !family);
+    const birthday = homeBirthdayInfo(effectiveViewer.name, !family, familyBirthdays);
     const hasAssets = btc > 0 || pea.value > 0 || cto.value > 0;
     return { btc, bitcoinValueEur, valueEur, gainEur, gainPct, investedMonth, operations, repartition, birthday, hasAssets };
-  }, [familyGiftRecords, bitcoinEur, portfolioAccounts, portfolioHoldings, viewer.role, isPreview, effectiveViewer.name]);
+  }, [familyGiftRecords, bitcoinEur, portfolioAccounts, portfolioHoldings, viewer.role, isPreview, effectiveViewer.name, familyBirthdays]);
 
   // Relance volontaire (visite, sans écriture) et reprise d'un parcours reporté (mode obligatoire).
   function replayOnboarding() { setOnboardingOverlay({ mode: "tour" }); }
@@ -678,7 +694,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           : <ChallengesPage canAct={memberCanRecordOperation} onNavigate={navigate} />)}
         {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
         {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={effectiveViewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}
-        {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
+        {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} birthdays={familyBirthdays} />}
         {view === "famille-acces" && effectiveViewer.role === "admin" && <AdminUsers />}
         {view === "administration-suggestions" && effectiveViewer.role === "admin" && <AdminChallenges />}
         {view === "administration-globale" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
@@ -780,23 +796,34 @@ function nextDateFor(month: number, day: number, today = new Date()) {
   return date;
 }
 
+// Date de naissance d'un membre : Supabase (birthdays, /api/family/birthdays) fait toujours
+// autorité quand chargé ; le repli statique FAMILY_MEMBERS ne sert que le temps du chargement
+// initial ou si l'appel échoue — jamais une valeur inventée, juste un repli transitoire.
+function birthdayOf(name: string, birthdays: Record<string, { day: number; month: number }> | null): { month: number; day: number } | null {
+  const real = birthdays?.[name];
+  if (real) return { month: real.month, day: real.day };
+  const fallback = members.find((member) => member.name === name);
+  return fallback ? { month: fallback.birthdayMonth, day: fallback.birthdayDay } : null;
+}
+
 // Bandeau anniversaire personnalisé :
 // - membre : son PROPRE prochain cadeau (anniversaire ou Noël) + un simple rappel de
 //   l'anniversaire d'un autre membre, sans jamais évoquer de cadeau qui ne lui est pas destiné ;
 // - admin : le prochain anniversaire de la famille, présenté comme un cadeau à préparer.
-function homeBirthdayInfo(viewerName: string, isMember: boolean): HomeBirthday {
+function homeBirthdayInfo(viewerName: string, isMember: boolean, birthdays: Record<string, { day: number; month: number }> | null): HomeBirthday {
   const longFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   const shortFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" });
   const christmas = nextDateFor(12, 25);
   if (isMember) {
-    const me = members.find((member) => member.name === viewerName);
-    const myBirthday = me ? nextDateFor(me.birthdayMonth, me.birthdayDay) : christmas;
+    const mine = birthdayOf(viewerName, birthdays);
+    const myBirthday = mine ? nextDateFor(mine.month, mine.day) : christmas;
     const gift = myBirthday.getTime() <= christmas.getTime()
       ? { date: myBirthday, label: `Ton anniversaire : ${longFmt.format(myBirthday)}` }
       : { date: christmas, label: `Prochain cadeau : Noël, le ${longFmt.format(christmas)}` };
     const other = members
       .filter((member) => member.name !== viewerName)
-      .map((member) => ({ name: member.name, date: nextDateFor(member.birthdayMonth, member.birthdayDay) }))
+      .map((member) => { const info = birthdayOf(member.name, birthdays); return info ? { name: member.name, date: nextDateFor(info.month, info.day) } : null; })
+      .filter((entry): entry is { name: MemberName; date: Date } => entry !== null)
       .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
     return {
       title: gift.label,
@@ -805,7 +832,8 @@ function homeBirthdayInfo(viewerName: string, isMember: boolean): HomeBirthday {
     };
   }
   const fam = members
-    .map((member) => ({ name: member.name, date: nextDateFor(member.birthdayMonth, member.birthdayDay) }))
+    .map((member) => { const info = birthdayOf(member.name, birthdays); return info ? { name: member.name, date: nextDateFor(info.month, info.day) } : null; })
+    .filter((entry): entry is { name: MemberName; date: Date } => entry !== null)
     .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
   return {
     title: `Prochain anniversaire : ${fam.name}, le ${longFmt.format(fam.date)}`,
@@ -1028,7 +1056,7 @@ function ComingSoon({ eyebrow, title, description }: { eyebrow: string; title: s
   );
 }
 
-function FamilyRoster({ memberBalances, onOpenMember }: { memberBalances: FamilyMemberBalance[]; onOpenMember: (member: string) => void }) {
+function FamilyRoster({ memberBalances, onOpenMember, birthdays }: { memberBalances: FamilyMemberBalance[]; onOpenMember: (member: string) => void; birthdays: Record<string, { day: number; month: number }> | null }) {
   return (
     <div className="page-stack">
       <section className="learn-head">
@@ -1042,10 +1070,12 @@ function FamilyRoster({ memberBalances, onOpenMember }: { memberBalances: Family
             const balance = memberBalances.find((item) => item.name === member.name);
             const btc = balance?.btc ?? 0;
             const currentValueEur = balance?.currentValueEur ?? null;
+            const real = birthdays?.[member.name];
+            const birthdayLabel = real ? formatBirthday(real.day, real.month, "short") : member.birthday;
             return (
               <button className="member-card member-card-button" key={member.name} onClick={() => onOpenMember(member.name)} aria-label={`Voir le portefeuille et les transactions de ${member.name}`}>
                 <div className="member-top"><span className={`avatar ${member.color}`}>{member.initials}</span></div>
-                <h3>{member.name}</h3><p>Anniversaire · {member.birthday}</p>
+                <h3>{member.name}</h3><p>Anniversaire · {birthdayLabel}</p>
                 <div className="member-value"><strong>{currentValueEur === null ? "—" : euro.format(currentValueEur)}</strong><small>{currentValueEur === null ? "Cours BTC indisponible" : "valeur Bitcoin actuelle"}</small></div>
                 <footer><span>{btc.toFixed(8)} BTC attribués</span></footer>
               </button>

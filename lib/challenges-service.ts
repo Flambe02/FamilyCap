@@ -555,6 +555,42 @@ function isSingleActiveViolation(error: unknown): boolean {
   return message.includes("challenges_single_active_idx") || message.includes("23505");
 }
 
+// FK RESTRICT (points_ledger.challenge_id / challenge_participants.id) : un défi ayant déjà
+// attribué des points ne peut PHYSIQUEMENT pas être supprimé (garanti par le schéma, pas par
+// l'application). Détecte la violation Postgres 23503 pour un message clair côté admin.
+function isPointsHistoryViolation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return message.includes("23503") || message.includes("foreign key constraint") || message.includes("points_ledger");
+}
+
+/**
+ * Supprime définitivement un défi MENSUEL (jamais une mission « Bien démarrer », préconfigurée
+ * et permanente). Un défi ayant déjà attribué des points est protégé par la contrainte FK
+ * RESTRICT de points_ledger : la suppression échoue alors avec un message explicite plutôt
+ * qu'une erreur brute — archivez-le pour conserver l'historique à la place. Un défi jamais actif
+ * (brouillon/programmé) ou terminé sans le moindre point attribué se supprime sans risque
+ * (challenge_participants / challenge_operation_links suivent en cascade).
+ */
+export async function deleteChallenge(id: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const current = await getChallengeById(id);
+  if (!current) return { ok: false, status: 404, error: "Défi introuvable." };
+  if (current.challenge_type !== "monthly_investment") {
+    return { ok: false, status: 409, error: "Les missions « Bien démarrer » sont préconfigurées et permanentes : elles ne se suppriment pas depuis cet écran." };
+  }
+  try {
+    await supabaseRest(`challenges?id=eq.${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { prefer: "return=minimal" },
+    });
+    return { ok: true };
+  } catch (error) {
+    if (isPointsHistoryViolation(error)) {
+      return { ok: false, status: 409, error: "Ce défi a déjà attribué des points à un ou plusieurs membres : il ne peut pas être supprimé. Archivez-le pour conserver l'historique." };
+    }
+    throw error;
+  }
+}
+
 export type AdminParticipantRow = {
   memberId: string; name: string; photoUrl: string | null; status: ParticipantStatus;
   pct: number; invested: number; targetAmount: number; pointsEarned: number; lastEligibleDate: string | null;

@@ -41,6 +41,7 @@
 .ach-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .ach-actions button { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; color: #16233a; }
 .ach-actions button.quiet { color: var(--muted); }
+.ach-actions button.ach-danger { color: #a34735; border-color: #f3d2c9; background: #fff0ed; }
 .ach-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .ach-part-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }

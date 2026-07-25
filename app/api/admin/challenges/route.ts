@@ -1,5 +1,5 @@
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
-import { listChallengesForAdmin, createChallenge, updateChallenge, isMissingChallengeTable, type AdminChallengeRow } from "../../../../lib/challenges-service";
+import { listChallengesForAdmin, createChallenge, updateChallenge, deleteChallenge, isMissingChallengeTable, type AdminChallengeRow } from "../../../../lib/challenges-service";
 import { listOnboardingMissionsForAdmin } from "../../../../lib/onboarding-challenges-service";
 import type { ChallengeInput } from "../../../../lib/challenges";
 
@@ -50,6 +50,19 @@ export async function PATCH(request: Request) {
     const result = await updateChallenge(id, patch);
     if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
     return Response.json({ challenge: toDto({ ...result.challenge, participants: 0, completed: 0, completionRate: 0, pointsAttributed: 0 }) });
+  } catch (error) {
+    return setup(error);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    await requireAdmin(request);
+    const id = new URL(request.url).searchParams.get("id");
+    if (!id) return Response.json({ error: "Le défi est obligatoire." }, { status: 400 });
+    const result = await deleteChallenge(id);
+    if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
+    return Response.json({ deleted: true });
   } catch (error) {
     return setup(error);
   }

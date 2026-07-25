@@ -14,11 +14,15 @@ export type FamilyMember = {
   birthdayMonth: number;
 };
 
+// Repli statique (utilisé uniquement le temps du chargement de /api/family/birthdays, ou si cet
+// appel échoue) : les dates ci-dessous doivent rester alignées sur family_members.birthday_day /
+// birthday_month, mais Supabase reste la SEULE source de vérité affichée une fois chargée — cf.
+// family-dashboard.tsx::useFamilyBirthdays. Vérifié le 2026-07-25 (Uhaina et Aurore avaient dérivé).
 export const FAMILY_MEMBERS: FamilyMember[] = [
   { name: "Thibault", initials: "TH", color: "mint", birthdayDay: 15, birthdayMonth: 3 },
-  { name: "Uhaina", initials: "UH", color: "coral", birthdayDay: 16, birthdayMonth: 8 },
+  { name: "Uhaina", initials: "UH", color: "coral", birthdayDay: 6, birthdayMonth: 8 },
   { name: "Paul", initials: "PA", color: "blue", birthdayDay: 18, birthdayMonth: 11 },
-  { name: "Aurore", initials: "AU", color: "yellow", birthdayDay: 27, birthdayMonth: 8 },
+  { name: "Aurore", initials: "AU", color: "yellow", birthdayDay: 26, birthdayMonth: 8 },
   { name: "Thomas", initials: "TO", color: "purple", birthdayDay: 29, birthdayMonth: 12 },
 ];
 

@@ -80,10 +80,35 @@ test("route classement : aucun champ montant/objectif/compte", () => {
 });
 
 // ---- Routes admin : rôle vérifié côté serveur pour chaque mutation -----------------------
-test("routes admin : requireAdmin présent (création/gestion réservées à l'admin)", () => {
+test("routes admin : requireAdmin présent (création/gestion/suppression réservées à l'admin)", () => {
   const adminChallenges = read("app/api/admin/challenges/route.ts");
   const adminParticipants = read("app/api/admin/challenges/participants/route.ts");
   assert.match(adminChallenges, /requireAdmin/);
-  assert.equal((adminChallenges.match(/requireAdmin/g) ?? []).length >= 3, true); // GET + POST + PATCH
+  assert.equal((adminChallenges.match(/requireAdmin/g) ?? []).length >= 4, true); // GET + POST + PATCH + DELETE
   assert.match(adminParticipants, /requireAdmin/);
+});
+
+// ---- Suppression : protège l'historique des points et les missions onboarding -----------
+test("deleteChallenge refuse de supprimer une mission « Bien démarrer » (challenge_type non monthly_investment)", () => {
+  const source = read("lib/challenges-service.ts");
+  const start = source.indexOf("export async function deleteChallenge");
+  assert.ok(start >= 0, "deleteChallenge introuvable");
+  const fn = source.slice(start, source.indexOf("\n}\n", start) + 3);
+  assert.match(fn, /challenge_type !== "monthly_investment"/);
+});
+
+test("deleteChallenge n'écrit jamais dans points_ledger : la protection vient de la contrainte FK (23503)", () => {
+  const source = read("lib/challenges-service.ts");
+  const start = source.indexOf("export async function deleteChallenge");
+  const fn = source.slice(start, source.indexOf("\n}\n", start) + 3);
+  assert.match(fn, /method:\s*["'`]DELETE["'`]/);
+  assert.match(fn, /isPointsHistoryViolation\(error\)/); // détection déléguée, définie juste au-dessus
+  assert.match(source, /function isPointsHistoryViolation[\s\S]{0,200}23503/);
+  assert.equal(/points_ledger["'`]\s*,\s*\{\s*\n?\s*method/.test(fn), false);
+});
+
+test("route admin : DELETE présent, id lu depuis les query params (jamais un corps arbitraire)", () => {
+  const adminChallenges = read("app/api/admin/challenges/route.ts");
+  assert.match(adminChallenges, /export async function DELETE/);
+  assert.match(adminChallenges, /searchParams\.get\(["'`]id["'`]\)/);
 });

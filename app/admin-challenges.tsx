@@ -35,7 +35,7 @@ export function AdminChallenges() {
   const [tab, setTab] = useState<"challenges" | "participants">("challenges");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<ParticipantDto[]>([]);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [formModal, setFormModal] = useState<"create" | ChallengeDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -96,6 +96,23 @@ export function AdminChallenges() {
     }
   }
 
+  async function remove(challenge: ChallengeDto) {
+    if (!window.confirm(`Supprimer définitivement le défi « ${challenge.title} » ? Cette action est irréversible.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/challenges?id=${encodeURIComponent(challenge.id)}`, { method: "DELETE", headers: await headers() });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Suppression impossible.");
+      if (selectedId === challenge.id) setSelectedId(null);
+      setReloadToken((token) => token + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Suppression impossible.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const activeCount = challenges.filter((challenge) => challenge.status === "active").length;
   const totalParticipants = challenges.reduce((sum, challenge) => sum + challenge.participants, 0);
   const totalCompleted = challenges.reduce((sum, challenge) => sum + challenge.completed, 0);
@@ -110,7 +127,7 @@ export function AdminChallenges() {
           <h1>Défis &amp; animation</h1>
           <p>Animez les objectifs familiaux avec simplicité.</p>
         </div>
-        <button type="button" className="ach-create-btn" onClick={() => setCreateOpen(true)}>+ Créer un défi</button>
+        <button type="button" className="ach-create-btn" onClick={() => setFormModal("create")}>+ Créer un défi</button>
       </header>
 
       <nav className="ach-tabs" aria-label="Sections défis">
@@ -175,7 +192,9 @@ export function AdminChallenges() {
                           {challenge.status === "draft" && <button type="button" disabled={busy} onClick={() => transition(challenge.id, { status: "scheduled" })}>Programmer</button>}
                           {challenge.status === "active" && <button type="button" disabled={busy} onClick={() => transition(challenge.id, { status: "completed" })}>Terminer</button>}
                           {challenge.status !== "archived" && <button type="button" className="quiet" disabled={busy} onClick={() => transition(challenge.id, { status: "archived" })}>Archiver</button>}
+                          {(challenge.status === "draft" || challenge.status === "scheduled") && <button type="button" className="quiet" disabled={busy} onClick={() => setFormModal(challenge)}>Modifier</button>}
                           <button type="button" className="quiet" onClick={() => { setSelectedId(challenge.id); setTab("participants"); }}>Participants ›</button>
+                          <button type="button" className="quiet ach-danger" disabled={busy} onClick={() => void remove(challenge)}>Supprimer</button>
                         </div>
                       </td>
                     </tr>
@@ -221,7 +240,7 @@ export function AdminChallenges() {
         </section>
       )}
 
-      {createOpen && <CreateChallengeModal onClose={() => setCreateOpen(false)} onCreated={() => { setCreateOpen(false); setReloadToken((token) => token + 1); }} />}
+      {formModal && <ChallengeFormModal challenge={formModal === "create" ? null : formModal} onClose={() => setFormModal(null)} onSaved={() => { setFormModal(null); setReloadToken((token) => token + 1); }} />}
     </div>
   );
 }
@@ -237,14 +256,18 @@ function lastOfMonthISO() {
   return last.toISOString().slice(0, 10);
 }
 
-function CreateChallengeModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [startsOn, setStartsOn] = useState(firstOfMonthISO());
-  const [endsOn, setEndsOn] = useState(lastOfMonthISO());
-  const [pointsReward, setPointsReward] = useState("300");
-  const [accountTypes, setAccountTypes] = useState<string[]>(["pea", "securities"]);
-  const [instrumentTypes, setInstrumentTypes] = useState<string[]>(["etf", "stock"]);
+// Modale unique pour créer OU modifier un défi mensuel (le contenu ne se modifie qu'en
+// brouillon/programmé, garde déjà appliquée côté serveur par updateChallenge). `challenge` NULL
+// = création (POST) ; renseigné = édition pré-remplie (PATCH sur cet id).
+function ChallengeFormModal({ challenge, onClose, onSaved }: { challenge: ChallengeDto | null; onClose: () => void; onSaved: () => void }) {
+  const isEdit = challenge !== null;
+  const [title, setTitle] = useState(challenge?.title ?? "");
+  const [description, setDescription] = useState(challenge?.description ?? "");
+  const [startsOn, setStartsOn] = useState(challenge?.startsOn ?? firstOfMonthISO());
+  const [endsOn, setEndsOn] = useState(challenge?.endsOn ?? lastOfMonthISO());
+  const [pointsReward, setPointsReward] = useState(String(challenge?.pointsReward ?? 300));
+  const [accountTypes, setAccountTypes] = useState<string[]>(challenge?.eligibleAccountTypes ?? ["pea", "securities"]);
+  const [instrumentTypes, setInstrumentTypes] = useState<string[]>(challenge?.eligibleInstrumentTypes ?? ["etf", "stock"]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -257,15 +280,16 @@ function CreateChallengeModal({ onClose, onCreated }: { onClose: () => void; onC
     setSaving(true);
     setError("");
     try {
+      const fields = { title, description, startsOn, endsOn, pointsReward: Number(pointsReward), eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes };
       const response = await fetch("/api/admin/challenges", {
-        method: "POST", headers: await headers(),
-        body: JSON.stringify({ title, description, startsOn, endsOn, pointsReward: Number(pointsReward), eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes }),
+        method: isEdit ? "PATCH" : "POST", headers: await headers(),
+        body: JSON.stringify(isEdit ? { id: challenge.id, ...fields } : fields),
       });
       const body = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(body.error ?? "Création impossible.");
-      onCreated();
+      if (!response.ok) throw new Error(body.error ?? (isEdit ? "Modification impossible." : "Création impossible."));
+      onSaved();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Création impossible.");
+      setError(caught instanceof Error ? caught.message : (isEdit ? "Modification impossible." : "Création impossible."));
     } finally {
       setSaving(false);
     }
@@ -273,8 +297,8 @@ function CreateChallengeModal({ onClose, onCreated }: { onClose: () => void; onC
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
-      <section className="modal ach-modal" role="dialog" aria-modal="true" aria-label="Créer un défi">
-        <header className="ach-modal-head"><h2>Créer un défi mensuel</h2><button type="button" onClick={onClose} aria-label="Fermer">×</button></header>
+      <section className="modal ach-modal" role="dialog" aria-modal="true" aria-label={isEdit ? "Modifier le défi" : "Créer un défi"}>
+        <header className="ach-modal-head"><h2>{isEdit ? "Modifier le défi" : "Créer un défi mensuel"}</h2><button type="button" onClick={onClose} aria-label="Fermer">×</button></header>
         <div className="ach-form">
           <label className="ach-field ach-field-wide"><span>Titre</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Mon cap du mois" /></label>
           <label className="ach-field ach-field-wide"><span>Description (facultatif)</span><input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Investir régulièrement, à son rythme." /></label>
@@ -293,12 +317,12 @@ function CreateChallengeModal({ onClose, onCreated }: { onClose: () => void; onC
               <label key={value}><input type="checkbox" checked={instrumentTypes.includes(value)} onChange={() => toggle(instrumentTypes, setInstrumentTypes, value)} /> {label}</label>
             ))}</div>
           </fieldset>
-          <p className="ach-muted ach-field-wide">Type de défi : investissement mensuel régulier. Le défi est créé en brouillon ; activez-le ensuite depuis la liste.</p>
+          <p className="ach-muted ach-field-wide">{isEdit ? "Le contenu reste modifiable tant que le défi n'est pas activé (brouillon ou programmé)." : "Type de défi : investissement mensuel régulier. Le défi est créé en brouillon ; activez-le ensuite depuis la liste."}</p>
           {error && <p className="ach-error ach-field-wide" role="alert">{error}</p>}
         </div>
         <footer className="ach-modal-actions">
           <button type="button" className="quiet" onClick={onClose} disabled={saving}>Annuler</button>
-          <button type="button" className="ach-create-btn" onClick={() => void submit()} disabled={saving}>{saving ? "Création…" : "Créer le défi"}</button>
+          <button type="button" className="ach-create-btn" onClick={() => void submit()} disabled={saving}>{saving ? "Enregistrement…" : isEdit ? "Enregistrer" : "Créer le défi"}</button>
         </footer>
       </section>
     </div>
