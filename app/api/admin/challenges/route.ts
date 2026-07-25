@@ -1,5 +1,6 @@
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
 import { listChallengesForAdmin, createChallenge, updateChallenge, isMissingChallengeTable, type AdminChallengeRow } from "../../../../lib/challenges-service";
+import { listOnboardingMissionsForAdmin } from "../../../../lib/onboarding-challenges-service";
 import type { ChallengeInput } from "../../../../lib/challenges";
 
 // Back-office « Défis & animation » — création et gestion des défis. requireAdmin sur chaque
@@ -17,10 +18,13 @@ function setup(error: unknown) {
 export async function GET(request: Request) {
   try {
     await requireAdmin(request);
-    const challenges = await listChallengesForAdmin();
-    return Response.json({ challenges: challenges.map(toDto) });
+    // Les 4 missions « Bien démarrer » sont préconfigurées et permanentes (migration 20260805) :
+    // lecture SEULE, séparée de la liste des défis mensuels (jamais mélangées, jamais éditables
+    // depuis cet écran — cf. lib/challenges-service.ts::updateChallenge).
+    const [challenges, onboarding] = await Promise.all([listChallengesForAdmin(), listOnboardingMissionsForAdmin()]);
+    return Response.json({ challenges: challenges.map(toDto), onboarding });
   } catch (error) {
-    if (isMissingChallengeTable(error)) return Response.json({ challenges: [] });
+    if (isMissingChallengeTable(error)) return Response.json({ challenges: [], onboarding: [] });
     return authErrorResponse(error);
   }
 }

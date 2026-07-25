@@ -23,6 +23,8 @@ type CurrentResp = {
 type PointsResp = { available?: boolean; totalPoints: number; yearPoints: number; challengesCompleted: number; rank: number | null };
 type LeaderRow = { rank: number; memberId: string; name: string; photoUrl: string | null; points: number; challengesCompleted: number; isCurrentMember?: boolean };
 type HistoryItem = { id: string; title: string; startsOn: string; endsOn: string; status: string; pointsReward: number; joined: boolean; participantStatus: string | null; pointsEarned: number };
+type OnboardingMissionDto = { slug: string; title: string; description: string; points: number; cta: string; view: View; status: "todo" | "done"; successMessage: string };
+type OnboardingResp = { available: boolean; missions: OnboardingMissionDto[]; completedCount: number; totalCount: number; earnedPoints: number; totalPoints: number; justCompleted: string[] };
 
 const euro0 = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const intFmt = new Intl.NumberFormat("fr-FR");
@@ -108,6 +110,7 @@ function PodiumGlyph() {
 export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavigate: (view: View) => void }) {
   const [current, setCurrent] = useState<CurrentResp | null>(null);
   const [points, setPoints] = useState<PointsResp | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingResp | null>(null);
   const [period, setPeriod] = useState<"month" | "year">("month");
   const [leaderboard, setLeaderboard] = useState<LeaderRow[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -120,15 +123,26 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
   const historyRef = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
-    const [currentRes, pointsRes, listRes] = await Promise.all([
+    const [currentRes, pointsRes, listRes, onboardingRes] = await Promise.all([
       authenticatedFetch("/api/challenges/current"),
       authenticatedFetch("/api/challenges/points"),
       authenticatedFetch("/api/challenges"),
+      authenticatedFetch("/api/challenges/onboarding"),
     ]);
-    const [currentBody, pointsBody, listBody] = await Promise.all([currentRes.json(), pointsRes.json(), listRes.json()]);
+    const [currentBody, pointsBody, listBody, onboardingBody] = await Promise.all([currentRes.json(), pointsRes.json(), listRes.json(), onboardingRes.json()]);
     setCurrent(currentBody as CurrentResp);
     setPoints(pointsBody as PointsResp);
     setHistory((listBody.history ?? []) as HistoryItem[]);
+    const onboardingData = onboardingBody as OnboardingResp;
+    setOnboarding(onboardingData);
+    // Message de réussite ciblé pour les missions « Bien démarrer » venant d'être reconnues
+    // (y compris rétroactivement) — au chargement de l'écran, comme filet de sécurité.
+    if (onboardingData.available && onboardingData.justCompleted?.length) {
+      const messages = onboardingData.justCompleted
+        .map((slug) => onboardingData.missions.find((mission) => mission.slug === slug)?.successMessage)
+        .filter((message): message is string => Boolean(message));
+      if (messages.length) setNotice(messages.join(" · "));
+    }
   }, []);
 
   useEffect(() => {
@@ -308,6 +322,53 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
       {notice && <div className="toast" role="status">✓ {notice}</div>}
       {rulesPanel}
 
+      {/* Parcours individuel « Bien démarrer » — permanent, distinct du défi du mois. */}
+      {onboarding?.available && (
+        <section className="panel cha-onboard" aria-label="Bien démarrer">
+          <header className="cha-onboard-head">
+            <div>
+              <h3>Bien démarrer</h3>
+              <p>Complète ces étapes pour prendre en main ton espace d’investissement.</p>
+            </div>
+            {onboarding.completedCount < onboarding.totalCount ? (
+              <span className="cha-onboard-step-label">{onboarding.completedCount} étape{onboarding.completedCount > 1 ? "s" : ""} sur {onboarding.totalCount}</span>
+            ) : (
+              <span className="cha-badge cha-badge-done">Parcours terminé</span>
+            )}
+          </header>
+
+          {onboarding.completedCount < onboarding.totalCount && (
+            <>
+              <div className="cha-bar cha-onboard-bar"><span style={{ width: `${Math.round((onboarding.completedCount / onboarding.totalCount) * 100)}%` }} /></div>
+              <p className="cha-onboard-points">{intFmt.format(onboarding.earnedPoints)} / {intFmt.format(onboarding.totalPoints)} points</p>
+            </>
+          )}
+
+          {onboarding.completedCount === onboarding.totalCount ? (
+            <p className="cha-onboard-success">Bravo, tu as terminé les 4 premières étapes — {intFmt.format(onboarding.totalPoints)} points gagnés !</p>
+          ) : (
+            <ul className="cha-onboard-grid">
+              {onboarding.missions.map((mission) => (
+                <li key={mission.slug} className={mission.status === "done" ? "cha-onboard-item is-done" : "cha-onboard-item"}>
+                  <span className="cha-onboard-item-icon" aria-hidden="true">{mission.status === "done" ? <CheckIcon /> : <NavIcon id="star" />}</span>
+                  <div className="cha-onboard-item-body">
+                    <span className={mission.status === "done" ? "cha-chip cha-chip-done" : "cha-chip cha-chip-todo"}>{mission.status === "done" ? "Terminé" : "À faire"}</span>
+                    <strong>{mission.title}</strong>
+                    <small>{mission.description}</small>
+                  </div>
+                  <div className="cha-onboard-item-side">
+                    <span className="cha-onboard-item-points">{mission.status === "done" ? `+${mission.points} pts` : `${mission.points} pts`}</span>
+                    {mission.status === "done"
+                      ? <span className="cha-onboard-done-mark" aria-hidden="true"><CheckIcon /></span>
+                      : <button type="button" className="cha-onboard-cta" onClick={() => onNavigate(mission.view)}>{mission.cta}</button>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {/* Mes indicateurs */}
       <div className="cha-stats">
         <StatCard icon={<NavIcon id="star" />} value={intFmt.format(points?.totalPoints ?? 0)} label="Points totaux" />
@@ -444,4 +505,45 @@ function renderCta({ state, canAct, joining, onNavigate, onJoin }: { state: Memb
     : <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Voir mon investissement</button>;
   if (state === "completed") return <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Voir mon investissement</button>;
   return null;
+}
+
+/**
+ * Résumé compact du parcours « Bien démarrer », pour le tableau de bord uniquement. Ne s'affiche
+ * QUE si le parcours existe et n'est pas encore terminé (masqué une fois les 4 missions acquises,
+ * pour ne pas surcharger le tableau de bord) — la synthèse du défi mensuel reste prioritaire :
+ * ce résumé n'apparaît qu'en complément, jamais à sa place.
+ */
+export function OnboardingDashboardCard({ navigate }: { navigate: (view: View) => void }) {
+  const [data, setData] = useState<OnboardingResp | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await authenticatedFetch("/api/challenges/onboarding");
+        const body = await response.json() as OnboardingResp;
+        if (!cancelled) setData(body);
+      } catch {
+        if (!cancelled) setData(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!data || !data.available || data.totalCount === 0 || data.completedCount >= data.totalCount) return null;
+
+  const pct = Math.round((data.completedCount / data.totalCount) * 100);
+  const next = data.missions.find((mission) => mission.status === "todo");
+
+  return (
+    <section className="panel home-card cha-dash-mini">
+      <header className="cha-dash-mini-head">
+        <h3>Bien démarrer</h3>
+        <span>{data.completedCount} étape{data.completedCount > 1 ? "s" : ""} sur {data.totalCount} terminée{data.completedCount > 1 ? "s" : ""}</span>
+      </header>
+      <div className="cha-bar cha-dash-mini-bar"><span style={{ width: `${pct}%` }} /></div>
+      {next && <p className="cha-dash-mini-next">Prochaine étape : {next.title}</p>}
+      {next && <button type="button" className="home-card-link" onClick={() => navigate(next.view)}>Continuer →</button>}
+    </section>
+  );
 }

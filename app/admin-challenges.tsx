@@ -15,6 +15,7 @@ type ChallengeDto = {
   participants: number; completed: number; completionRate: number; pointsAttributed: number;
 };
 type ParticipantDto = { memberId: string; name: string; photoUrl: string | null; status: string; pct: number; invested: number; targetAmount: number; pointsEarned: number; lastEligibleDate: string | null };
+type OnboardingMissionDto = { slug: string; title: string; points: number; completedCount: number };
 
 const STATUS_LABEL: Record<string, string> = { draft: "Brouillon", scheduled: "Programmé", active: "Actif", completed: "Terminé", archived: "Archivé" };
 const ACCOUNT_OPTIONS: [string, string][] = [["pea", "PEA"], ["securities", "Compte-titres"]];
@@ -28,6 +29,7 @@ function initials(name: string) { return name.trim().slice(0, 2).toUpperCase(); 
 
 export function AdminChallenges() {
   const [challenges, setChallenges] = useState<ChallengeDto[]>([]);
+  const [onboarding, setOnboarding] = useState<OnboardingMissionDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"challenges" | "participants">("challenges");
@@ -39,9 +41,9 @@ export function AdminChallenges() {
 
   const load = useCallback(async () => {
     const response = await fetch("/api/admin/challenges", { headers: await headers() });
-    const body = await response.json() as { challenges?: ChallengeDto[]; error?: string };
+    const body = await response.json() as { challenges?: ChallengeDto[]; onboarding?: OnboardingMissionDto[]; error?: string };
     if (!response.ok) throw new Error(body.error ?? "Chargement impossible.");
-    return body.challenges ?? [];
+    return { challenges: body.challenges ?? [], onboarding: body.onboarding ?? [] };
   }, []);
 
   useEffect(() => {
@@ -50,9 +52,10 @@ export function AdminChallenges() {
       setLoading(true);
       setError("");
       try {
-        const list = await load();
+        const { challenges: list, onboarding: missions } = await load();
         if (cancelled) return;
         setChallenges(list);
+        setOnboarding(missions);
         setSelectedId((current) => current ?? list.find((challenge) => challenge.status === "active")?.id ?? list[0]?.id ?? null);
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Chargement impossible.");
@@ -123,6 +126,25 @@ export function AdminChallenges() {
         <Stat icon="🎯" value={`${successRate} %`} label="Taux de réussite" />
         <Stat icon="🏆" value={intFmt.format(totalPoints)} label="Points attribués" />
       </div>
+
+      {!loading && onboarding.length > 0 && (
+        <section className="panel ach-onboard-card">
+          <div className="ach-onboard-head">
+            <h3 className="ach-card-title">Bien démarrer</h3>
+            <span className="ach-onboard-badge">Onboarding · Permanent · Préconfiguré</span>
+          </div>
+          <p className="ach-muted">Parcours individuel automatique, distinct du défi du mois. Identifiants stables, non modifiables depuis cet écran ; les points déjà attribués ne sont jamais retirés.</p>
+          <ul className="ach-onboard-list">
+            {onboarding.map((mission) => (
+              <li key={mission.slug} className="ach-onboard-row">
+                <span className="ach-onboard-title">{mission.title}</span>
+                <span className="ach-onboard-points">{mission.points} pts</span>
+                <span className="ach-onboard-count">{mission.completedCount} membre{mission.completedCount > 1 ? "s" : ""} terminé{mission.completedCount > 1 ? "s" : ""}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {loading ? (
         <section className="panel"><p className="ach-muted">Chargement…</p></section>

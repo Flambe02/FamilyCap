@@ -1,6 +1,7 @@
 import { authErrorResponse, requireFamilyMember, type AuthenticatedMember } from "../../../lib/auth-server";
 import { isSupabaseConfigured, supabaseRest } from "../../../lib/supabase-rest";
 import { validateInvestmentPlanInput, type InvestmentPlanInput } from "../../../lib/investment-plan";
+import { reconcileOnboardingForMember } from "../../../lib/onboarding-challenges-service";
 
 // Plan d'investissement PERSONNEL du membre connecté (« Mon rythme d'investissement »), persisté
 // dans public.user_investment_plan. Frontière de sécurité : requireFamilyMember identifie
@@ -97,6 +98,9 @@ async function upsert(request: Request) {
       updated_at: new Date().toISOString(),
     }),
   });
+  // Reconnaissance automatique de la mission « Définis ton rythme » (best-effort ; n'affecte
+  // jamais la réponse d'enregistrement du plan).
+  try { await reconcileOnboardingForMember(targetId); } catch { /* missions non déployées / réconciliation différée à l'ouverture de l'écran */ }
   return Response.json({ saved: true, plan });
 }
 

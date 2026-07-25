@@ -53,6 +53,17 @@
 .ach-part-invest { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
 .ach-part-points { font-weight: 700; font-variant-numeric: tabular-nums; }
 
+/* ---- Bien démarrer (missions permanentes, lecture seule) ---- */
+.ach-onboard-card { padding: 18px 22px; }
+.ach-onboard-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.ach-onboard-badge { padding: 4px 10px; border-radius: 999px; background: #eef1f1; color: #5c6771; font-size: 11px; font-weight: 800; letter-spacing: 0.3px; }
+.ach-onboard-list { display: flex; flex-direction: column; margin-top: 12px; }
+.ach-onboard-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+.ach-onboard-row:last-child { border-bottom: none; }
+.ach-onboard-title { font-weight: 600; }
+.ach-onboard-points { font-variant-numeric: tabular-nums; font-weight: 700; color: #b07d1e; }
+.ach-onboard-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
 /* ---- Modale de création ---- */
 .ach-modal { max-width: 620px; width: min(620px, 94vw); }
 .ach-modal-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; }
@@ -75,4 +86,6 @@
   .ach-part-row { grid-template-columns: 40px 1fr auto; grid-auto-rows: auto; row-gap: 4px; }
   .ach-part-row .ach-bar { grid-column: 1 / -1; }
   .ach-part-invest, .ach-part-points, .ach-part-pct { grid-column: span 1; }
+  .ach-onboard-row { grid-template-columns: 1fr auto; row-gap: 4px; }
+  .ach-onboard-count { grid-column: 1 / -1; }
 }

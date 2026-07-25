@@ -4,6 +4,7 @@ import { buildOperationRecord, type OperationInput } from "../../../../lib/accou
 import { instrumentKeyOf } from "../../../../lib/investment-import";
 import { loadImportAccount, loadImportContext, isOperationAccount } from "../../../../lib/investment-import-server";
 import { reconcileMemberForActive } from "../../../../lib/challenges-service";
+import { reconcileOnboardingForMember } from "../../../../lib/onboarding-challenges-service";
 
 // Écriture des opérations de compte (PEA / compte-titres). Route GÉNÉRIQUE malgré son nom
 // historique `/api/pea/operations` : elle sert le PEA ET le compte-titres. Admin uniquement
@@ -63,6 +64,8 @@ export async function POST(request: Request) {
     });
     // Reconnaissance automatique du défi du membre porteur (best-effort ; n'affecte pas la réponse).
     try { await reconcileMemberForActive(account.memberId); } catch { /* défis non déployés / réconciliation différée */ }
+    // Reconnaissance automatique des missions « Bien démarrer » du membre porteur (best-effort).
+    try { await reconcileOnboardingForMember(account.memberId); } catch { /* best-effort */ }
     return Response.json({ saved: true, id: rows[0]?.id }, { status: 201 });
   } catch (error) {
     return setupResponse(error);

@@ -86,6 +86,41 @@
 .cha-rules-note { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--color-muted, var(--muted)); font-size: 12.5px; }
 .cha-rules-note .nav-icon-svg { width: 15px; height: 15px; color: var(--color-teal, var(--teal)); }
 
+/* ---- Bien démarrer (parcours individuel permanent, distinct du défi du mois) --------------- */
+.cha-onboard { padding: 20px 22px; }
+.cha-onboard-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.cha-onboard-head h3 { font-family: var(--font-display-stack); font-size: 20px; font-weight: 600; color: var(--color-text, var(--ink)); }
+.cha-onboard-head p { margin-top: 3px; color: var(--color-muted, var(--muted)); font-size: 13px; }
+.cha-onboard-step-label { flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; background: var(--color-gold-soft, var(--amber-soft)); color: #a46b00; font-size: 12px; font-weight: 800; }
+.cha-onboard-bar { margin-top: 4px; }
+.cha-onboard-points { margin-top: 8px; color: var(--color-muted, var(--muted)); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cha-onboard-success { margin-top: 6px; color: var(--color-text, var(--ink)); font-size: 14px; font-weight: 600; }
+
+.cha-onboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.cha-onboard-item { display: grid; grid-template-columns: 40px 1fr; gap: 12px; padding: 14px; border: 1px solid var(--color-border, var(--line)); border-radius: 14px; background: var(--color-card-warm, #fcf9f4); }
+.cha-onboard-item.is-done { background: rgba(47, 143, 91, 0.06); border-color: rgba(47, 143, 91, 0.22); }
+.cha-onboard-item-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: #123655; color: #e6bd6b; }
+.cha-onboard-item.is-done .cha-onboard-item-icon { background: rgba(47, 143, 91, 0.14); color: #2f8f5b; }
+.cha-onboard-item-icon .nav-icon-svg { width: 18px; height: 18px; }
+.cha-onboard-item-body { min-width: 0; grid-column: 2; }
+.cha-onboard-item-body > strong { display: block; margin-top: 6px; font-size: 14px; }
+.cha-onboard-item-body > small { display: block; margin-top: 3px; color: var(--color-muted, var(--muted)); font-size: 12px; line-height: 1.4; }
+.cha-onboard-item-side { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.cha-onboard-item-points { font-size: 12px; font-weight: 700; color: #b07d1e; font-variant-numeric: tabular-nums; }
+.cha-onboard-item.is-done .cha-onboard-item-points { color: #2f8f5b; }
+.cha-onboard-done-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: rgba(47, 143, 91, 0.14); color: #2f8f5b; }
+.cha-onboard-done-mark .nav-icon-svg { width: 14px; height: 14px; }
+.cha-onboard-cta { min-height: 36px; padding: 0 14px; border: 1px solid var(--color-border, var(--line)); border-radius: 10px; background: #fff; color: var(--color-text, var(--ink)); font-size: 12px; font-weight: 700; cursor: pointer; }
+
+.cha-chip-todo { background: rgba(7, 45, 58, 0.06); color: var(--color-muted, var(--muted)); }
+
+/* Résumé compact du tableau de bord (secondaire : n'apparaît que si le parcours est incomplet). */
+.cha-dash-mini-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cha-dash-mini-head h3 { font-family: var(--font-display-stack); font-size: 15px; font-weight: 600; }
+.cha-dash-mini-head span { color: var(--color-muted, var(--muted)); font-size: 11px; font-weight: 700; }
+.cha-dash-mini-bar { margin-top: 10px; height: 7px; }
+.cha-dash-mini-next { margin: 8px 0 0; color: var(--color-muted, var(--muted)); font-size: 12px; }
+
 /* ---- Indicateurs (KPI compacts premium) ---------------------------------------------------- */
 .cha-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .cha-stat { display: flex; align-items: center; gap: 14px; padding: 16px 18px; background: var(--color-card, #fff); border: 1px solid var(--color-border, var(--line)); border-radius: var(--radius-card, 14px); box-shadow: var(--shadow-card, 0 5px 20px rgba(7, 45, 58, 0.06)); }
@@ -195,6 +230,11 @@
   .cha-mini-steps { flex-direction: column; gap: 10px; }
 
   .cha-rules-steps { grid-template-columns: 1fr; gap: 12px; }
+
+  .cha-onboard { padding: 16px; }
+  .cha-onboard-grid { grid-template-columns: 1fr; gap: 10px; }
+  .cha-onboard-cta { width: 100%; min-height: 44px; }
+  .cha-onboard-step-label { font-size: 11px; }
 
   .cha-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .cha-stat { padding: 14px; }

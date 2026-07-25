@@ -53,12 +53,19 @@ function num(value: number | string | null | undefined): number {
 const CHALLENGE_SELECT = "id,title,description,challenge_type,status,starts_on,ends_on,points_reward,eligible_account_types,eligible_instrument_types,created_by,created_at,updated_at";
 const PARTICIPANT_SELECT = "id,challenge_id,member_id,target_account_id,target_amount_snapshot,target_currency,status,joined_at,completed_at";
 
+// Toutes les lectures « défi mensuel » ci-dessous filtrent explicitement challenge_type :
+// depuis la migration 20260805, les 4 missions permanentes « Bien démarrer » partagent la même
+// table `challenges` (status='active', starts_on/ends_on NULL) — sans ce filtre, elles fuiteraient
+// dans la liste/l'historique du défi mensuel. Leur lecture dédiée vit dans
+// lib/onboarding-challenges-service.ts.
+const MONTHLY_TYPE_FILTER = "&challenge_type=eq.monthly_investment";
+
 // ---- Lectures de base ---------------------------------------------------------------------
 /** Défi « courant » : actif et dont la période contient aujourd'hui (le plus récent). */
 export async function getActiveChallenge(): Promise<ChallengeRow | null> {
   const today = todayISO();
   const rows = await supabaseRest<ChallengeRow[]>(
-    `challenges?select=${CHALLENGE_SELECT}&status=eq.active&starts_on=lte.${today}&ends_on=gte.${today}&order=starts_on.desc&limit=1`,
+    `challenges?select=${CHALLENGE_SELECT}&status=eq.active&starts_on=lte.${today}&ends_on=gte.${today}${MONTHLY_TYPE_FILTER}&order=starts_on.desc&limit=1`,
   );
   return rows[0] ?? null;
 }
@@ -68,9 +75,9 @@ export async function getChallengeById(id: string): Promise<ChallengeRow | null>
   return rows[0] ?? null;
 }
 
-/** Défis visibles par un membre (non-brouillon). */
+/** Défis mensuels visibles par un membre (non-brouillon). */
 export async function listVisibleChallenges(): Promise<ChallengeRow[]> {
-  return supabaseRest<ChallengeRow[]>(`challenges?select=${CHALLENGE_SELECT}&status=neq.draft&order=starts_on.desc&limit=50`);
+  return supabaseRest<ChallengeRow[]>(`challenges?select=${CHALLENGE_SELECT}&status=neq.draft${MONTHLY_TYPE_FILTER}&order=starts_on.desc&limit=50`);
 }
 
 export async function getParticipant(challengeId: string, memberId: string): Promise<ParticipantRow | null> {
@@ -436,7 +443,7 @@ export type AdminChallengeRow = ChallengeRow & { participants: number; completed
 
 export async function listChallengesForAdmin(): Promise<AdminChallengeRow[]> {
   const [challenges, participants, ledger] = await Promise.all([
-    supabaseRest<ChallengeRow[]>(`challenges?select=${CHALLENGE_SELECT}&order=starts_on.desc&limit=100`),
+    supabaseRest<ChallengeRow[]>(`challenges?select=${CHALLENGE_SELECT}${MONTHLY_TYPE_FILTER}&order=starts_on.desc&limit=100`),
     supabaseRest<Array<{ challenge_id: string; status: ParticipantStatus }>>("challenge_participants?select=challenge_id,status"),
     supabaseRest<Array<{ challenge_id: string | null; points: number }>>("points_ledger?select=challenge_id,points"),
   ]);
@@ -487,6 +494,12 @@ export async function createChallenge(input: ChallengeInput & { status?: string 
 export async function updateChallenge(id: string, patch: ChallengeInput & { status?: string }): Promise<{ ok: true; challenge: ChallengeRow } | { ok: false; status: number; error: string }> {
   const current = await getChallengeById(id);
   if (!current) return { ok: false, status: 404, error: "Défi introuvable." };
+  // Les 4 missions « Bien démarrer » sont préconfigurées et permanentes (migration 20260805) :
+  // ni leur contenu ni leur statut ne se gèrent depuis l'admin « Défis & animation » (identifiant
+  // stable, jamais de suppression accidentelle des points historiques qu'elles ont attribués).
+  if (current.challenge_type !== "monthly_investment") {
+    return { ok: false, status: 409, error: "Les missions « Bien démarrer » sont préconfigurées et permanentes : elles ne se modifient pas depuis cet écran." };
+  }
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   const wantsContentEdit = ["title", "description", "startsOn", "endsOn", "pointsReward", "eligibleAccountTypes", "eligibleInstrumentTypes"].some((key) => key in patch);

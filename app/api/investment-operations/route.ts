@@ -4,6 +4,7 @@ import { buildOperationRecord, type OperationInput } from "../../../lib/account-
 import { loadImportAccount } from "../../../lib/investment-import-server";
 import { authorizeMemberOperation } from "../../../lib/investment-plan";
 import { reconcileMemberForActive } from "../../../lib/challenges-service";
+import { reconcileOnboardingForMember } from "../../../lib/onboarding-challenges-service";
 
 // Saisie SELF-SERVICE d'un achat sur son PROPRE PEA / compte-titres, par le membre lui-même.
 // Route SÉPARÉE de l'écriture admin (/api/pea/operations, requireAdmin) : celle-ci n'est pas
@@ -58,6 +59,9 @@ export async function POST(request: Request) {
     // Reconnaissance automatique du défi (best-effort) : un achat éligible fait progresser le
     // défi courant du membre. N'affecte jamais la réponse d'enregistrement de l'opération.
     try { await reconcileMemberForActive(account!.memberId); } catch { /* défis non déployés / réconciliation différée à l'ouverture de l'écran */ }
+    // Reconnaissance automatique des missions « Ajoute ton portefeuille » / « Premier
+    // investissement » (best-effort ; centralisée, indépendante du type de compte PEA/CTO).
+    try { await reconcileOnboardingForMember(account!.memberId); } catch { /* best-effort */ }
     return Response.json({ saved: true, id: rows[0]?.id }, { status: 201 });
   } catch (error) {
     return setupResponse(error);

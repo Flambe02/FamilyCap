@@ -1,5 +1,6 @@
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
 import { supabaseRest } from "../../../../lib/supabase-rest";
+import { reconcileOnboardingForMember } from "../../../../lib/onboarding-challenges-service";
 
 type AccountInput = {
   id?: string;
@@ -99,6 +100,9 @@ export async function POST(request: Request) {
       headers: { prefer: "return=representation" },
       body: JSON.stringify(record),
     });
+    // Reconnaissance automatique de la mission « Configure ton compte » (best-effort ; n'affecte
+    // jamais la réponse de création du compte).
+    try { await reconcileOnboardingForMember(memberId); } catch { /* missions non déployées / réconciliation différée à l'ouverture de l'écran */ }
     return Response.json({ saved: true, id: rows[0]?.id }, { status: 201 });
   } catch (error) {
     return setupResponse(error);
@@ -120,11 +124,15 @@ export async function PATCH(request: Request) {
     if (body.openedAt !== undefined) changes.opened_at = body.openedAt || null;
     if (body.monthlyTarget !== undefined) changes.monthly_target = body.monthlyTarget === null || !Number.isFinite(Number(body.monthlyTarget)) ? null : Math.round(Number(body.monthlyTarget) * 100) / 100;
     if (body.openingBalance !== undefined) changes.opening_balance = body.openingBalance === null || !Number.isFinite(Number(body.openingBalance)) ? null : Math.round(Number(body.openingBalance) * 100) / 100;
-    await supabaseRest(`financial_accounts?id=eq.${encodeURIComponent(body.id)}`, {
+    const updatedRows = await supabaseRest<Array<{ member_id: string }>>(`financial_accounts?id=eq.${encodeURIComponent(body.id)}`, {
       method: "PATCH",
-      headers: { prefer: "return=minimal" },
+      headers: { prefer: "return=representation" },
       body: JSON.stringify(changes),
     });
+    // Une réactivation (is_active: true) peut suffire à terminer la mission « Configure ton
+    // compte » (best-effort ; n'affecte jamais la réponse de mise à jour).
+    const ownerId = updatedRows[0]?.member_id;
+    if (ownerId) { try { await reconcileOnboardingForMember(ownerId); } catch { /* best-effort */ } }
     return Response.json({ updated: true });
   } catch (error) {
     return setupResponse(error);

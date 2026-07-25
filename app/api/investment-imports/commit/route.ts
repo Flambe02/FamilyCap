@@ -6,6 +6,7 @@ import {
   type NormalizedOp,
 } from "../../../../lib/investment-import";
 import { loadImportAccount, loadImportContext, isOperationAccount, MAX_ROWS } from "../../../../lib/investment-import-server";
+import { reconcileOnboardingForMember } from "../../../../lib/onboarding-challenges-service";
 
 // COMMIT d'un import. Admin uniquement. Revalide TOUT côté serveur (ne fait jamais confiance aux
 // totaux ni au member_id du client) : chaque opération repasse par buildOperationRecord, la garde
@@ -177,6 +178,10 @@ export async function POST(request: Request) {
       headers: { prefer: "return=minimal" },
       body: JSON.stringify({ status: "completed", imported_rows: records.length, duplicate_rows: duplicates, error_rows: 0, completed_at: new Date().toISOString() }),
     });
+
+    // Reconnaissance automatique des missions « Ajoute ton portefeuille » / « Premier
+    // investissement » (best-effort ; couvre aussi bien l'import de relevé que l'import CSV/XLSX).
+    try { await reconcileOnboardingForMember(account.memberId); } catch { /* best-effort */ }
 
     return Response.json({ batchId, imported: records.length, duplicates, newInstruments: createdInstruments, tracking: context.importTracking ? "complete" : "limited", message: `${records.length} opération(s) importée(s).` }, { status: 201 });
   } catch (error) {
