@@ -14,11 +14,15 @@ export async function GET(request: Request) {
     const type = url.searchParams.get("period") === "year" ? "year" : "month";
     const year = Number(url.searchParams.get("year")) || undefined;
     const month = Number(url.searchParams.get("month")) || undefined;
+    // Aperçu admin (lecture seule) : ?asMember=<id> surligne le membre prévisualisé dans le
+    // classement plutôt que l'admin lui-même. Jamais honoré pour un non-admin.
+    const asMember = url.searchParams.get("asMember");
+    const targetId = asMember && viewer.role === "admin" ? asMember : viewer.id;
     const rows = await getLeaderboard({ type, year, month });
     return Response.json({
       available: true,
       period: type,
-      leaderboard: rows.map((row) => ({ ...row, isCurrentMember: row.memberId === viewer.id })),
+      leaderboard: rows.map((row) => ({ ...row, isCurrentMember: row.memberId === targetId })),
     });
   } catch (error) {
     if (isMissingChallengeTable(error)) return Response.json({ available: false, period: "month", leaderboard: [] });

@@ -619,7 +619,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           </nav>
         )}
 
-        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} checklist={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null} onboardingCard={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingDashboardCard navigate={navigate} /> : null} />}
+        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} checklist={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null} onboardingCard={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingDashboardCard navigate={navigate} asMemberId={isPreview && viewer.role === "admin" ? previewMemberId ?? undefined : undefined} /> : null} />}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} onOpenTransactions={openFilteredTransactions} />}
         {view === "bitcoin" && (
@@ -689,9 +689,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             />
           </>
         )}
-        {view === "investissements-suggestions" && (isPreview
-          ? <ComingSoon eyebrow="DÉFIS" title="Défis" description="L’espace Défis d’un membre s’affiche avec son propre compte. Connectez-vous en tant que membre pour rejoindre un défi et suivre sa progression." />
-          : <ChallengesPage canAct={memberCanRecordOperation} onNavigate={navigate} />)}
+        {view === "investissements-suggestions" && <ChallengesPage canAct={memberCanRecordOperation} onNavigate={navigate} asMemberId={isPreview && viewer.role === "admin" ? previewMemberId ?? undefined : undefined} />}
         {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
         {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={effectiveViewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}
         {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} birthdays={familyBirthdays} />}

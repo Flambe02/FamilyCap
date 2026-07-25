@@ -71,6 +71,25 @@ test("routes membre : aucune ne lit un member_id / points / status='completed' d
   }
 });
 
+// ---- Aperçu admin (lecture seule) : ?asMember= réservé à l'admin, jamais pour écrire --------
+test("routes de lecture des défis : ?asMember= n'est honoré que si viewer.role === 'admin'", () => {
+  for (const path of [
+    "app/api/challenges/route.ts",
+    "app/api/challenges/current/route.ts",
+    "app/api/challenges/points/route.ts",
+    "app/api/challenges/leaderboard/route.ts",
+    "app/api/challenges/onboarding/route.ts",
+  ]) {
+    const source = read(path);
+    assert.match(source, /asMember/, `${path} devrait supporter l'aperçu admin ?asMember=`);
+    assert.match(source, /viewer\.role\s*===\s*["'`]admin["'`]/, `${path} doit réserver asMember à l'admin`);
+  }
+});
+
+test("route join : n'honore JAMAIS ?asMember= (un aperçu admin ne peut jamais rejoindre un défi au nom d'un membre)", () => {
+  assert.equal(joinRoute.includes("asMember"), false);
+});
+
 // ---- Classement : aucune donnée privée dans la route ni son DTO --------------------------
 test("route classement : aucun champ montant/objectif/compte", () => {
   assert.match(leaderboardRoute, /requireFamilyMember/);

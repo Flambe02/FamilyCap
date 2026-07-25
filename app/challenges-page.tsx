@@ -107,7 +107,15 @@ function PodiumGlyph() {
   );
 }
 
-export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavigate: (view: View) => void }) {
+// Aperçu admin (lecture seule) : ?asMember=<id> fait lire à chaque route le contexte du membre
+// prévisualisé plutôt que celui de l'admin — jamais utilisé pour les actions d'écriture (rejoindre
+// un défi reste bloqué par `canAct`, déjà faux en aperçu).
+function withAsMember(url: string, asMemberId?: string): string {
+  if (!asMemberId) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}asMember=${encodeURIComponent(asMemberId)}`;
+}
+
+export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boolean; onNavigate: (view: View) => void; asMemberId?: string }) {
   const [current, setCurrent] = useState<CurrentResp | null>(null);
   const [points, setPoints] = useState<PointsResp | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingResp | null>(null);
@@ -124,10 +132,10 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
 
   const load = useCallback(async () => {
     const [currentRes, pointsRes, listRes, onboardingRes] = await Promise.all([
-      authenticatedFetch("/api/challenges/current"),
-      authenticatedFetch("/api/challenges/points"),
-      authenticatedFetch("/api/challenges"),
-      authenticatedFetch("/api/challenges/onboarding"),
+      authenticatedFetch(withAsMember("/api/challenges/current", asMemberId)),
+      authenticatedFetch(withAsMember("/api/challenges/points", asMemberId)),
+      authenticatedFetch(withAsMember("/api/challenges", asMemberId)),
+      authenticatedFetch(withAsMember("/api/challenges/onboarding", asMemberId)),
     ]);
     const [currentBody, pointsBody, listBody, onboardingBody] = await Promise.all([currentRes.json(), pointsRes.json(), listRes.json(), onboardingRes.json()]);
     setCurrent(currentBody as CurrentResp);
@@ -143,7 +151,7 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
         .filter((message): message is string => Boolean(message));
       if (messages.length) setNotice(messages.join(" · "));
     }
-  }, []);
+  }, [asMemberId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -165,7 +173,7 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
     let cancelled = false;
     void (async () => {
       try {
-        const response = await authenticatedFetch(`/api/challenges/leaderboard?period=${period}`);
+        const response = await authenticatedFetch(withAsMember(`/api/challenges/leaderboard?period=${period}`, asMemberId));
         const body = await response.json() as { leaderboard?: LeaderRow[] };
         if (!cancelled) setLeaderboard(body.leaderboard ?? []);
       } catch {
@@ -173,7 +181,7 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
       }
     })();
     return () => { cancelled = true; };
-  }, [period, reloadToken]);
+  }, [period, reloadToken, asMemberId]);
 
   async function join() {
     if (!canAct || joining) return;
@@ -513,14 +521,14 @@ function renderCta({ state, canAct, joining, onNavigate, onJoin }: { state: Memb
  * pour ne pas surcharger le tableau de bord) — la synthèse du défi mensuel reste prioritaire :
  * ce résumé n'apparaît qu'en complément, jamais à sa place.
  */
-export function OnboardingDashboardCard({ navigate }: { navigate: (view: View) => void }) {
+export function OnboardingDashboardCard({ navigate, asMemberId }: { navigate: (view: View) => void; asMemberId?: string }) {
   const [data, setData] = useState<OnboardingResp | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await authenticatedFetch("/api/challenges/onboarding");
+        const response = await authenticatedFetch(withAsMember("/api/challenges/onboarding", asMemberId));
         const body = await response.json() as OnboardingResp;
         if (!cancelled) setData(body);
       } catch {
@@ -528,7 +536,7 @@ export function OnboardingDashboardCard({ navigate }: { navigate: (view: View) =
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [asMemberId]);
 
   if (!data || !data.available || data.totalCount === 0 || data.completedCount >= data.totalCount) return null;
 

@@ -8,10 +8,19 @@ import { reconcileOnboardingForMember } from "../../../../lib/onboarding-challen
 // (compte, plan, opération) n'est exposé ici : uniquement statut par mission et points.
 export const runtime = "nodejs";
 
+// Aperçu admin (lecture seule côté UI) : ?asMember=<id> affiche le parcours du membre
+// prévisualisé. Jamais honoré pour un non-admin (un membre ne peut jamais réconcilier/lire le
+// parcours d'un autre). La réconciliation ne fait qu'reconnaître des conditions déjà réelles :
+// aucun point n'est jamais fabriqué, qu'elle soit déclenchée par le membre ou par un aperçu admin.
+function resolveTargetId(request: Request, viewer: { id: string; role: string }): string {
+  const asMember = new URL(request.url).searchParams.get("asMember");
+  return asMember && viewer.role === "admin" ? asMember : viewer.id;
+}
+
 export async function GET(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
-    const result = await reconcileOnboardingForMember(viewer.id);
+    const result = await reconcileOnboardingForMember(resolveTargetId(request, viewer));
     return Response.json({
       available: result.available,
       missions: result.progress.missions,

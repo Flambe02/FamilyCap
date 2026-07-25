@@ -70,7 +70,10 @@ test("les points onboarding ne sont jamais annulés : aucune écriture négative
 // ---- Frontière de session : identité du membre connecté, jamais du client ----------------
 test("la route onboarding identifie le membre via la session (requireFamilyMember), jamais via le corps de la requête", () => {
   assert.match(route, /requireFamilyMember/);
-  assert.match(route, /reconcileOnboardingForMember\(viewer\.id\)/);
+  // resolveTargetId ne retombe sur un autre id que via ?asMember=, réservé à l'admin (aperçu
+  // lecture seule) — jamais un membre normal, jamais via le corps de la requête (GET, sans corps).
+  assert.match(route, /reconcileOnboardingForMember\(resolveTargetId\(request, viewer\)\)/);
+  assert.match(route, /viewer\.role\s*===\s*["'`]admin["'`]/);
   assert.equal(route.includes("request.json"), false); // GET : aucun corps, aucun memberId injectable
 });
 

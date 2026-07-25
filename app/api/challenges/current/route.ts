@@ -12,10 +12,18 @@ function daysRemaining(endsOn: string): number {
   return Math.max(0, Math.round((end - today) / 86_400_000));
 }
 
+// Aperçu admin (lecture seule, cf. CLAUDE.md « Admin preview is UI-only ») : ?asMember=<id>
+// affiche le contexte du membre prévisualisé plutôt que celui de l'admin — jamais l'inverse, et
+// jamais pour un non-admin (un membre ne peut jamais lire le défi d'un autre via ce paramètre).
+function resolveTargetId(request: Request, viewer: { id: string; role: string }): string {
+  const asMember = new URL(request.url).searchParams.get("asMember");
+  return asMember && viewer.role === "admin" ? asMember : viewer.id;
+}
+
 export async function GET(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
-    const ctx = await getCurrentForMember(viewer.id);
+    const ctx = await getCurrentForMember(resolveTargetId(request, viewer));
     return Response.json({
       available: true,
       state: ctx.state,
