@@ -1,90 +1,209 @@
-/* Écran membre « Défis ». Réutilise les tokens existants (--line, --muted, --teal, polices) ;
-   hero navy + accent doré, sobre et premium (jamais « casino »). Parité desktop / mobile PWA. */
+/* Écran membre « Défis ». Réutilise les tokens existants (--color-*, --line, --muted, polices) ;
+   hero navy + accent doré sobre et premium (jamais « casino »). Fidèle à la maquette de référence.
+   Parité desktop / mobile PWA — le mobile recompose (il n'empile pas la version desktop). */
 
-.cha-page { gap: 20px; }
-.cha-head h1 { font-family: var(--font-display-stack); font-size: 30px; font-weight: 600; letter-spacing: -0.01em; }
-.cha-head p { color: var(--muted); margin-top: 4px; }
+.cha-page { gap: 16px; }
+.cha-head h1 { font-family: var(--font-display-stack); font-size: 30px; font-weight: 600; letter-spacing: -0.01em; color: var(--color-text, var(--ink)); }
+.cha-head p { color: var(--color-muted, var(--muted)); margin-top: 3px; font-size: 13px; }
 
-/* ---- Hero du défi ---- */
+/* ---- Hero du défi (état actif ET état vide) ------------------------------------------------ */
 .cha-hero {
-  display: grid; grid-template-columns: 1.4fr 0.9fr; gap: 24px; align-items: center;
-  padding: 28px 32px; border-radius: 22px; color: #f3ece0;
-  background: radial-gradient(120% 140% at 100% 0%, #143454 0%, #0d2440 55%, #0a1c33 100%);
-  box-shadow: 0 18px 40px -22px rgba(10, 28, 51, 0.7);
+  position: relative; overflow: hidden;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: center;
+  min-height: 260px; padding: 28px 34px; border-radius: var(--radius-section, 18px); color: #f3ece0;
+  background: radial-gradient(130% 150% at 100% 0%, #123655 0%, #0d2542 52%, #091a30 100%);
+  box-shadow: 0 18px 44px -24px rgba(9, 26, 48, 0.75);
 }
-.cha-hero-kicker { font-size: 11px; font-weight: 800; letter-spacing: 1.4px; color: #d9ad5c; }
-.cha-hero h2 { font-family: var(--font-display-stack); font-size: 30px; font-weight: 500; margin-top: 8px; }
-.cha-hero-desc { color: #c8d2df; margin-top: 8px; max-width: 42ch; }
-.cha-hero-facts { display: flex; gap: 12px; align-items: center; margin-top: 16px; color: #b7c3d2; font-size: 13px; flex-wrap: wrap; }
-.cha-hero-cta { display: flex; gap: 14px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
-.cha-cta {
-  border: none; cursor: pointer; padding: 12px 22px; border-radius: 12px; font-weight: 700; font-size: 15px;
-  color: #16233a; background: linear-gradient(180deg, #d9ad5c 0%, #c8963c 100%);
-}
-.cha-cta:disabled { opacity: 0.55; cursor: not-allowed; }
+.cha-hero-empty { min-height: 0; }
+.cha-hero-art { position: absolute; right: -18px; top: 50%; transform: translateY(-50%); width: 340px; max-width: 46%; pointer-events: none; }
+.cha-hero-empty .cha-hero-art { right: 2%; opacity: 0.92; }
 
-.cha-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-.cha-badge::before { content: "●"; font-size: 8px; }
+.cha-hero-body { position: relative; z-index: 1; min-width: 0; }
+.cha-hero-kicker { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #e2b463; }
+.cha-hero-title { font-family: var(--font-display-stack); font-size: 30px; font-weight: 500; line-height: 1.1; margin-top: 8px; letter-spacing: -0.01em; }
+.cha-hero-empty .cha-hero-title { font-size: 27px; }
+.cha-hero-desc { color: #c8d2df; margin-top: 8px; max-width: 46ch; font-size: 14px; line-height: 1.55; }
+
+.cha-hero-facts { display: flex; gap: 10px; align-items: center; margin-top: 14px; color: #b7c3d2; font-size: 13px; flex-wrap: wrap; }
+.cha-hero-fact { display: inline-flex; align-items: center; gap: 7px; }
+.cha-hero-fact .nav-icon-svg { width: 15px; height: 15px; color: #d9ad5c; }
+.cha-hero-dot { opacity: 0.5; }
+
+/* Progression : barre horizontale premium (jamais l'anneau, jamais un montant d'un autre membre) */
+.cha-hero-progress { margin-top: 20px; max-width: 480px; }
+.cha-hero-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cha-hero-progress-head span:first-child { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: #9fb0c2; }
+.cha-hero-pct { font-family: var(--font-display-stack); font-size: 18px; font-weight: 600; color: #f6efe2; }
+.cha-hero-amount { display: block; margin-top: 4px; font-family: var(--font-display-stack); font-size: 26px; font-weight: 600; color: #f6efe2; }
+.cha-hero-amount em { font-style: normal; font-size: 15px; font-weight: 500; color: #9fb0c2; }
+.cha-hero-note { color: #9fb0c2; font-size: 12.5px; margin-top: 10px; }
+.cha-hero-note-lead { margin-top: 18px; max-width: 42ch; font-size: 13.5px; color: #c1cdda; }
+
+.cha-bar { height: 9px; margin-top: 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.cha-bar > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #e6bd6b 0%, #d1972f 100%); transition: width 0.5s ease; }
+.cha-bar-sm { height: 6px; margin-top: 8px; }
+
+/* Aside : récompense + CTA principal + lien secondaire (au-dessus du décor cible) */
+.cha-hero-aside { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.cha-reward { display: inline-flex; align-items: center; gap: 4px; padding: 14px 22px; border-radius: 16px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(217, 173, 92, 0.32); }
+.cha-reward-icon { display: grid; place-items: center; width: 30px; height: 30px; margin-right: 6px; border-radius: 50%; background: rgba(217, 173, 92, 0.16); color: #e6bd6b; }
+.cha-reward-icon .nav-icon-svg { width: 17px; height: 17px; }
+.cha-reward strong { font-family: var(--font-display-stack); font-size: 26px; font-weight: 600; color: #f6efe2; }
+.cha-reward small { color: #b7c3d2; font-size: 13px; align-self: flex-end; padding-bottom: 4px; }
+
+.cha-hero-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.cha-cta {
+  border: none; cursor: pointer; min-height: 44px; padding: 0 22px; border-radius: 12px; font-weight: 700; font-size: 15px;
+  color: #16233a; background: linear-gradient(180deg, #e6bd6b 0%, #cc9838 100%); box-shadow: 0 10px 22px -12px rgba(204, 152, 56, 0.8);
+}
+.cha-cta:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+.cha-hero-rules { border: none; background: none; padding: 4px 2px; color: #d9ad5c; font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.cha-hero-recurrence { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); color: #d7e0ea; font-size: 12.5px; font-weight: 600; }
+.cha-hero-recurrence .nav-icon-svg { width: 15px; height: 15px; color: #d9ad5c; }
+
+.cha-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.cha-badge::before { content: "●"; font-size: 7px; }
 .cha-badge-ready { background: rgba(217, 173, 92, 0.18); color: #e7c67f; }
 .cha-badge-progress { background: rgba(122, 155, 110, 0.22); color: #bcd6a8; }
 .cha-badge-done { background: rgba(90, 160, 120, 0.24); color: #a9dcbe; }
 .cha-badge-muted { background: rgba(255, 255, 255, 0.1); color: #c8d2df; }
 
-.cha-hero-ring { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.cha-ring { width: 180px; height: 180px; }
-.cha-ring-track { stroke: rgba(255, 255, 255, 0.12); }
-.cha-ring-value { stroke: #d9ad5c; transition: stroke-dashoffset 0.5s ease; }
-.cha-ring-pct { fill: #f6efe2; font-family: var(--font-display-stack); font-size: 26px; font-weight: 600; }
-.cha-hero-amount { color: #c8d2df; font-size: 13px; text-align: center; max-width: 22ch; }
+/* Aperçu du fonctionnement (état vide) */
+.cha-mini-steps { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 16px; }
+.cha-mini-steps li { display: inline-flex; align-items: center; gap: 9px; color: #d7e0ea; font-size: 13px; font-weight: 600; }
+.cha-mini-steps span { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(217, 173, 92, 0.16); color: #e6bd6b; font-size: 11px; font-weight: 800; }
 
-/* ---- Indicateurs ---- */
-.cha-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-.cha-stat { display: flex; align-items: center; gap: 14px; padding: 18px 20px; background: var(--card, #fff); border: 1px solid var(--line); border-radius: 16px; }
-.cha-stat-icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; background: rgba(201, 154, 63, 0.12); font-size: 20px; }
-.cha-stat strong { display: block; font-family: var(--font-display-stack); font-size: 24px; font-weight: 600; }
-.cha-stat small { color: var(--muted); font-size: 12px; }
+/* ---- Panneau « Comment ça marche » (déroulé au clic) --------------------------------------- */
+.cha-rules { padding: 20px 22px; }
+.cha-rules-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.cha-rules-head h3 { font-family: var(--font-display-stack); font-size: 18px; font-weight: 600; }
+.cha-rules-head button { border: none; background: none; color: var(--color-muted, var(--muted)); font-size: 12px; font-weight: 700; cursor: pointer; }
+.cha-rules-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.cha-rules-steps li { display: flex; gap: 12px; align-items: flex-start; }
+.cha-rules-steps span { display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: var(--color-gold-soft, var(--amber-soft)); color: #a46b00; font-weight: 800; font-size: 13px; }
+.cha-rules-steps strong { display: block; font-size: 13.5px; }
+.cha-rules-steps small { display: block; margin-top: 3px; color: var(--color-muted, var(--muted)); font-size: 12px; line-height: 1.45; }
+.cha-rules-note { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--color-muted, var(--muted)); font-size: 12.5px; }
+.cha-rules-note .nav-icon-svg { width: 15px; height: 15px; color: var(--color-teal, var(--teal)); }
 
-/* ---- Section basse ---- */
-.cha-lower { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; align-items: start; }
+/* ---- Indicateurs (KPI compacts premium) ---------------------------------------------------- */
+.cha-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.cha-stat { display: flex; align-items: center; gap: 14px; padding: 16px 18px; background: var(--color-card, #fff); border: 1px solid var(--color-border, var(--line)); border-radius: var(--radius-card, 14px); box-shadow: var(--shadow-card, 0 5px 20px rgba(7, 45, 58, 0.06)); }
+.cha-stat-icon { display: grid; place-items: center; flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(201, 154, 63, 0.28); background: var(--color-gold-soft, var(--amber-soft)); color: #b07d1e; }
+.cha-stat-icon .nav-icon-svg { width: 21px; height: 21px; }
+.cha-stat-body { min-width: 0; }
+.cha-stat-body strong { display: block; font-family: var(--font-display-stack); font-size: 25px; font-weight: 700; line-height: 1.05; color: var(--color-text, var(--ink)); }
+.cha-stat-body small { display: block; margin-top: 2px; color: var(--color-muted, var(--muted)); font-size: 12px; }
+
+/* ---- Section basse : classement (≈65 %) + mes défis (≈35 %) -------------------------------- */
+.cha-lower { display: grid; grid-template-columns: 1.7fr 1fr; gap: 14px; align-items: start; }
+.cha-board, .cha-mine, .cha-history { padding: 20px 22px; }
 .cha-board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.cha-board-head h3 { font-family: var(--font-display-stack); font-size: 20px; font-weight: 600; }
-.cha-period { display: inline-flex; background: rgba(0, 0, 0, 0.05); border-radius: 999px; padding: 3px; }
-.cha-period button { border: none; background: transparent; padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
-.cha-period button.active { background: #16233a; color: #fff; }
+.cha-board-head h3 { font-family: var(--font-display-stack); font-size: 20px; font-weight: 600; color: var(--color-text, var(--ink)); }
+.cha-period { display: inline-flex; background: rgba(7, 45, 58, 0.06); border-radius: 999px; padding: 3px; }
+.cha-period button { border: none; background: transparent; min-height: 30px; padding: 0 14px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--color-muted, var(--muted)); cursor: pointer; }
+.cha-period button.active { background: #123655; color: #fff; }
 
-.cha-board-list { display: flex; flex-direction: column; }
-.cha-board-row { display: grid; grid-template-columns: 28px 40px 1fr auto; align-items: center; gap: 12px; padding: 10px 8px; border-radius: 12px; }
+.cha-board-list { display: flex; flex-direction: column; gap: 2px; }
+.cha-board-row { display: grid; grid-template-columns: 30px 40px 1fr auto; align-items: center; gap: 12px; padding: 9px 8px; border-radius: 12px; }
 .cha-board-row.is-me { background: rgba(201, 154, 63, 0.1); }
 .cha-board-row.is-me .cha-board-name, .cha-board-row.is-me .cha-board-points { color: #b07d1e; font-weight: 700; }
-.cha-board-rank { font-family: var(--font-display-stack); font-weight: 600; color: var(--muted); text-align: center; }
+.cha-board-rank { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-family: var(--font-display-stack); font-size: 13px; font-weight: 700; color: var(--color-muted, var(--muted)); }
+.cha-board-rank.rank-1 { background: #f3d489; color: #7a561a; }
+.cha-board-rank.rank-2 { background: #dfe3e8; color: #5c6771; }
+.cha-board-rank.rank-3 { background: #eccbaa; color: #8a5a2b; }
 .cha-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; background: #e7ddc9; color: #6b5a37; font-size: 12px; font-weight: 700; }
-.cha-board-name { font-weight: 600; }
+.cha-board-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cha-board-points { font-variant-numeric: tabular-nums; font-weight: 600; }
-.cha-board-note { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
-.cha-board-empty { color: var(--muted); font-size: 14px; padding: 10px 4px; }
+.cha-board-note { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--color-muted, var(--muted)); font-size: 12px; }
+.cha-board-note .nav-icon-svg { width: 15px; height: 15px; color: var(--color-teal, var(--teal)); }
 
-.cha-history-list { display: flex; flex-direction: column; gap: 4px; }
-.cha-history-row { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px; padding: 10px 4px; }
-.cha-history-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: rgba(0, 0, 0, 0.04); font-size: 18px; }
-.cha-history-main strong { display: block; font-weight: 600; }
-.cha-history-main small { color: var(--muted); font-size: 12px; }
-.cha-history-points { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
-.cha-history-points.up { color: #2f8f5b; }
+.cha-board-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 12px 22px; text-align: center; }
+.cha-podium-glyph { width: 168px; height: 96px; color: var(--color-teal, var(--teal)); }
+.cha-board-empty p { color: var(--color-muted, var(--muted)); font-size: 13px; max-width: 32ch; }
 
-/* ---- États divers ---- */
-.cha-empty { text-align: center; padding: 40px 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.cha-empty-icon { font-size: 34px; }
-.cha-empty h2 { font-family: var(--font-display-stack); font-size: 22px; font-weight: 600; }
-.cha-empty p { color: var(--muted); max-width: 44ch; }
+/* Mes défis */
+.cha-mine-list { display: flex; flex-direction: column; gap: 10px; }
+.cha-mine-row { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--color-border, var(--line)); border-radius: 13px; background: var(--color-card-warm, #fcf9f4); }
+.cha-mine-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; }
+.cha-mine-icon.is-active { background: #123655; color: #e6bd6b; }
+.cha-mine-icon.is-done { background: rgba(47, 143, 91, 0.12); color: #2f8f5b; }
+.cha-mine-icon.is-muted { background: rgba(7, 45, 58, 0.06); color: var(--color-muted, var(--muted)); }
+.cha-mine-icon .nav-icon-svg { width: 18px; height: 18px; }
+.cha-mine-main { min-width: 0; }
+.cha-mine-main > strong { display: block; margin: 6px 0 0; font-size: 14px; }
+.cha-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.cha-chip-progress { background: var(--color-gold-soft, var(--amber-soft)); color: #a46b00; }
+.cha-chip-done { background: rgba(47, 143, 91, 0.14); color: #2f8f5b; }
+.cha-chip-muted { background: rgba(7, 45, 58, 0.07); color: var(--color-muted, var(--muted)); }
+.cha-mine-reward { display: block; margin-top: 6px; color: var(--color-muted, var(--muted)); font-size: 12px; font-weight: 700; }
+.cha-mine-reward.up { color: #2f8f5b; }
+.cha-mine-pct { font-family: var(--font-display-stack); font-size: 14px; font-weight: 700; color: var(--color-text, var(--ink)); font-variant-numeric: tabular-nums; }
+.cha-mine-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 12px 18px; text-align: center; }
+.cha-mine-art { width: 150px; height: auto; opacity: 0.85; }
+.cha-mine-empty strong { font-family: var(--font-display-stack); font-size: 17px; font-weight: 600; }
+.cha-mine-empty p { color: var(--color-muted, var(--muted)); font-size: 13px; max-width: 30ch; }
+.cha-cta-soft { margin-top: 6px; min-height: 40px; padding: 0 18px; font-size: 13px; color: var(--color-text, var(--ink)); background: #fff; border: 1px solid var(--color-border, var(--line)); box-shadow: none; }
+.cha-link { align-self: flex-start; margin-top: 14px; border: none; background: none; padding: 0; color: var(--color-teal, var(--teal)); font-size: 12.5px; font-weight: 700; cursor: pointer; }
+
+/* ---- Historique récent (tableau compact) --------------------------------------------------- */
+.cha-history-table { display: flex; flex-direction: column; }
+.cha-history-row { display: grid; grid-template-columns: 2fr 1fr 1.2fr 0.7fr; align-items: center; gap: 14px; padding: 12px 4px; border-bottom: 1px solid #edf1f1; }
+.cha-history-row:last-child { border-bottom: none; }
+.cha-history-head { padding-bottom: 9px; }
+.cha-history-head span { color: var(--color-muted, var(--muted)); font-size: 10px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+.cha-history-defi { display: flex; align-items: center; gap: 10px; font-weight: 600; min-width: 0; }
+.cha-history-defi { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cha-history-mark { display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: rgba(0, 0, 0, 0.05); color: var(--color-muted, var(--muted)); }
+.cha-history-mark.is-done { background: rgba(47, 143, 91, 0.12); color: #2f8f5b; }
+.cha-history-mark .nav-icon-svg { width: 15px; height: 15px; }
+.cha-history-muted { color: var(--color-muted, var(--muted)); font-size: 13px; }
+.cha-history-result { font-size: 13px; color: var(--color-muted, var(--muted)); }
+.cha-history-result.up { color: #2f8f5b; font-weight: 600; }
+.cha-history-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--color-muted, var(--muted)); }
+.cha-history-num.up { color: #2f8f5b; }
+.cha-history-empty { color: var(--color-muted, var(--muted)); font-size: 13px; padding: 6px 4px 4px; }
+
+/* ---- États divers -------------------------------------------------------------------------- */
+.cha-notice { padding: 18px 22px; }
+.cha-notice p { color: var(--color-muted, var(--muted)); font-size: 13px; }
+.cha-notice code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
 .cha-error { color: #b3261e; background: #fbe9e7; border-radius: 12px; padding: 10px 14px; font-size: 14px; }
-.cha-skeleton-hero { height: 220px; border-radius: 22px; background: linear-gradient(100deg, #eef1f4 30%, #f6f8fa 50%, #eef1f4 70%); background-size: 200% 100%; animation: cha-shimmer 1.3s infinite; }
+.cha-skeleton-hero { height: 260px; border-radius: var(--radius-section, 18px); background: linear-gradient(100deg, #eef1f4 30%, #f6f8fa 50%, #eef1f4 70%); background-size: 200% 100%; animation: cha-shimmer 1.3s infinite; }
+.cha-skeleton-stat { height: 80px; border-radius: var(--radius-card, 14px); background: linear-gradient(100deg, #eef1f4 30%, #f6f8fa 50%, #eef1f4 70%); background-size: 200% 100%; animation: cha-shimmer 1.3s infinite; }
 @keyframes cha-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
-/* ---- Mobile / PWA ---- */
-@media (max-width: 820px) {
-  .cha-hero { grid-template-columns: 1fr; padding: 22px; text-align: left; }
-  .cha-hero-ring { flex-direction: row; justify-content: flex-start; gap: 16px; }
-  .cha-ring { width: 128px; height: 128px; }
-  .cha-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* ---- Mobile / PWA : recomposition (pas un simple empilement) ------------------------------- */
+@media (max-width: 780px) {
+  .cha-page { gap: 13px; }
+  .cha-head h1 { font-size: 24px; }
+  .cha-head p { font-size: 12px; }
+
+  .cha-hero { grid-template-columns: 1fr; gap: 18px; min-height: 0; padding: 20px 18px; }
+  .cha-hero-art { position: static; transform: none; width: 130px; max-width: 130px; margin: 0 auto -6px; order: -1; opacity: 0.9; }
+  .cha-hero-empty .cha-hero-art { width: 150px; max-width: 150px; }
+  .cha-hero-title { font-size: 23px; }
+  .cha-hero-empty .cha-hero-title { font-size: 21px; }
+  .cha-hero-desc { font-size: 13px; max-width: none; }
+  .cha-hero-progress { max-width: none; }
+  .cha-hero-amount { font-size: 22px; }
+  .cha-hero-aside { align-items: stretch; }
+  .cha-reward { align-self: flex-start; }
+  .cha-hero-actions { align-items: stretch; }
+  .cha-cta { width: 100%; justify-content: center; }
+  .cha-hero-rules { align-self: center; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .cha-mini-steps { flex-direction: column; gap: 10px; }
+
+  .cha-rules-steps { grid-template-columns: 1fr; gap: 12px; }
+
+  .cha-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .cha-stat { padding: 14px; }
+  .cha-stat-icon { width: 40px; height: 40px; }
+  .cha-stat-body strong { font-size: 21px; }
+
   .cha-lower { grid-template-columns: 1fr; }
+  .cha-board, .cha-mine, .cha-history { padding: 16px; }
+  .cha-history-row { grid-template-columns: 1.6fr 1fr auto; gap: 10px; }
+  .cha-history-result { display: none; }
+  .cha-history-head span:nth-child(3) { display: none; }
 }

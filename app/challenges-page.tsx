@@ -3,10 +3,14 @@
 // Écran membre « Défis » (MVP Phase 2). Données RÉELLES uniquement, via les API /api/challenges/*.
 // N'affiche jamais l'objectif ni le montant investi d'un autre membre : le hero montre la propre
 // progression du membre connecté ; le classement n'expose que rang/points (aucun montant).
-// Réutilise le shell, les tokens et les polices existants ; aucun nouveau design system.
+// Réutilise le shell, les tokens, les polices et les icônes (NavIcon) existants ; aucun nouveau
+// design system. Correction UX/UI fidèle à la maquette de référence (desktop + mobile PWA) :
+// hero compact même sans défi actif, KPI premium, classement et « Mes défis » composés, historique.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { View } from "../lib/navigation";
+import { NavIcon } from "./dashboard-ui";
 import { authenticatedFetch } from "./investment-shared";
 import "./challenges.css";
 
@@ -22,8 +26,30 @@ type HistoryItem = { id: string; title: string; startsOn: string; endsOn: string
 
 const euro0 = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const intFmt = new Intl.NumberFormat("fr-FR");
+const monthLong = new Intl.DateTimeFormat("fr-FR", { month: "long" });
+const dayMonthShort = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
+const monthYear = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+
 function initials(name: string): string {
   return name.trim().slice(0, 2).toUpperCase();
+}
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+function parseISODate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y || 1970, (m || 1) - 1, d || 1);
+}
+function formatPeriod(startsOn: string, endsOn: string): string {
+  const start = parseISODate(startsOn);
+  const end = parseISODate(endsOn);
+  if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
+    return `${start.getDate()} – ${end.getDate()} ${monthLong.format(end)}`;
+  }
+  return `${dayMonthShort.format(start)} – ${dayMonthShort.format(end)}`;
+}
+function formatMonthYear(iso: string): string {
+  return capitalize(monthYear.format(parseISODate(iso)));
 }
 
 const STATE_META: Record<MemberState, { badge: string; badgeCls: string }> = {
@@ -35,17 +61,46 @@ const STATE_META: Record<MemberState, { badge: string; badgeCls: string }> = {
   challenge_ended: { badge: "Défi terminé", badgeCls: "cha-badge-muted" },
 };
 
-function ProgressRing({ pct }: { pct: number }) {
-  const radius = 54;
-  const circumference = 2 * Math.PI * radius;
-  const clamped = Math.max(0, Math.min(100, pct));
-  const offset = circumference * (1 - clamped / 100);
+function heroHint(state: MemberState): string {
+  if (state === "no_plan") return "Configure ton objectif mensuel dans « Mon rythme » pour rejoindre ce défi.";
+  if (state === "no_account") return "Choisis un compte PEA ou compte-titres dans « Mon rythme » pour rejoindre ce défi.";
+  if (state === "ready_to_join") return "Rejoins le défi pour figer ton objectif et suivre ta progression, à ton rythme.";
+  return "";
+}
+
+// Icônes locales à l'écran Défis (même trait que NavIcon). Illustrations, jamais d'emoji système.
+const STROKE = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className: "nav-icon-svg" };
+function TrophyIcon() {
+  return <svg {...STROKE}><path d="M8 21h8" /><path d="M12 17v4" /><path d="M7 4h10v4a5 5 0 0 1-10 0Z" /><path d="M17 5h2.5a1 1 0 0 1 1 1 4 4 0 0 1-3.5 4" /><path d="M7 5H4.5a1 1 0 0 0-1 1 4 4 0 0 0 3.5 4" /></svg>;
+}
+function CheckIcon() {
+  return <svg {...STROKE}><path d="M20 6 9 17l-5-5" /></svg>;
+}
+
+// Cible abstraite (anneaux dorés + trajectoire) — décor du hero et de l'état vide. Sans personne.
+function TargetGlyph({ className }: { className?: string }) {
   return (
-    <svg className="cha-ring" viewBox="0 0 128 128" role="img" aria-label={`Progression ${Math.round(clamped)} %`}>
-      <circle className="cha-ring-track" cx="64" cy="64" r={radius} fill="none" strokeWidth="10" />
-      <circle className="cha-ring-value" cx="64" cy="64" r={radius} fill="none" strokeWidth="10" strokeLinecap="round"
-        strokeDasharray={circumference} strokeDashoffset={offset} transform="rotate(-90 64 64)" />
-      <text className="cha-ring-pct" x="64" y="64" textAnchor="middle" dominantBaseline="central">{Math.round(clamped)} %</text>
+    <svg className={className} viewBox="0 0 240 200" fill="none" aria-hidden="true">
+      <circle cx="162" cy="96" r="86" stroke="rgba(217,173,92,0.12)" strokeWidth="1.4" />
+      <circle cx="162" cy="96" r="64" stroke="rgba(217,173,92,0.22)" strokeWidth="1.4" />
+      <circle cx="162" cy="96" r="42" stroke="rgba(217,173,92,0.34)" strokeWidth="1.4" />
+      <circle cx="162" cy="96" r="21" stroke="rgba(217,173,92,0.5)" strokeWidth="1.6" />
+      <path d="M4 176c46-4 62-24 84-44 20-18 44-30 74-36" stroke="#d9ad5c" strokeWidth="2" strokeLinecap="round" strokeDasharray="0.5 9" opacity="0.75" />
+      <circle cx="162" cy="96" r="6.5" fill="#d9ad5c" />
+    </svg>
+  );
+}
+
+// Podium abstrait pour l'état vide du classement. Trois marches sobres, sans visage ni chiffre.
+function PodiumGlyph() {
+  return (
+    <svg className="cha-podium-glyph" viewBox="0 0 168 96" fill="none" aria-hidden="true">
+      <circle cx="30" cy="40" r="10" stroke="currentColor" strokeWidth="1.6" opacity="0.5" />
+      <circle cx="84" cy="26" r="11" stroke="currentColor" strokeWidth="1.6" opacity="0.7" />
+      <circle cx="138" cy="46" r="10" stroke="currentColor" strokeWidth="1.6" opacity="0.4" />
+      <rect x="16" y="58" width="28" height="34" rx="5" fill="currentColor" opacity="0.14" />
+      <rect x="70" y="46" width="28" height="46" rx="5" fill="currentColor" opacity="0.22" />
+      <rect x="124" y="66" width="28" height="26" rx="5" fill="currentColor" opacity="0.1" />
     </svg>
   );
 }
@@ -60,7 +115,9 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [joining, setJoining] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const historyRef = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
     const [currentRes, pointsRes, listRes] = await Promise.all([
@@ -123,8 +180,18 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
 
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(""), 3200); return () => window.clearTimeout(timer); }, [notice]);
 
+  function scrollToHistory() {
+    historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   if (loading) {
-    return <div className="page-stack cha-page"><header className="cha-head"><h1>Défis</h1></header><div className="cha-skeleton-hero" aria-hidden="true" /></div>;
+    return (
+      <div className="page-stack cha-page">
+        <header className="cha-head"><h1>Défis</h1><p>Investir régulièrement, à son rythme — et progresser en famille.</p></header>
+        <div className="cha-skeleton-hero" aria-hidden="true" />
+        <div className="cha-stats">{[0, 1, 2, 3].map((i) => <div key={i} className="cha-skeleton-stat" aria-hidden="true" />)}</div>
+      </div>
+    );
   }
 
   const available = current?.available !== false;
@@ -132,6 +199,35 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
   const state = current?.state ?? "challenge_ended";
   const progress = current?.progress ?? null;
   const meta = STATE_META[state];
+
+  // « Mes défis » : les défis rejoints, l'actif d'abord, puis les plus récents.
+  const joined = history.filter((item) => item.joined);
+  const myChallenges = [...joined].sort((a, b) => {
+    const aActive = challenge && a.id === challenge.id ? 1 : 0;
+    const bActive = challenge && b.id === challenge.id ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+    return b.startsOn.localeCompare(a.startsOn);
+  });
+  // « Historique récent » : uniquement les défis terminés (le membre a participé).
+  const recentHistory = joined
+    .filter((item) => item.participantStatus === "completed" || item.status === "completed" || item.status === "archived")
+    .sort((a, b) => b.startsOn.localeCompare(a.startsOn))
+    .slice(0, 6);
+
+  const rulesPanel = showRules ? (
+    <section className="panel cha-rules" aria-label="Comment fonctionnent les défis">
+      <header className="cha-rules-head">
+        <h3>Comment fonctionnent les défis</h3>
+        <button type="button" onClick={() => setShowRules(false)}>Fermer</button>
+      </header>
+      <ol className="cha-rules-steps">
+        <li><span aria-hidden="true">1</span><div><strong>Je rejoins le défi</strong><small>Ton objectif mensuel est figé au moment où tu rejoins.</small></div></li>
+        <li><span aria-hidden="true">2</span><div><strong>J’investis à mon rythme</strong><small>Chaque achat éligible sur ton compte compte automatiquement.</small></div></li>
+        <li><span aria-hidden="true">3</span><div><strong>Je gagne des points</strong><small>Ton objectif atteint, tu remportes les points du défi.</small></div></li>
+      </ol>
+      <p className="cha-rules-note"><span aria-hidden="true"><NavIcon id="shield-check" /></span> Le classement récompense la régularité, jamais le montant investi. Ton objectif et tes montants restent privés.</p>
+    </section>
+  ) : null;
 
   return (
     <div className="page-stack cha-page">
@@ -141,53 +237,83 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
       </header>
 
       {!available && (
-        <section className="panel cha-empty">
+        <section className="panel cha-notice">
           <p>L’espace Défis sera actif dès que la migration <code>20260804_challenges_mvp.sql</code> aura été appliquée dans Supabase.</p>
         </section>
       )}
 
       {available && !challenge && (
-        <section className="panel cha-empty">
-          <span className="cha-empty-icon" aria-hidden="true">🎯</span>
-          <h2>Aucun défi en cours</h2>
-          <p>Il n’y a pas de défi actif pour le moment. Reviens bientôt : un nouveau défi familial arrive chaque mois.</p>
+        <section className="cha-hero cha-hero-empty">
+          <TargetGlyph className="cha-hero-art" />
+          <div className="cha-hero-body">
+            <span className="cha-hero-kicker">Défis familiaux</span>
+            <h2 className="cha-hero-title">Le prochain défi arrive bientôt</h2>
+            <p className="cha-hero-desc">Chaque mois, un nouveau défi t’invite à investir à ton rythme et à progresser avec toute la famille.</p>
+            <ol className="cha-mini-steps">
+              <li><span aria-hidden="true">1</span>Je rejoins le défi</li>
+              <li><span aria-hidden="true">2</span>J’investis à mon rythme</li>
+              <li><span aria-hidden="true">3</span>Je gagne des points</li>
+            </ol>
+          </div>
+          <aside className="cha-hero-aside">
+            <span className="cha-hero-recurrence"><NavIcon id="calendar" /> Nouveau défi chaque mois</span>
+            <button type="button" className="cha-hero-rules" onClick={() => setShowRules((value) => !value)}>Comprendre les défis</button>
+          </aside>
         </section>
       )}
 
       {available && challenge && (
         <section className="cha-hero">
-          <div className="cha-hero-copy">
-            <span className="cha-hero-kicker">DÉFI DU MOIS</span>
-            <h2>{challenge.title}</h2>
+          <TargetGlyph className="cha-hero-art" />
+          <div className="cha-hero-body">
+            <span className="cha-hero-kicker">Défi du mois</span>
+            <h2 className="cha-hero-title">{challenge.title}</h2>
             {challenge.description && <p className="cha-hero-desc">{challenge.description}</p>}
-            <div className="cha-hero-facts">
-              <span>📅 {challenge.daysRemaining} jour{challenge.daysRemaining > 1 ? "s" : ""} restant{challenge.daysRemaining > 1 ? "s" : ""}</span>
-              <span aria-hidden="true">·</span>
-              <span>⭐ {challenge.pointsReward} points</span>
-            </div>
-            <div className="cha-hero-cta">
-              {renderCta({ state, canAct, joining, onNavigate, onJoin: join })}
+            <p className="cha-hero-facts">
+              <span className="cha-hero-fact"><NavIcon id="calendar" /> {formatPeriod(challenge.startsOn, challenge.endsOn)}</span>
+              <span aria-hidden="true" className="cha-hero-dot">·</span>
+              <span className="cha-hero-fact">{challenge.daysRemaining} jour{challenge.daysRemaining > 1 ? "s" : ""} restant{challenge.daysRemaining > 1 ? "s" : ""}</span>
               <span className={`cha-badge ${meta.badgeCls}`}>{meta.badge}</span>
-            </div>
-          </div>
-          <div className="cha-hero-ring">
-            <ProgressRing pct={progress?.pct ?? 0} />
-            <p className="cha-hero-amount">
-              {progress ? `${euro0.format(progress.invested)} sur ${euro0.format(progress.targetAmount)}` : "Rejoins le défi pour suivre ta progression"}
             </p>
+
+            {progress ? (
+              <div className="cha-hero-progress">
+                <div className="cha-hero-progress-head">
+                  <span>Ma progression</span>
+                  <span className="cha-hero-pct">{Math.round(progress.pct)} %</span>
+                </div>
+                <strong className="cha-hero-amount">{euro0.format(progress.invested)} <em>sur {euro0.format(progress.targetAmount)}</em></strong>
+                <div className="cha-bar"><span style={{ width: `${Math.max(0, Math.min(100, progress.pct))}%` }} /></div>
+                <p className="cha-hero-note">Chaque achat éligible te rapproche de ton objectif.</p>
+              </div>
+            ) : (
+              <p className="cha-hero-note cha-hero-note-lead">{heroHint(state)}</p>
+            )}
           </div>
+          <aside className="cha-hero-aside">
+            <div className="cha-reward">
+              <span className="cha-reward-icon" aria-hidden="true"><NavIcon id="star" /></span>
+              <strong>+{challenge.pointsReward}</strong>
+              <small>points</small>
+            </div>
+            <div className="cha-hero-actions">
+              {renderCta({ state, canAct, joining, onNavigate, onJoin: join })}
+              <button type="button" className="cha-hero-rules" onClick={() => setShowRules((value) => !value)}>Voir les règles</button>
+            </div>
+          </aside>
         </section>
       )}
 
       {error && <p className="cha-error" role="alert">{error}</p>}
       {notice && <div className="toast" role="status">✓ {notice}</div>}
+      {rulesPanel}
 
       {/* Mes indicateurs */}
       <div className="cha-stats">
-        <StatCard icon="⭐" value={intFmt.format(points?.totalPoints ?? 0)} label="Points" />
-        <StatCard icon="🌱" value={intFmt.format(points?.yearPoints ?? 0)} label="Cette année" />
-        <StatCard icon="✓" value={intFmt.format(points?.challengesCompleted ?? 0)} label="Défis terminés" />
-        <StatCard icon="👪" value={points?.rank ? `#${points.rank}` : "—"} label="Rang familial" />
+        <StatCard icon={<NavIcon id="star" />} value={intFmt.format(points?.totalPoints ?? 0)} label="Points totaux" />
+        <StatCard icon={<NavIcon id="calendar" />} value={intFmt.format(points?.yearPoints ?? 0)} label="Cette année" />
+        <StatCard icon={<TrophyIcon />} value={intFmt.format(points?.challengesCompleted ?? 0)} label="Défis terminés" />
+        <StatCard icon={<NavIcon id="users" />} value={points?.rank ? `#${points.rank}` : "—"} label="Rang familial" />
       </div>
 
       <div className="cha-lower">
@@ -201,53 +327,110 @@ export function ChallengesPage({ canAct, onNavigate }: { canAct: boolean; onNavi
             </div>
           </header>
           {leaderboard.length === 0 ? (
-            <p className="cha-board-empty">Le classement s’affichera dès que des points auront été gagnés ce {period === "month" ? "mois" : "année"}.</p>
+            <div className="cha-board-empty">
+              <PodiumGlyph />
+              <p>Le classement apparaîtra dès les premiers points gagnés {period === "month" ? "ce mois-ci" : "cette année"}.</p>
+            </div>
           ) : (
-            <ul className="cha-board-list">
+            <ol className="cha-board-list">
               {leaderboard.map((row) => (
                 <li key={row.memberId} className={row.isCurrentMember ? "cha-board-row is-me" : "cha-board-row"}>
-                  <span className="cha-board-rank">{row.rank}</span>
+                  <span className={`cha-board-rank${row.rank <= 3 ? ` rank-${row.rank}` : ""}`}>{row.rank}</span>
                   {/* eslint-disable-next-line @next/next/no-img-element -- avatar Supabase Storage ; le projet n'utilise pas next/image (aucune config remotePatterns). */}
                   {row.photoUrl ? <img className="cha-avatar" src={row.photoUrl} alt="" aria-hidden="true" /> : <span className="cha-avatar" aria-hidden="true">{initials(row.name)}</span>}
                   <span className="cha-board-name">{row.name}</span>
                   <span className="cha-board-points">{intFmt.format(row.points)} pts</span>
                 </li>
               ))}
-            </ul>
+            </ol>
           )}
-          <p className="cha-board-note"><span aria-hidden="true">🛡️</span> Le classement récompense la régularité, jamais le montant investi.</p>
+          <p className="cha-board-note"><span aria-hidden="true"><NavIcon id="shield-check" /></span> Le classement récompense la régularité, jamais le montant investi.</p>
         </section>
 
-        {/* Mes défis (historique) */}
-        <section className="panel cha-history">
+        {/* Mes défis */}
+        <section className="panel cha-mine">
           <header className="cha-board-head"><h3>Mes défis</h3></header>
-          {history.filter((item) => item.joined).length === 0 ? (
-            <p className="cha-board-empty">Tu n’as pas encore rejoint de défi. Rejoins le défi du mois pour commencer à gagner des points.</p>
+          {myChallenges.length === 0 ? (
+            <div className="cha-mine-empty">
+              <TargetGlyph className="cha-mine-art" />
+              <strong>Ton premier défi t’attend</strong>
+              <p>Rejoins le défi du mois pour commencer à gagner des points.</p>
+              <button type="button" className="cha-cta cha-cta-soft" onClick={() => setShowRules((value) => !value)}>Découvrir le fonctionnement</button>
+            </div>
           ) : (
-            <ul className="cha-history-list">
-              {history.filter((item) => item.joined).map((item) => (
-                <li key={item.id} className="cha-history-row">
-                  <span className="cha-history-icon" aria-hidden="true">{item.participantStatus === "completed" ? "🏁" : "📅"}</span>
-                  <div className="cha-history-main">
-                    <strong>{item.title}</strong>
-                    <small>{item.participantStatus === "completed" ? "Objectif atteint" : item.status === "completed" || item.status === "archived" ? "Terminé" : "En cours"}</small>
-                  </div>
-                  <span className={item.pointsEarned > 0 ? "cha-history-points up" : "cha-history-points"}>{item.pointsEarned > 0 ? `+${intFmt.format(item.pointsEarned)} pts` : "—"}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="cha-mine-list">
+                {myChallenges.slice(0, 3).map((item) => {
+                  const isActive = Boolean(challenge && item.id === challenge.id) && item.participantStatus === "in_progress";
+                  const won = item.participantStatus === "completed";
+                  const iconCls = isActive ? "is-active" : won ? "is-done" : "is-muted";
+                  const chipCls = isActive ? "cha-chip-progress" : won ? "cha-chip-done" : "cha-chip-muted";
+                  const pct = isActive && progress ? Math.round(progress.pct) : 0;
+                  return (
+                    <li key={item.id} className="cha-mine-row">
+                      <span className={`cha-mine-icon ${iconCls}`} aria-hidden="true">{isActive ? <NavIcon id="star" /> : <CheckIcon />}</span>
+                      <div className="cha-mine-main">
+                        <span className={`cha-chip ${chipCls}`}>{isActive ? "En cours" : "Terminé"}</span>
+                        <strong>{item.title}</strong>
+                        {isActive ? (
+                          <>
+                            <div className="cha-bar cha-bar-sm"><span style={{ width: `${pct}%` }} /></div>
+                            <small className="cha-mine-reward">+{intFmt.format(item.pointsReward)} pts à gagner</small>
+                          </>
+                        ) : (
+                          <small className={item.pointsEarned > 0 ? "cha-mine-reward up" : "cha-mine-reward"}>{item.pointsEarned > 0 ? `+${intFmt.format(item.pointsEarned)} pts` : "Objectif non atteint"}</small>
+                        )}
+                      </div>
+                      {isActive && <span className="cha-mine-pct">{pct} %</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+              <button type="button" className="cha-link" onClick={scrollToHistory}>Voir tout l’historique →</button>
+            </>
           )}
         </section>
       </div>
+
+      {/* Historique récent */}
+      <section className="panel cha-history" ref={historyRef}>
+        <header className="cha-board-head"><h3>Historique récent</h3></header>
+        {recentHistory.length === 0 ? (
+          <p className="cha-history-empty">Aucun défi terminé pour l’instant — ton historique s’affichera ici.</p>
+        ) : (
+          <div className="cha-history-table" role="table">
+            <div className="cha-history-row cha-history-head" role="row">
+              <span role="columnheader">Défi</span>
+              <span role="columnheader">Période</span>
+              <span role="columnheader">Résultat</span>
+              <span role="columnheader" className="cha-history-num">Points</span>
+            </div>
+            {recentHistory.map((item) => {
+              const won = item.participantStatus === "completed";
+              return (
+                <div key={item.id} className="cha-history-row" role="row">
+                  <span role="cell" className="cha-history-defi">
+                    <span className={`cha-history-mark ${won ? "is-done" : ""}`} aria-hidden="true"><CheckIcon /></span>
+                    {item.title}
+                  </span>
+                  <span role="cell" className="cha-history-muted">{formatMonthYear(item.startsOn)}</span>
+                  <span role="cell" className={won ? "cha-history-result up" : "cha-history-result"}>{won ? "Objectif atteint" : "Terminé"}</span>
+                  <span role="cell" className={item.pointsEarned > 0 ? "cha-history-num up" : "cha-history-num"}>{item.pointsEarned > 0 ? `+${intFmt.format(item.pointsEarned)}` : "—"}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
 
-function StatCard({ icon, value, label }: { icon: string; value: string; label: string }) {
+function StatCard({ icon, value, label }: { icon: ReactNode; value: string; label: string }) {
   return (
     <article className="cha-stat">
       <span className="cha-stat-icon" aria-hidden="true">{icon}</span>
-      <div><strong>{value}</strong><small>{label}</small></div>
+      <span className="cha-stat-body"><strong>{value}</strong><small>{label}</small></span>
     </article>
   );
 }
@@ -257,7 +440,7 @@ function renderCta({ state, canAct, joining, onNavigate, onJoin }: { state: Memb
   if (state === "no_account") return <button type="button" className="cha-cta" onClick={() => onNavigate("parametres")}>Choisir un compte</button>;
   if (state === "ready_to_join") return <button type="button" className="cha-cta" disabled={!canAct || joining} onClick={onJoin}>{joining ? "Inscription…" : "Rejoindre le défi"}</button>;
   if (state === "in_progress") return canAct
-    ? <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Enregistrer mon achat</button>
+    ? <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Continuer le défi</button>
     : <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Voir mon investissement</button>;
   if (state === "completed") return <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Voir mon investissement</button>;
   return null;
