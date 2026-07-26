@@ -129,8 +129,16 @@ function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [showPw, setShowPw] = useState(false);
 
+  // On nettoie le fragment d'URL laissé par un lien Supabase (jeton, code d'erreur, type de
+  // parcours) : il n'a plus rien à y faire une fois lu, et il traîne dans l'historique.
+  // Uniquement CE fragment-là : l'écran de connexion s'affiche une fraction de seconde avant
+  // que la session ne soit résolue, et effacer tous les hash y détruisait aussi les ancres de
+  // navigation de l'application (#bitcoin, #pea, #cto, #defis). Un démarrage à froid sur
+  // /#bitcoin — ou depuis un raccourci de l'application installée — retombait alors
+  // systématiquement sur le tableau de bord.
   useEffect(() => {
-    if (window.location.hash) history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (!isAuthCallbackHash(window.location.hash)) return;
+    history.replaceState(null, "", window.location.pathname + window.location.search);
   }, []);
 
   async function submit(event: FormEvent) {
@@ -288,6 +296,18 @@ function readAuthIntent(): AuthIntent {
 
 function appSemver() {
   return process.env.NEXT_PUBLIC_APP_SEMVER ?? "1.6.1";
+}
+
+// Un fragment « de retour d'authentification » Supabase transporte toujours au moins une de ces
+// clés. Les ancres de navigation de l'application (#bitcoin, #pea/positions, #defis…) n'en
+// contiennent aucune : elles doivent survivre au passage sur l'écran de connexion.
+const AUTH_HASH_KEYS = ["access_token", "refresh_token", "provider_token", "error", "error_code", "error_description", "type"];
+
+function isAuthCallbackHash(rawHash: string): boolean {
+  const hash = rawHash.replace(/^#/, "");
+  if (!hash || !hash.includes("=")) return false;
+  const params = new URLSearchParams(hash);
+  return AUTH_HASH_KEYS.some((key) => params.has(key));
 }
 
 function readAuthHashError(): string | null {

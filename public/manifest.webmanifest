@@ -15,5 +15,10 @@
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Bitcoin", "short_name": "Bitcoin", "url": "/?source=pwa#bitcoin", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "PEA", "short_name": "PEA", "url": "/?source=pwa#pea", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Défis", "short_name": "Défis", "url": "/?source=pwa#defis", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

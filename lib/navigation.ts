@@ -73,10 +73,17 @@ export const adminNavigation: NavLeaf[] = [
 export const ADMIN_ONLY_VIEW_IDS: View[] = adminNavigation.map((item) => item.id);
 export const HIDDEN_FROM_SIDEBAR_VIEW_IDS: View[] = ["portefeuilles", "famille-roster"];
 
+// Barre basse mobile (jamais utilisée sur desktop, qui garde sa sidebar complète).
+// « Défis » y remplace « Souvenirs » : c'est l'écran d'engagement mensuel, consulté
+// bien plus souvent que la galerie vidéo — laquelle reste accessible depuis le tiroir
+// « Mon espace ». Défis sort donc du groupe Investissements pour porter son propre
+// onglet actif (sinon « Investir » et « Défis » s'allumeraient en même temps).
+export const BOTTOM_NAV_INVESTMENT_VIEW_IDS: View[] = INVESTMENT_VIEW_IDS.filter((id) => id !== "investissements-suggestions");
+
 export const BOTTOM_NAV_ITEMS: { id: View; label: string; icon: NavIconId; short: string; groupIds?: View[] }[] = [
   { id: "famille", label: "Tableau de bord", icon: "house", short: "Accueil" },
-  { id: "bitcoin", label: "Investissements", icon: "trending-up", short: "Investir", groupIds: INVESTMENT_VIEW_IDS },
-  { id: "videos", label: "Souvenirs", icon: "square-play", short: "Souvenirs" },
+  { id: "bitcoin", label: "Investissements", icon: "trending-up", short: "Investir", groupIds: BOTTOM_NAV_INVESTMENT_VIEW_IDS },
+  { id: "investissements-suggestions", label: "Défis", icon: "star", short: "Défis" },
   { id: "parametres", label: "Paramètres", icon: "settings", short: "Paramètres" },
 ];
 

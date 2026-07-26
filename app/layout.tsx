@@ -45,7 +45,10 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     appleWebApp: {
       capable: true,
-      statusBarStyle: "black-translucent",
+      // `default` = glyphes NOIRS. `black-translucent` les passait en blanc au-dessus du
+      // fond crème de l'application installée : heure et batterie devenaient invisibles.
+      // Le décalage d'encoche reste géré par env(safe-area-inset-top) dans .topbar.
+      statusBarStyle: "default",
       title: "LaBaJo & Co",
     },
     icons: {

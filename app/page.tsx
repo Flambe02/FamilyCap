@@ -11,6 +11,10 @@ import "./bitcoin-investments.css";
 // le TABLEAU DE BORD, donc dès le premier écran. Sans cet import, elle s'afficherait brièvement
 // sans styles le temps que le chunk de l'écran Défis arrive.
 import "./challenges.css";
+// Finitions mobile / PWA (≤780px uniquement). Chargé en dernier, mais les feuilles d'écran
+// arrivant en chunks dynamiques peuvent passer après : les sélecteurs y sont qualifiés par
+// `.app-shell` pour ne pas dépendre de l'ordre de la cascade.
+import "./mobile-pwa.css";
 
 export default function Home() {
   const version = process.env.NEXT_PUBLIC_APP_VERSION ?? "local";

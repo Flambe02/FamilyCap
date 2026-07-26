@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { initialTransactions, InvestmentModal, TransactionRecord, TransactionsView, type GiftSaveResult, type GiftSource, type TransactionShortcut } from "./transactions";
 import type { TransferRequest } from "./back-office";
@@ -79,6 +79,18 @@ const members = FAMILY_MEMBERS.map((member) => ({
   color: member.color,
 }));
 
+// Ancres de navigation portées par l'URL. Elles servent à deux choses : un rafraîchissement
+// ne renvoie plus à l'accueil, et les raccourcis de l'application installée
+// (manifest.webmanifest › shortcuts) ouvrent directement le bon écran.
+// `#bitcoin/resume`, `#pea/positions`… : le sous-onglet est géré par l'écran lui-même.
+function viewForHash(rawHash: string): View | null {
+  if (rawHash.startsWith("#bitcoin")) return "bitcoin";
+  if (rawHash.startsWith("#pea")) return "investissements-pea";
+  if (rawHash.startsWith("#cto")) return "investissements-comptetitres";
+  if (rawHash.startsWith("#defis")) return "investissements-suggestions";
+  return null;
+}
+
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const euroCompact = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
@@ -98,11 +110,19 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   // rafraîchissement ne renvoie plus systématiquement à l'accueil ni au Résumé.
   const [view, setView] = useState<View>(() => {
     if (typeof window === "undefined") return "famille";
-    if (window.location.hash.startsWith("#bitcoin")) return "bitcoin";
-    if (window.location.hash.startsWith("#pea")) return "investissements-pea";
-    if (window.location.hash.startsWith("#cto")) return "investissements-comptetitres";
-    return "famille";
+    return viewForHash(window.location.hash) ?? "famille";
   });
+  // Un raccourci de l'application installée (manifest.webmanifest › shortcuts) sur une session
+  // DÉJÀ ouverte ne recharge pas la page : le système se contente de changer le fragment et de
+  // remettre la fenêtre au premier plan. Sans cet écouteur, le raccourci ne ferait rien.
+  useEffect(() => {
+    function onHashChange() {
+      const next = viewForHash(window.location.hash);
+      if (next) setView(next);
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
   const todayLabel = useMemo(() => new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date()).toUpperCase(), []);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalSource, setModalSource] = useState<GiftSource | undefined>(undefined);
@@ -199,6 +219,14 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   const [investmentsOpen, setInvestmentsOpen] = useState(true);
   const investmentsActive = INVESTMENT_VIEW_IDS.includes(view);
   const investmentsExpanded = investmentsActive || investmentsOpen;
+  // Sous-navigation Investissements (mobile) : 6 onglets pour ~360px, donc défilante. Sans
+  // cela, arriver sur « Comprendre » ou « Historique » affiche une barre calée à gauche où
+  // l'onglet courant est hors écran — on ne sait plus où l'on est.
+  const investSubnavRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const active = investSubnavRef.current?.querySelector<HTMLElement>("button.active");
+    active?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, [view]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -367,11 +395,20 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
 
   function navigate(next: View) {
     if (next === "transactions") setTransactionShortcut(null);
-    // En quittant Bitcoin, on efface le hash d'onglet pour ne pas y revenir au refresh.
-    if (next !== "bitcoin" && typeof window !== "undefined" && window.location.hash.startsWith("#bitcoin")) {
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (typeof window !== "undefined") {
+      const base = window.location.pathname + window.location.search;
+      // « Défis » porte un hash pour que le raccourci PWA (/#defis) retombe dessus au
+      // démarrage à froid ; en quittant Bitcoin/Défis on efface le hash d'onglet pour ne
+      // pas y revenir au refresh.
+      if (next === "investissements-suggestions") window.history.replaceState(null, "", base + "#defis");
+      else if (window.location.hash.startsWith("#bitcoin") || window.location.hash.startsWith("#defis")) {
+        if (next !== "bitcoin") window.history.replaceState(null, "", base);
+      }
     }
     setView(next);
+    // Navigation par état (SPA sans routes) : sans cela on arrive sur le nouvel écran à la
+    // position de défilement de l'ancien — c'est-à-dire souvent au milieu de la page.
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
   }
 
   function handleGiftSaved(result: GiftSaveResult) {
@@ -427,7 +464,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
 
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" data-view={view}>
       <aside className="sidebar">
         <button className="brand" onClick={() => setView("famille")} aria-label="Accueil LaBaJo & Co">
           <span className="brand-mark" aria-hidden="true"><img src="/Labajo logo.png" alt="" /></span>
@@ -610,7 +647,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
         </div>}
 
         {INVESTMENT_VIEW_IDS.includes(view) && (
-          <nav className="invest-subnav" aria-label="Sections Investissements">
+          <nav className="invest-subnav" ref={investSubnavRef} aria-label="Sections Investissements">
             {investmentSubNavigation.map((item) => (
               <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)} aria-current={view === item.id ? "page" : undefined}>
                 {item.short ?? item.label}
@@ -730,6 +767,15 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             </div>
           </div>
         )}
+        {/* « Espace famille » est rendu AUSSI en aperçu : la barre basse mobile ne porte plus
+            Souvenirs (remplacé par Défis), donc sans cette section un membre prévisualisé
+            n'aurait plus aucun accès à la galerie ni aux cadeaux. */}
+        <div className="mobile-menu-section">
+          <p>Espace famille</p>
+          <button type="button" className="mobile-menu-link" onClick={() => { navigate("cadeaux-amatxi"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="gift" /></span><span>Cadeaux d’Amatxi</span></span><span>›</span></button>
+          <button type="button" className="mobile-menu-link" onClick={() => { navigate("videos"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="square-play" /></span><span>Souvenirs</span></span><span>›</span></button>
+          <button type="button" className="mobile-menu-link" onClick={() => { navigate("famille-roster"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille</span></span><span>›</span></button>
+        </div>
         {isPreview ? (
           <div className="mobile-menu-section">
             <button type="button" className="mobile-menu-signout" onClick={() => { changePreview(null); setMobileMenuOpen(false); }}>Quitter l’aperçu</button>
@@ -737,21 +783,16 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
         ) : (
           <>
             <div className="mobile-menu-section">
-              <p>Espace famille</p>
-              <button type="button" className="mobile-menu-link" onClick={() => { setView("cadeaux-amatxi"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="gift" /></span><span>Cadeaux d’Amatxi</span></span><span>›</span></button>
-              <button type="button" className="mobile-menu-link" onClick={() => { setView("famille-roster"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille</span></span><span>›</span></button>
-            </div>
-            <div className="mobile-menu-section">
               <p>Réglages</p>
-              <button type="button" className="mobile-menu-link" onClick={() => { setView("parametres"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="settings" /></span><span>Paramètres</span></span><span>›</span></button>
+              <button type="button" className="mobile-menu-link" onClick={() => { navigate("parametres"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="settings" /></span><span>Paramètres</span></span><span>›</span></button>
             </div>
             {viewer.role === "admin" && (
               <div className="mobile-menu-section">
                 <p>Administration</p>
-                <button type="button" className="mobile-menu-link" onClick={() => { setView("transactions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="list-checks" /></span><span>Opérations</span></span>{transferRequests.length > 0 ? <em>{transferRequests.length}</em> : <span>›</span>}</button>
-                <button type="button" className="mobile-menu-link" onClick={() => { setView("famille-acces"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille &amp; accès</span></span><span>›</span></button>
-                <button type="button" className="mobile-menu-link" onClick={() => { setView("administration-suggestions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="star" /></span><span>Défis &amp; animation</span></span><span>›</span></button>
-                <button type="button" className="mobile-menu-link" onClick={() => { setView("administration-globale"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="shield-check" /></span><span>Administration</span></span><span>›</span></button>
+                <button type="button" className="mobile-menu-link" onClick={() => { navigate("transactions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="list-checks" /></span><span>Opérations</span></span>{transferRequests.length > 0 ? <em>{transferRequests.length}</em> : <span>›</span>}</button>
+                <button type="button" className="mobile-menu-link" onClick={() => { navigate("famille-acces"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille &amp; accès</span></span><span>›</span></button>
+                <button type="button" className="mobile-menu-link" onClick={() => { navigate("administration-suggestions"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="star" /></span><span>Défis &amp; animation</span></span><span>›</span></button>
+                <button type="button" className="mobile-menu-link" onClick={() => { navigate("administration-globale"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="shield-check" /></span><span>Administration</span></span><span>›</span></button>
               </div>
             )}
             <div className="mobile-menu-section">

@@ -1,0 +1,249 @@
+/* =============================================================================
+   LaBaJo & Co — finitions mobile / PWA
+   -----------------------------------------------------------------------------
+   TOUT ce fichier vit sous @media (max-width:780px) : le desktop n'est JAMAIS
+   touché (contrainte projet, cf. CLAUDE.md « Mobile-only responsive work »).
+
+   Il est chargé en dernier dans page.tsx, mais les feuilles d'écran arrivent en
+   chunks dynamiques (souvenirs.css, settings.css, pea-investments.css…) et
+   peuvent donc se retrouver APRÈS dans la cascade. Les sélecteurs sont pour
+   cette raison qualifiés par `.app-shell` : spécificité (0,2,0) contre (0,1,0),
+   l'ordre de chargement ne décide plus.
+   ========================================================================== */
+
+@media (max-width: 780px) {
+
+  /* ---------------------------------------------------------------------------
+     1. Zéro défilement horizontal, sur tous les écrans
+     ---------------------------------------------------------------------------
+     `.page-stack` est une grille dont la colonne implicite vaut `auto` : sa
+     piste se dimensionne sur le contenu le PLUS LARGE qu'elle contient. Une
+     barre d'onglets défilante ou un <select> suffisait donc à pousser toute la
+     page hors de l'écran — c'est ce qui cassait l'écran Souvenirs (535px de
+     contenu pour 362px disponibles, page décalée et champs coupés).
+     minmax(0,1fr) verrouille la piste sur la largeur du conteneur ; le contenu
+     trop large défile alors DANS son propre conteneur, comme prévu. */
+  .app-shell .page-stack { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .content-grid > * { min-width: 0; }
+
+  /* ---------------------------------------------------------------------------
+     2. Montants Bitcoin : la valeur ne sort plus de sa carte
+     ---------------------------------------------------------------------------
+     Un montant à 8 décimales (« 0.00977404 BTC », 14 caractères) ne tient pas
+     à côté d'une pastille d'icône dans une carte demi-largeur : il débordait de
+     ~21px sur l'accueil et se cassait en deux lignes au milieu du nombre sur
+     l'écran Bitcoin. On repasse ces cartes en colonne — icône au-dessus, valeur
+     sur toute la largeur utile — plutôt que de rapetisser la typo. */
+  .app-shell .home-kpi:not(:first-child) { flex-direction: column; gap: 9px; }
+  .app-shell .home-kpi:not(:first-child) .home-kpi-body { width: 100%; }
+  .app-shell .home-kpi-body strong { font-variant-numeric: tabular-nums; }
+  .app-shell .btc-kpi { flex-direction: column; gap: 9px; }
+  .app-shell .btc-kpi-body { width: 100%; }
+  .app-shell .btc-kpi-body strong { font-variant-numeric: tabular-nums; }
+  /* Filet de sécurité : si un montant plus long apparaît un jour (patrimoine à
+     7 chiffres), il se replie proprement au lieu de déborder. */
+  .app-shell .home-kpi-body strong,
+  .app-shell .btc-kpi-body strong,
+  .app-shell .stat-card strong { overflow-wrap: anywhere; }
+
+  /* ---------------------------------------------------------------------------
+     3. Barres d'onglets défilantes : on sait où l'on est et qu'il y en a plus
+     ---------------------------------------------------------------------------
+     6 onglets Investissements + 4 à 7 onglets d'écran sur ~360px : le défilement
+     est inévitable. Il devient lisible avec (a) un accrochage, (b) une cible
+     tactile réglementaire, (c) un fondu de bord qui annonce la suite, et (d) le
+     recentrage de l'onglet actif (fait côté React dans family-dashboard.tsx). */
+  .app-shell .invest-subnav,
+  .app-shell .btc-tabs,
+  .app-shell .souvenirs-tabs {
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 12px;
+    scrollbar-width: none;
+  }
+  .app-shell .invest-subnav::-webkit-scrollbar,
+  .app-shell .btc-tabs::-webkit-scrollbar,
+  .app-shell .souvenirs-tabs::-webkit-scrollbar { display: none; }
+  .app-shell .invest-subnav button,
+  .app-shell .btc-tabs button,
+  .app-shell .souvenirs-tabs button { scroll-snap-align: center; min-height: 44px; }
+  /* Fondu réservé à `.invest-subnav` : c'est la seule bande sans fond ni bordure
+     propres, donc la seule où masquer le bord ne rogne pas le décor de la carte. */
+  .app-shell .invest-subnav {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent 100%);
+            mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent 100%);
+  }
+  /* La barre d'onglets Souvenirs affichait une vraie barre de défilement grise
+     sous les pastilles. */
+  .app-shell .souvenirs-tabs { padding-bottom: 0; }
+
+  /* ---------------------------------------------------------------------------
+     4. Cibles tactiles : 44px minimum (WCAG 2.5.5 / Apple HIG / Material)
+     ---------------------------------------------------------------------------
+     Les liens « Voir le détail → » mesuraient 17 à 18px de haut, la croix du
+     tiroir 32px, les pastilles de période 27px. */
+  .app-shell .home-card-link,
+  .app-shell .btc-link,
+  .app-shell .souvenirs-gift-link {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .app-shell .home-birthday-cta,
+  .app-shell .mobile-view-chips button,
+  .app-shell .souvenirs-card-admin button,
+  .app-shell .gift-actions button { min-height: 44px; }
+  .app-shell .mobile-menu-close { width: 44px; height: 44px; }
+  .app-shell .mobile-menu-trigger { min-height: 44px; }
+  .app-shell .btc-period { padding: 3px; }
+  .app-shell .btc-period button { min-height: 40px; padding: 8px 14px; font-size: 11.5px; }
+  .app-shell .cha-period button { min-height: 44px; }
+  .app-shell .lesson-card button { min-height: 44px; display: inline-flex; align-items: center; }
+  .app-shell .amv-sort-button,
+  .app-shell .amv-card-actions button,
+  .app-shell .admin-work-button,
+  .app-shell .admin-delete-button,
+  .app-shell .request-transfer-button { min-height: 44px; }
+
+  /* ---------------------------------------------------------------------------
+     5. Échelle typographique : plus rien sous 10px
+     ---------------------------------------------------------------------------
+     Les libellés descendaient à 8px (rubriques Paramètres) et 8,5px (intitulés
+     d'indicateurs) : illisibles au bras tendu, et sous le seuil de confort de
+     lecture mobile. On relève le plancher sans toucher aux valeurs, qui portent
+     déjà la hiérarchie. */
+  .app-shell .mobile-nav small { font-size: 10.5px; }
+  .app-shell .mobile-brand small,
+  .app-shell .mobile-menu-trigger-info small { font-size: 10.5px; }
+  .app-shell .mobile-menu-head span,
+  .app-shell .mobile-menu-section > p { font-size: 10px; }
+  .app-shell .home-kpi-body p { font-size: 10px; letter-spacing: .4px; }
+  .app-shell .home-kpi-note { font-size: 11px; }
+  .app-shell .btc-kpi-body p,
+  .app-shell .btc-eyebrow,
+  .app-shell .btc-panel-kicker,
+  .app-shell .btc-role-pill,
+  .app-shell .soft-pill { font-size: 10.5px; }
+  .app-shell .btc-kpi-body small { font-size: 11px; }
+  .app-shell .btc-donut-center small,
+  .app-shell .btc-chart-foot small,
+  .app-shell .btc-synth-grid small,
+  .app-shell .btc-invest-price small,
+  .app-shell .btc-extremes small,
+  .app-shell .btc-ops-meta time,
+  .app-shell .btc-member-card-flag { font-size: 10.5px; }
+  .app-shell .settings-nav-kicker,
+  .app-shell .lesson-card > span,
+  .app-shell .coming-soon-badge,
+  .app-shell .gift-story span,
+  .app-shell .member-card footer,
+  .app-shell .member-card > p,
+  .app-shell .member-value small,
+  .app-shell .transactions-toolbar > div:first-child > span,
+  .app-shell .amv-card-title small,
+  .app-shell .amv-account,
+  .app-shell .amv-card-stats small,
+  .app-shell .amv-card-status strong small,
+  .app-shell .transaction-location,
+  .app-shell .mmv-card-detail small,
+  .app-shell .admin-work-button,
+  .app-shell .admin-delete-button,
+  .app-shell .request-transfer-button { font-size: 10.5px; }
+
+  /* ---------------------------------------------------------------------------
+     6. Bandeau anniversaire : le titre ne se casse plus en quatre lignes
+     ---------------------------------------------------------------------------
+     Le bouton « Voir mes cadeaux » écrasait le texte sur une colonne de ~160px.
+     Il passe sous le message, en pleine largeur (et devient une cible franche). */
+  .app-shell .home-birthday { flex-wrap: wrap; row-gap: 12px; }
+  .app-shell .home-birthday-text { flex: 1 1 60%; }
+  .app-shell .home-birthday-cta { flex: 1 1 100%; justify-content: center; text-align: center; }
+
+  /* ---------------------------------------------------------------------------
+     7. Le bouton flottant ne masque plus un contenu qu'il ne concerne pas
+     ---------------------------------------------------------------------------
+     « Ajouter une opération » recouvrait une ligne de Paramètres, une carte de
+     Défis et un filtre de Souvenirs — trois écrans où il n'a aucun sens. */
+  .app-shell[data-view="parametres"] .top-actions .primary-button,
+  .app-shell[data-view="videos"] .top-actions .primary-button,
+  .app-shell[data-view="investissements-suggestions"] .top-actions .primary-button,
+  .app-shell[data-view="apprendre"] .top-actions .primary-button,
+  .app-shell[data-view="famille-roster"] .top-actions .primary-button { display: none; }
+
+  /* ---------------------------------------------------------------------------
+     8. Respiration sous la barre basse flottante
+     ---------------------------------------------------------------------------
+     La barre occupe 68px + 14px de marge : 86px de réserve ne laissaient que
+     4px, et la dernière carte semblait glissée dessous. */
+  .app-shell .workspace { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
+
+  /* ---------------------------------------------------------------------------
+     9. iOS : plus de zoom involontaire à la saisie
+     ---------------------------------------------------------------------------
+     Safari zoome sur tout champ dont la police est < 16px — la mise en page
+     saute et l'utilisateur doit re-dézoomer à la main. Certains champs étaient
+     à 10px. 16px sur mobile uniquement : le desktop garde ses champs compacts. */
+  .app-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  .app-shell select,
+  .app-shell textarea { font-size: 16px; }
+
+  /* ---------------------------------------------------------------------------
+     10. Confort tactile général
+     --------------------------------------------------------------------------- */
+  .app-shell button,
+  .app-shell a,
+  .app-shell select,
+  .app-shell input,
+  .app-shell summary {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation; /* supprime le délai de 300ms du double-tap-zoom */
+  }
+
+  /* ---------------------------------------------------------------------------
+     11. Tiroir fermé : hors du parcours clavier et des lecteurs d'écran
+     ---------------------------------------------------------------------------
+     Le panneau est translaté hors champ mais restait focusable : aria-hidden +
+     boutons atteignables au clavier = piège d'accessibilité (on tabulait dans
+     un menu invisible). `visibility` le retire vraiment tout en conservant
+     l'animation de translation. */
+  .app-shell .mobile-menu-drawer {
+    visibility: hidden;
+    transition: transform .22s cubic-bezier(.2,.8,.3,1), visibility .22s;
+  }
+  .app-shell .mobile-menu-drawer.open { visibility: visible; }
+
+  /* ---------------------------------------------------------------------------
+     12. Écran Souvenirs : filtres compacts plutôt qu'un mur de champs
+     ---------------------------------------------------------------------------
+     Quatre filtres pleine largeur empilés poussaient la galerie sous la ligne
+     de flottaison. Les trois listes déroulantes tiennent sur deux colonnes ; la
+     recherche garde toute la largeur. */
+  .app-shell .souvenirs-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .app-shell .souvenirs-field-search,
+  .app-shell .souvenirs-field-sort { grid-column: 1 / -1; }
+  .app-shell .souvenirs-head-main h2 { font-size: 1.45rem; }
+}
+
+/* -----------------------------------------------------------------------------
+   13. Très petits écrans (iPhone SE et assimilés, ≤360px)
+   -----------------------------------------------------------------------------
+   Même en carte-colonne, une demi-largeur ne suffit plus pour « 0.00977404 BTC »
+   ni pour un patrimoine à sept chiffres : les indicateurs passent sur une seule
+   colonne. Vérifié à 305px de largeur utile. */
+@media (max-width: 360px) {
+  .app-shell .home-kpis,
+  .app-shell .btc-kpi-grid,
+  .app-shell .cha-stats { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .souvenirs-filters { grid-template-columns: 1fr; }
+}
+
+/* -----------------------------------------------------------------------------
+   14. Application installée : comportement d'app, pas de page web
+   -----------------------------------------------------------------------------
+   Uniquement en mode autonome (icône sur l'écran d'accueil) : on coupe le
+   rebond d'élastique en fin de liste, qui donne l'impression que l'écran se
+   décolle. En navigateur, le comportement natif est conservé (pull-to-refresh
+   compris). */
+@media (max-width: 780px) and (display-mode: standalone) {
+  html, body { overscroll-behavior-y: none; }
+}
