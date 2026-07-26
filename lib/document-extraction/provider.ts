@@ -11,7 +11,27 @@ import { EXTRACTION_JSON_INSTRUCTION, normalizeRawExtraction, type RawExtraction
 const EXTRACTION_USER_PROMPT =
   "Retranscris ce relevé : d'abord l'en-tête du compte, puis SOIT le tableau des positions détenues (relevé de portefeuille), SOIT les opérations datées (relevé de mouvements), selon ce que contient réellement le document. Retranscris toutes les lignes, sans en résumer ni en omettre. Si une ligne est lisible mais incertaine, inclus-la avec une confiance basse et un avertissement.";
 
-export type ExtractInput = { base64: string; mediaType: string; filename: string };
+/** Consigne de relecture : chaque passe aborde le tableau autrement pour décorréler les erreurs. */
+function passHint(pass: number | undefined): string {
+  if (!pass || pass <= 1) return "";
+  const angles = [
+    " Relecture indépendante : reprends le tableau ligne par ligne et recopie chaque cellule chiffrée chiffre à chiffre.",
+    " Relecture indépendante : parcours le tableau colonne par colonne et vérifie l'ordre de grandeur de chaque montant.",
+    " Relecture indépendante : traite chaque ligne isolément, en repartant de son libellé puis de son code ISIN.",
+    " Relecture indépendante : accorde une attention particulière aux séparateurs de milliers et de décimales.",
+  ];
+  return angles[(pass - 2) % angles.length];
+}
+
+export type ExtractInput = {
+  base64: string; mediaType: string; filename: string;
+  /**
+   * Numéro de relecture (1..N). Il varie légèrement la consigne : deux appels rigoureusement
+   * identiques ont toutes les chances de reproduire la MÊME erreur de lecture, ce qui priverait
+   * le vote de tout pouvoir de détection.
+   */
+  pass?: number;
+};
 export type DocumentProvider = { name: string; extract(input: ExtractInput): Promise<RawExtraction> };
 
 export type DocumentAiConfig = {
@@ -21,6 +41,17 @@ export type DocumentAiConfig = {
   maxFileBytes: number;
   thresholds: ExtractionThresholds;
   configured: boolean;
+  /**
+   * Effort de raisonnement (modèles OpenAI de la série gpt-5). MESURÉ sur un relevé PEA réel :
+   * « high » coûte 92 s et 10 880 jetons de raisonnement pour AUTANT d'erreurs de lecture que
+   * « minimal » à 16 s. Retranscrire un tableau est une tâche de perception, pas de déduction :
+   * le raisonnement n'y apporte rien et faisait dépasser le délai d'expiration.
+   */
+  reasoningEffort: "minimal" | "low" | "medium" | "high";
+  /** Nombre de relectures indépendantes votant cellule par cellule (cf. consensus.ts). */
+  passes: number;
+  timeoutMs: number;
+  maxOutputTokens: number;
 };
 
 function envNumber(name: string, fallback: number): number {
@@ -36,6 +67,7 @@ export function getDocumentAiConfig(): DocumentAiConfig {
     explicit === "anthropic" || explicit === "openai" || explicit === "none"
       ? explicit
       : hasAnthropic ? "anthropic" : hasOpenAI ? "openai" : "none";
+  const effort = (process.env.DOCUMENT_AI_REASONING_EFFORT ?? "").toLowerCase();
   return {
     provider,
     model: process.env.DOCUMENT_AI_MODEL || (provider === "openai" ? "gpt-5" : "claude-sonnet-5"),
@@ -46,6 +78,13 @@ export function getDocumentAiConfig(): DocumentAiConfig {
       low: envNumber("DOCUMENT_AI_LOW_CONFIDENCE", DEFAULT_THRESHOLDS.low * 100) / 100,
     },
     configured: provider !== "none" && (provider === "anthropic" ? hasAnthropic : hasOpenAI),
+    reasoningEffort: effort === "low" || effort === "medium" || effort === "high" ? effort : "minimal",
+    // Les relectures partent EN PARALLÈLE : 3 passes coûtent le temps d'une seule (14 s mesurées).
+    passes: Math.max(1, Math.min(5, Math.round(envNumber("DOCUMENT_AI_PASSES", 3)))),
+    // 60 s était trop court : une passe gpt-5 à effort par défaut prenait 59,6 s, d'où des
+    // expirations aléatoires (« L'analyse IA a expiré ») sur un document pourtant bien lu.
+    timeoutMs: envNumber("DOCUMENT_AI_TIMEOUT_MS", 120000),
+    maxOutputTokens: envNumber("DOCUMENT_AI_MAX_OUTPUT_TOKENS", 16000),
   };
 }
 
@@ -71,7 +110,7 @@ function anthropicProvider(config: DocumentAiConfig): DocumentProvider {
         ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: input.base64 } }
         : { type: "image", source: { type: "base64", media_type: input.mediaType, data: input.base64 } };
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 60000);
+      const timer = setTimeout(() => controller.abort(), config.timeoutMs);
       try {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -82,7 +121,7 @@ function anthropicProvider(config: DocumentAiConfig): DocumentProvider {
             // Le schéma est verbeux (≈ 300 jetons par ligne : chaque champ porte value/confidence/
             // page). À 4096 jetons, un relevé de plus d'une douzaine de lignes était TRONQUÉ, donc
             // illisible en JSON — l'import échouait alors sans que la cause soit visible.
-            max_tokens: 16384,
+            max_tokens: config.maxOutputTokens,
             system: EXTRACTION_JSON_INSTRUCTION,
             messages: [{ role: "user", content: [contentBlock, { type: "text", text: `${EXTRACTION_USER_PROMPT} Document : ${input.filename}. Maximum ${config.maxPages} pages. Réponds en JSON strict conforme au schéma.` }] }],
           }),
@@ -122,7 +161,7 @@ function openaiProvider(config: DocumentAiConfig): DocumentProvider {
       const key = process.env.OPENAI_API_KEY;
       if (!key) throw new Error("OPENAI_API_KEY absente.");
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 60000);
+      const timer = setTimeout(() => controller.abort(), config.timeoutMs);
       try {
         const isPdf = input.mediaType === "application/pdf";
         const endpoint = isPdf ? "https://api.openai.com/v1/responses" : "https://api.openai.com/v1/chat/completions";
@@ -132,19 +171,28 @@ function openaiProvider(config: DocumentAiConfig): DocumentProvider {
               input: [{
                 role: "user",
                 content: [
-                  { type: "input_text", text: `${EXTRACTION_JSON_INSTRUCTION}\n\n${EXTRACTION_USER_PROMPT} Document : ${input.filename}. Maximum ${config.maxPages} pages.` },
+                  { type: "input_text", text: `${EXTRACTION_JSON_INSTRUCTION}\n\n${EXTRACTION_USER_PROMPT} Document : ${input.filename}. Maximum ${config.maxPages} pages.${passHint(input.pass)}` },
                   { type: "input_file", filename: input.filename, file_data: `data:${input.mediaType};base64,${input.base64}` },
                 ],
               }],
               text: { format: { type: "json_object" } },
+              reasoning: { effort: config.reasoningEffort },
+              max_output_tokens: config.maxOutputTokens,
             }
           : {
               model: config.model,
               response_format: { type: "json_object" },
+              // Deux réglages MESURÉS sur un relevé PEA réel :
+              //  • reasoning_effort : « minimal » lit aussi bien que « high » (même nombre
+              //    d'erreurs) en 16 s au lieu de 92 s. Le raisonnement ne sert pas à lire.
+              //  • max_completion_tokens : sans plafond, rien n'arrêtait une phase de
+              //    raisonnement qui consommait tout le délai avant d'écrire la moindre ligne.
+              reasoning_effort: config.reasoningEffort,
+              max_completion_tokens: config.maxOutputTokens,
               messages: [
                 { role: "system", content: EXTRACTION_JSON_INSTRUCTION },
                 { role: "user", content: [
-                  { type: "text", text: `${EXTRACTION_USER_PROMPT} Document : ${input.filename}.` },
+                  { type: "text", text: `${EXTRACTION_USER_PROMPT} Document : ${input.filename}.${passHint(input.pass)}` },
                   { type: "image_url", image_url: { url: `data:${input.mediaType};base64,${input.base64}`, detail: "high" } },
                 ] },
               ],

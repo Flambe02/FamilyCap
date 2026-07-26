@@ -3,6 +3,7 @@ import { buildPreviewFromOps, parseDate } from "../../../../lib/investment-impor
 import { loadImportAccount, loadImportContext, isOperationAccount } from "../../../../lib/investment-import-server";
 import { getDocumentAiConfig, getDocumentProvider } from "../../../../lib/document-extraction/provider";
 import { validateExtraction, validateExtractedPositions, crossCheckTotals } from "../../../../lib/document-extraction/extract";
+import { reconcilePositionPasses } from "../../../../lib/document-extraction/consensus";
 import { autoMapSnapshotHeaders, buildSnapshotPreview } from "../../../../lib/portfolio-snapshot-import";
 
 // SCAN IA d'un relevé (PDF / image) — étape d'import, PAS un second moteur financier. Admin
@@ -49,18 +50,37 @@ export async function POST(request: Request) {
     if (!account.isActive) return Response.json({ error: "Ce compte est archivé : réactivez-le avant d'importer." }, { status: 409 });
 
     // Encodage transitoire (jamais stocké) + appel fournisseur.
+    //
+    // RELECTURES MULTIPLES, EN PARALLÈLE. Mesuré sur un relevé PEA réel : une passe unique se
+    // trompe sur ~6 cellules chiffrées sur 30, en annonçant une confiance de 0,90 à 0,98 — la
+    // confiance auto-déclarée par le modèle ne vaut donc rien. Mais les erreurs sont ALÉATOIRES :
+    // trois relectures indépendantes ne se trompent pas au même endroit, et le vote cellule par
+    // cellule (cf. consensus.ts) les fait toutes remonter comme « à vérifier ». Comme les appels
+    // partent ensemble, le coût en temps reste celui d'une seule passe.
     const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    let raw;
-    try {
-      raw = await provider.extract({ base64, mediaType, filename: file.name });
-    } catch (extractError) {
-      const aborted = extractError instanceof Error && extractError.name === "AbortError";
-      const message = extractError instanceof Error ? extractError.message : "Extraction impossible.";
-      return Response.json({ error: aborted ? "L'analyse IA a expiré. Réessayez avec un fichier plus court, ou utilisez le CSV." : `Analyse IA impossible : ${message}. Essayez un autre fichier, le CSV, ou la saisie manuelle.` }, { status: 502 });
+    const attempts = await Promise.allSettled(
+      Array.from({ length: config.passes }, (_, index) =>
+        provider.extract({ base64, mediaType, filename: file.name, pass: index + 1 })),
+    );
+    const raws = attempts.filter((attempt) => attempt.status === "fulfilled").map((attempt) => attempt.value);
+    if (raws.length === 0) {
+      const failure = attempts[0].status === "rejected" ? attempts[0].reason : null;
+      const aborted = failure instanceof Error && failure.name === "AbortError";
+      const message = failure instanceof Error ? failure.message : "Extraction impossible.";
+      return Response.json({
+        error: aborted
+          ? `L'analyse IA a dépassé ${Math.round(config.timeoutMs / 1000)} s. Réessayez, ou scannez une page à la fois — un export CSV du même relevé reste la voie la plus fiable.`
+          : `Analyse IA impossible : ${message}. Essayez un autre fichier, le CSV, ou la saisie manuelle.`,
+      }, { status: 502 });
     }
 
+    // L'en-tête et les opérations datées sont pris sur la première relecture aboutie ; seules
+    // les POSITIONS (des chiffres, donc le risque de lecture) passent par le vote.
+    const raw = raws[0];
     const { document, operations } = validateExtraction(raw, { accountCurrency: account.currency, thresholds: config.thresholds });
-    const positions = validateExtractedPositions(raw, { accountCurrency: account.currency, thresholds: config.thresholds });
+    const positionPasses = raws.map((candidate) => validateExtractedPositions(candidate, { accountCurrency: account.currency, thresholds: config.thresholds }));
+    const agreed = reconcilePositionPasses(positionPasses);
+    const positions = { header: positionPasses[0].header, rows: agreed.rows, meta: agreed.meta };
 
     if (operations.length === 0 && positions.rows.length === 0) {
       return Response.json({
@@ -118,6 +138,13 @@ export async function POST(request: Request) {
         provider: provider.name,
         document,
         totals,
+        // Qualité de lecture MESURÉE (et non déclarée) : nombre de relectures et part de lignes
+        // sur lesquelles elles se sont toutes accordées. C'est ce que l'écran affiche.
+        reading: {
+          passes: agreed.passes,
+          unanimousRows: agreed.consensus.filter((entry) => entry.disputed.length === 0 && entry.seenBy === agreed.passes).length,
+          disputedCells: agreed.consensus.reduce((total, entry) => total + entry.disputed.length, 0),
+        },
         snapshot: { asOfDate, positions: snapshot.positions },
         allowAdvanced: context.allowAdvanced,
         knownHoldings: context.holdings,

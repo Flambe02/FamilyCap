@@ -42,6 +42,8 @@ type PreviewResponse = {
   snapshot?: { asOfDate: string; positions: SnapshotPosition[] };
   document?: ScanDocument;
   totals?: TotalsCheck;
+  /** Qualité de lecture mesurée : relectures effectuées et accord entre elles. */
+  reading?: { passes: number; unanimousRows: number; disputedCells: number };
   provider?: string;
   columns: string[];
   mapping: Record<ImportField, number>;
@@ -70,7 +72,7 @@ const FIELD_LABEL: Record<ImportField, string> = {
 const SCAN_PHASES = [
   { icon: "📤", label: "Transmission du document", detail: "Le fichier est envoyé au moteur d’analyse, puis oublié — il n’est jamais conservé." },
   { icon: "🔍", label: "Identification du relevé", detail: "Positions détenues ou opérations datées : le type de document est reconnu." },
-  { icon: "✍️", label: "Retranscription des lignes", detail: "Chaque valeur est recopiée telle qu’imprimée. Rien n’est calculé, rien n’est deviné." },
+  { icon: "✍️", label: "Relectures croisées", detail: "Le tableau est relu plusieurs fois, indépendamment. Les chiffres lus différemment d’une relecture à l’autre sont signalés." },
   { icon: "🧮", label: "Contrôles de cohérence", detail: "Cours × quantité, totaux du relevé, clé de contrôle ISIN : vérifiés par le code." },
 ];
 
@@ -121,6 +123,20 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
 
   const filePreview = useMemo(() => (file && file.type.startsWith("image/") ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => { if (filePreview) URL.revokeObjectURL(filePreview); }, [filePreview]);
+
+  // Définition de l'image téléversée. Ce n'est pas un détail : sur une capture de 620 px de large
+  // contenant un tableau de huit colonnes chiffrées, un chiffre ne fait que quelques pixels et se
+  // lit mal (« 1 000 » lu « 100 », « 87,83 » lu « 83,78 » — constaté). Mieux vaut le dire AVANT
+  // l'analyse que de faire corriger vingt cellules après.
+  const [imageWidth, setImageWidth] = useState<number | null>(null);
+  useEffect(() => {
+    if (!filePreview) return;
+    const probe = new Image();
+    probe.onload = () => setImageWidth(probe.naturalWidth);
+    probe.src = filePreview;
+    return () => { probe.onload = null; };
+  }, [filePreview]);
+  const lowResolution = imageWidth !== null && imageWidth < 1100;
 
   // Défilement des phases pendant l'analyse. On s'arrête sur la dernière et on y reste : mieux
   // vaut une progression qui patiente qu'une barre qui prétend être terminée avant la réponse.
@@ -407,6 +423,14 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                 <strong>{file ? file.name : mode === "ai" ? "Glissez un PDF ou une image de relevé, ou cliquez" : "Glissez un fichier CSV ou Excel ici, ou cliquez pour choisir"}</strong>
                 <small>{mode === "ai" ? "PDF, PNG, JPG ou WEBP. Relevés numériques nets de préférence." : "Formats acceptés : CSV, XLS ou XLSX. Taille max 2 Mo."}</small>
               </div>
+              {mode === "ai" && lowResolution && (
+                <p className="imp-ai-banner imp-check-ko" role="note">
+                  ⚠ Cette image ne fait que <b>{imageWidth} px</b> de large. Sur un tableau de bourse, chaque chiffre
+                  n’occupe alors que quelques pixels et se lit mal — un «&nbsp;1&nbsp;000&nbsp;» devient «&nbsp;100&nbsp;».
+                  Refaites la capture en <b>pleine résolution</b> (fenêtre agrandie, ou capture d’écran non redimensionnée),
+                  ou utilisez l’export CSV du relevé. L’analyse reste possible, mais vérifiez chaque ligne.
+                </p>
+              )}
               {mode === "ai" && (
                 <div className="imp-scan-kinds">
                   <span><b>Deux types de relevés</b> sont reconnus, sans réglage&nbsp;:</span>
@@ -534,6 +558,22 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                     Rien n’est encore enregistré : corrigez ce qui doit l’être, décochez le reste.
                   </p>
 
+                  {/* Qualité de LECTURE, mesurée. Une IA annonce volontiers 98 % de confiance sur
+                      un « 1 000 » lu « 100 » : on affiche donc l'accord entre relectures, pas la
+                      confiance que le modèle s'attribue. */}
+                  {preview.reading && preview.reading.passes > 1 && (
+                    <p className={`imp-ai-banner ${preview.reading.disputedCells === 0 ? "imp-check-ok" : "imp-check-ko"}`} role="note">
+                      {preview.reading.disputedCells === 0
+                        ? `✓ Le document a été relu ${preview.reading.passes} fois de façon indépendante : les ${preview.reading.passes} relectures donnent exactement les mêmes chiffres sur les ${preview.reading.unanimousRows} ligne(s).`
+                        : `⚠ Le document a été relu ${preview.reading.passes} fois : ${preview.reading.disputedCells} valeur(s) ont été lues DIFFÉREMMENT d’une relecture à l’autre, sur ${summary.total - preview.reading.unanimousRows} ligne(s). Ces cellules sont signalées ci-dessous et leur ligne est décochée — vérifiez-les sur le relevé avant de les inclure.`}
+                    </p>
+                  )}
+                  {preview.reading && preview.reading.passes === 1 && (
+                    <p className="imp-ai-banner" role="note">
+                      ⚠ Une seule relecture a abouti : impossible de recouper les chiffres. Vérifiez chaque ligne avec le document d’origine.
+                    </p>
+                  )}
+
                   {/* Carte d'identité du document : ce que le relevé dit de lui-même. */}
                   {preview.document && (
                     <dl className="imp-doc-card">
@@ -604,7 +644,7 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
               <label className="imp-inline"><input type="checkbox" checked={filter === "anomalies"} onChange={(event) => setFilter(event.target.checked ? "anomalies" : "all")} /> N’afficher que les anomalies</label>
               <div className="responsive-table imp-table-wrap">
                 <table className="btc-table imp-table">
-                  <thead><tr><th>#</th><th>Statut</th><th>Date</th><th>Type</th><th>Instrument</th><th>Qté</th><th>{preview.mode === "snapshot" ? "PRU" : "Prix"}</th>{preview.mode === "snapshot" && <th>Cours</th>}{preview.mode === "snapshot" && <th>Var./veille</th>}<th>{preview.mode === "snapshot" ? "Valorisation" : "Montant"}</th>{preview.mode === "snapshot" && <th>+/- value</th>}<th>Devise</th>{mode === "ai" && <th>Confiance IA</th>}<th>Importer</th></tr></thead>
+                  <thead><tr><th>#</th><th>Statut</th><th>Date</th><th>Type</th><th>Instrument</th><th>Qté</th><th>{preview.mode === "snapshot" ? "PRU" : "Prix"}</th>{preview.mode === "snapshot" && <th>Cours</th>}{preview.mode === "snapshot" && <th>Var./veille</th>}<th>{preview.mode === "snapshot" ? "Valorisation" : "Montant"}</th>{preview.mode === "snapshot" && <th>+/- value</th>}<th>Devise</th>{mode === "ai" && <th title="Accord entre les relectures indépendantes du document">Relectures</th>}<th>Importer</th></tr></thead>
                   <tbody>
                     {visibleRows.map((row) => {
                       const unknownInstrument = !row.instrumentHoldingId && (row.op.type === "achat" || row.op.type === "vente" || row.op.type === "dividende" || row.op.type === "transfer_in" || row.op.type === "transfer_out");
@@ -663,7 +703,11 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                           <td>{row.op.currency}</td>
                           {mode === "ai" && (
                             <td>
-                              {row.aiBand ? <span className={`imp-badge imp-conf-${row.aiBand}`} title={row.aiSourceText ? `« ${row.aiSourceText} »${row.aiPage ? ` (p.${row.aiPage})` : ""}` : undefined}>{row.aiBand === "high" ? "Élevée" : row.aiBand === "medium" ? "Moyenne" : "Faible"}{typeof row.aiConfidence === "number" ? ` ${Math.round(row.aiConfidence * 100)}%` : ""}</span> : "—"}
+                              {row.aiBand
+                                ? <span className={`imp-badge imp-conf-${row.aiBand}`} title={row.aiSourceText ? `« ${row.aiSourceText} »${row.aiPage ? ` (p.${row.aiPage})` : ""}` : undefined}>
+                                    {row.aiBand === "high" ? "Concordante" : row.aiBand === "medium" ? "Écarts mineurs" : "Divergente"}
+                                  </span>
+                                : "—"}
                             </td>
                           )}
                           <td><input type="checkbox" checked={row.include} onChange={(event) => toggleInclude(row.index, event.target.checked)} /></td>
