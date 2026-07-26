@@ -114,12 +114,39 @@
 
 .cha-chip-todo { background: rgba(7, 45, 58, 0.06); color: var(--color-muted, var(--muted)); }
 
-/* Résumé compact du tableau de bord (secondaire : n'apparaît que si le parcours est incomplet). */
-.cha-dash-mini-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.cha-dash-mini-head h3 { font-family: var(--font-display-stack); font-size: 15px; font-weight: 600; }
-.cha-dash-mini-head span { color: var(--color-muted, var(--muted)); font-size: 11px; font-weight: 700; }
-.cha-dash-mini-bar { margin-top: 10px; height: 7px; }
-.cha-dash-mini-next { margin: 8px 0 0; color: var(--color-muted, var(--muted)); font-size: 12px; }
+/* ---- Carte « Mes défis » du tableau de bord ------------------------------------------------
+   Sur fond CLAIR (contrairement au hero de l'écran Défis) : la piste des barres est donc
+   redéfinie ici, sinon .cha-bar (piste blanche translucide, pensée pour le hero sombre) serait
+   invisible. Un seul point focal : le défi courant en haut, le parcours en dessous. */
+.cha-dash { display: flex; flex-direction: column; gap: 14px; }
+.cha-dash-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cha-dash .cha-bar { background: rgba(23, 50, 77, 0.08); margin-top: 10px; }
+
+.cha-dash-focus-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.cha-dash-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-muted, var(--muted)); }
+.cha-dash-kicker .nav-icon-svg { width: 14px; height: 14px; color: #b07d1e; }
+.cha-dash-title { display: block; margin-top: 8px; font-family: var(--font-display-stack); font-size: 19px; font-weight: 600; color: var(--color-text, var(--ink)); }
+.cha-dash-facts { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 4px; color: var(--color-muted, var(--muted)); font-size: 12.5px; font-weight: 600; }
+.cha-dash-reward { color: #b07d1e; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cha-dash-amount { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin-top: 12px; font-variant-numeric: tabular-nums; }
+.cha-dash-amount > strong { font-size: 20px; font-weight: 800; color: var(--color-text, var(--ink)); }
+.cha-dash-amount > em { font-style: normal; font-size: 13px; color: var(--color-muted, var(--muted)); }
+.cha-dash-pct { margin-left: auto; font-size: 13px; font-weight: 800; color: #b07d1e; }
+.cha-dash-hint { margin-top: 10px; color: var(--color-muted, var(--muted)); font-size: 13px; line-height: 1.45; }
+.cha-dash-cta { margin-top: 14px; min-height: 42px; padding: 0 18px; border: 0; border-radius: 12px; background: var(--teal, #1d706b); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; transition: 0.15s; }
+.cha-dash-cta:hover { filter: brightness(1.08); }
+.cha-dash-cta:focus-visible { outline: 3px solid var(--amber, #f3b649); outline-offset: 2px; }
+
+.cha-dash-sep { height: 1px; background: var(--color-border, var(--line)); }
+.cha-dash-steps { color: var(--color-muted, var(--muted)); font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cha-dash-next { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 12px; padding: 11px 13px; border: 1px solid var(--color-border, var(--line)); border-radius: 12px; background: var(--color-card-warm, #fcf9f4); color: var(--color-text, var(--ink)); font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; transition: 0.15s; }
+.cha-dash-next:hover { border-color: #d1972f; }
+.cha-dash-next:focus-visible { outline: 3px solid var(--amber, #f3b649); outline-offset: 2px; }
+.cha-dash-next-label { flex: 1 1 auto; min-width: 0; }
+.cha-dash-next > em { font-style: normal; flex: 0 0 auto; color: #b07d1e; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cha-dash-foot { display: flex; align-items: center; gap: 7px; color: var(--color-muted, var(--muted)); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cha-dash-foot .nav-icon-svg { width: 14px; height: 14px; color: #b07d1e; }
+.cha-dash-foot strong { color: var(--color-text, var(--ink)); font-weight: 800; }
 
 /* ---- Indicateurs (KPI compacts premium) ---------------------------------------------------- */
 .cha-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
@@ -235,6 +262,14 @@
   .cha-onboard-grid { grid-template-columns: 1fr; gap: 10px; }
   .cha-onboard-cta { width: 100%; min-height: 44px; }
   .cha-onboard-step-label { font-size: 11px; }
+
+  /* Carte « Mes défis » du tableau de bord : cibles tactiles pleine largeur, titres resserrés. */
+  .cha-dash-title { font-size: 17px; }
+  .cha-dash-amount > strong { font-size: 18px; }
+  .cha-dash-pct { margin-left: 0; }
+  .cha-dash-cta { width: 100%; min-height: 46px; }
+  .cha-dash-next { min-height: 48px; }
+  .cha-dash-steps { font-size: 11px; }
 
   .cha-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .cha-stat { padding: 14px; }

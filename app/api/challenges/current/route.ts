@@ -6,7 +6,10 @@ import { getCurrentForMember, isMissingChallengeTable } from "../../../../lib/ch
 // Réconcilie à l'ouverture (reconnaît les achats importés/antérieurs). Aucun montant d'autrui.
 export const runtime = "nodejs";
 
-function daysRemaining(endsOn: string): number {
+// null pour un défi PERMANENT (ends_on NULL) : il n'y a pas de compte à rebours. Le client doit
+// afficher « Sans échéance » plutôt que d'inventer un nombre de jours.
+function daysRemaining(endsOn: string | null): number | null {
+  if (!endsOn) return null;
   const end = new Date(`${endsOn}T00:00:00Z`).getTime();
   const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`).getTime();
   return Math.max(0, Math.round((end - today) / 86_400_000));

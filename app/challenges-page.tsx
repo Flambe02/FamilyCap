@@ -15,14 +15,16 @@ import { authenticatedFetch } from "./investment-shared";
 import "./challenges.css";
 
 type MemberState = "no_plan" | "no_account" | "ready_to_join" | "in_progress" | "completed" | "challenge_ended";
+// startsOn / endsOn / daysRemaining à null = défi PERMANENT (sans échéance) : on affiche « Sans
+// échéance », jamais une date ou un décompte inventé.
 type CurrentResp = {
   available: boolean; state: MemberState; hasPlan: boolean; hasTargetAccount: boolean; isParticipant: boolean;
-  challenge: { id: string; title: string; description: string | null; startsOn: string; endsOn: string; pointsReward: number; daysRemaining: number } | null;
+  challenge: { id: string; title: string; description: string | null; startsOn: string | null; endsOn: string | null; pointsReward: number; daysRemaining: number | null } | null;
   progress: { invested: number; targetAmount: number; pct: number; completed: boolean; status: string } | null;
 };
 type PointsResp = { available?: boolean; totalPoints: number; yearPoints: number; challengesCompleted: number; rank: number | null };
 type LeaderRow = { rank: number; memberId: string; name: string; photoUrl: string | null; points: number; challengesCompleted: number; isCurrentMember?: boolean };
-type HistoryItem = { id: string; title: string; startsOn: string; endsOn: string; status: string; pointsReward: number; joined: boolean; participantStatus: string | null; pointsEarned: number };
+type HistoryItem = { id: string; title: string; startsOn: string | null; endsOn: string | null; status: string; pointsReward: number; joined: boolean; participantStatus: string | null; pointsEarned: number };
 type OnboardingMissionDto = { slug: string; title: string; description: string; points: number; cta: string; view: View; status: "todo" | "done"; successMessage: string };
 type OnboardingResp = { available: boolean; missions: OnboardingMissionDto[]; completedCount: number; totalCount: number; earnedPoints: number; totalPoints: number; justCompleted: string[] };
 
@@ -42,7 +44,9 @@ function parseISODate(iso: string): Date {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y || 1970, (m || 1) - 1, d || 1);
 }
-function formatPeriod(startsOn: string, endsOn: string): string {
+const NO_DEADLINE = "Sans échéance";
+function formatPeriod(startsOn: string | null, endsOn: string | null): string {
+  if (!startsOn || !endsOn) return NO_DEADLINE;
   const start = parseISODate(startsOn);
   const end = parseISODate(endsOn);
   if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
@@ -50,8 +54,21 @@ function formatPeriod(startsOn: string, endsOn: string): string {
   }
   return `${dayMonthShort.format(start)} – ${dayMonthShort.format(end)}`;
 }
-function formatMonthYear(iso: string): string {
+function formatMonthYear(iso: string | null): string {
+  if (!iso) return "En continu";
   return capitalize(monthYear.format(parseISODate(iso)));
+}
+/**
+ * Clé de tri par date de début. Un défi PERMANENT (startsOn null) n'a pas de date : on le trie
+ * comme le plus récent, en miroir du `nullsfirst` côté serveur, pour qu'il reste en tête de liste.
+ */
+function startSortKey(item: { startsOn: string | null }): string {
+  return item.startsOn ?? "9999-12-31";
+}
+/** Compte à rebours lisible ; « Sans échéance » pour un défi permanent (daysRemaining null). */
+function formatDeadline(daysRemaining: number | null): string {
+  if (daysRemaining === null) return NO_DEADLINE;
+  return `${daysRemaining} jour${daysRemaining > 1 ? "s" : ""} restant${daysRemaining > 1 ? "s" : ""}`;
 }
 
 const STATE_META: Record<MemberState, { badge: string; badgeCls: string }> = {
@@ -228,12 +245,12 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boo
     const aActive = challenge && a.id === challenge.id ? 1 : 0;
     const bActive = challenge && b.id === challenge.id ? 1 : 0;
     if (aActive !== bActive) return bActive - aActive;
-    return b.startsOn.localeCompare(a.startsOn);
+    return startSortKey(b).localeCompare(startSortKey(a));
   });
   // « Historique récent » : uniquement les défis terminés (le membre a participé).
   const recentHistory = joined
     .filter((item) => item.participantStatus === "completed" || item.status === "completed" || item.status === "archived")
-    .sort((a, b) => b.startsOn.localeCompare(a.startsOn))
+    .sort((a, b) => startSortKey(b).localeCompare(startSortKey(a)))
     .slice(0, 6);
 
   const rulesPanel = showRules ? (
@@ -293,8 +310,10 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boo
             {challenge.description && <p className="cha-hero-desc">{challenge.description}</p>}
             <p className="cha-hero-facts">
               <span className="cha-hero-fact"><NavIcon id="calendar" /> {formatPeriod(challenge.startsOn, challenge.endsOn)}</span>
-              <span aria-hidden="true" className="cha-hero-dot">·</span>
-              <span className="cha-hero-fact">{challenge.daysRemaining} jour{challenge.daysRemaining > 1 ? "s" : ""} restant{challenge.daysRemaining > 1 ? "s" : ""}</span>
+              {challenge.daysRemaining !== null && <>
+                <span aria-hidden="true" className="cha-hero-dot">·</span>
+                <span className="cha-hero-fact">{formatDeadline(challenge.daysRemaining)}</span>
+              </>}
               <span className={`cha-badge ${meta.badgeCls}`}>{meta.badge}</span>
             </p>
 
@@ -516,42 +535,140 @@ function renderCta({ state, canAct, joining, onNavigate, onJoin }: { state: Memb
 }
 
 /**
- * Résumé compact du parcours « Bien démarrer », pour le tableau de bord uniquement. Ne s'affiche
- * QUE si le parcours existe et n'est pas encore terminé (masqué une fois les 4 missions acquises,
- * pour ne pas surcharger le tableau de bord) — la synthèse du défi mensuel reste prioritaire :
- * ce résumé n'apparaît qu'en complément, jamais à sa place.
+ * Le CTA du tableau de bord NAVIGUE, il ne mute jamais : rejoindre un défi reste une action de
+ * l'écran Défis (une seule implémentation de `join`, avec ses états d'erreur). On envoie donc le
+ * membre là où l'action est réellement possible, selon ce qui lui manque.
  */
-export function OnboardingDashboardCard({ navigate, asMemberId }: { navigate: (view: View) => void; asMemberId?: string }) {
-  const [data, setData] = useState<OnboardingResp | null>(null);
+function dashboardCta(state: MemberState): { label: string; view: View } | null {
+  if (state === "no_plan") return { label: "Configurer mon rythme →", view: "parametres" };
+  if (state === "no_account") return { label: "Choisir un compte →", view: "parametres" };
+  if (state === "ready_to_join") return { label: "Rejoindre le défi →", view: "investissements-suggestions" };
+  if (state === "in_progress") return { label: "Voir ma progression →", view: "investissements-suggestions" };
+  if (state === "completed") return { label: "Voir mes points →", view: "investissements-suggestions" };
+  return null;
+}
+
+/**
+ * Carte « Mes défis » du tableau de bord — point d'entrée unique de la gamification sur l'accueil.
+ *
+ * Priorité descendante, un seul point focal : (1) le défi COURANT s'il existe, avec sa progression
+ * réelle et l'action qui débloque la suite ; (2) le parcours permanent « Bien démarrer » tant qu'il
+ * n'est pas terminé ; (3) points et rang, uniquement s'ils existent vraiment.
+ *
+ * Si le membre n'a ni défi courant ni parcours en cours, la carte ne s'affiche PAS : jamais de
+ * bloc vide ni de chiffre fabriqué sur l'accueil (cf. règle « aucune donnée fictive »). Chaque
+ * valeur vient des routes /api/challenges/* — aucun calcul dupliqué ici.
+ */
+export function ChallengesDashboardCard({ navigate, asMemberId }: { navigate: (view: View) => void; asMemberId?: string }) {
+  const [current, setCurrent] = useState<CurrentResp | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingResp | null>(null);
+  const [points, setPoints] = useState<PointsResp | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    // Chaque bloc dégrade indépendamment : une route indisponible masque SA section, jamais la carte.
+    const read = async <T,>(url: string): Promise<T | null> => {
       try {
-        const response = await authenticatedFetch(withAsMember("/api/challenges/onboarding", asMemberId));
-        const body = await response.json() as OnboardingResp;
-        if (!cancelled) setData(body);
+        const response = await authenticatedFetch(withAsMember(url, asMemberId));
+        if (!response.ok) return null;
+        return await response.json() as T;
       } catch {
-        if (!cancelled) setData(null);
+        return null;
       }
+    };
+    void (async () => {
+      const [currentBody, onboardingBody, pointsBody] = await Promise.all([
+        read<CurrentResp>("/api/challenges/current"),
+        read<OnboardingResp>("/api/challenges/onboarding"),
+        read<PointsResp>("/api/challenges/points"),
+      ]);
+      if (cancelled) return;
+      setCurrent(currentBody);
+      setOnboarding(onboardingBody);
+      setPoints(pointsBody);
     })();
     return () => { cancelled = true; };
   }, [asMemberId]);
 
-  if (!data || !data.available || data.totalCount === 0 || data.completedCount >= data.totalCount) return null;
+  const challenge = current?.available === true ? current.challenge : null;
+  const state = current?.state ?? "challenge_ended";
+  const progress = current?.progress ?? null;
+  const showOnboarding = Boolean(onboarding?.available && onboarding.totalCount > 0 && onboarding.completedCount < onboarding.totalCount);
+  const showPoints = Boolean(points && points.available !== false && (points.totalPoints > 0 || points.rank !== null));
 
-  const pct = Math.round((data.completedCount / data.totalCount) * 100);
-  const next = data.missions.find((mission) => mission.status === "todo");
+  if (!challenge && !showOnboarding) return null;
+
+  const meta = STATE_META[state];
+  const cta = challenge ? dashboardCta(state) : null;
+  const nextMission = onboarding?.missions.find((mission) => mission.status === "todo") ?? null;
+  const onboardingPct = onboarding && onboarding.totalCount > 0
+    ? Math.round((onboarding.completedCount / onboarding.totalCount) * 100)
+    : 0;
 
   return (
-    <section className="panel home-card cha-dash-mini">
-      <header className="cha-dash-mini-head">
-        <h3>Bien démarrer</h3>
-        <span>{data.completedCount} étape{data.completedCount > 1 ? "s" : ""} sur {data.totalCount} terminée{data.completedCount > 1 ? "s" : ""}</span>
+    <section className="panel home-card cha-dash" aria-label="Mes défis">
+      <header className="cha-dash-head">
+        <h3 className="home-card-kicker">MES DÉFIS</h3>
+        <button type="button" className="home-card-link" onClick={() => navigate("investissements-suggestions")}>Voir les défis →</button>
       </header>
-      <div className="cha-bar cha-dash-mini-bar"><span style={{ width: `${pct}%` }} /></div>
-      {next && <p className="cha-dash-mini-next">Prochaine étape : {next.title}</p>}
-      {next && <button type="button" className="home-card-link" onClick={() => navigate(next.view)}>Continuer →</button>}
+
+      {challenge && (
+        <div className="cha-dash-focus">
+          <div className="cha-dash-focus-top">
+            <span className="cha-dash-kicker"><span aria-hidden="true"><NavIcon id="star" /></span> Défi du mois</span>
+            <span className={`cha-badge ${meta.badgeCls}`}>{meta.badge}</span>
+          </div>
+          <strong className="cha-dash-title">{challenge.title}</strong>
+          <p className="cha-dash-facts">
+            <span>{formatPeriod(challenge.startsOn, challenge.endsOn)}</span>
+            {challenge.daysRemaining !== null && <><span aria-hidden="true">·</span><span>{formatDeadline(challenge.daysRemaining)}</span></>}
+            <span aria-hidden="true">·</span>
+            <span className="cha-dash-reward">+{intFmt.format(challenge.pointsReward)} pts</span>
+          </p>
+
+          {progress ? (
+            <>
+              <p className="cha-dash-amount">
+                <strong>{euro0.format(progress.invested)}</strong>
+                <em>sur {euro0.format(progress.targetAmount)}</em>
+                <span className="cha-dash-pct">{Math.round(progress.pct)} %</span>
+              </p>
+              <div className="cha-bar"><span style={{ width: `${Math.max(0, Math.min(100, progress.pct))}%` }} /></div>
+            </>
+          ) : (
+            <p className="cha-dash-hint">{heroHint(state)}</p>
+          )}
+
+          {cta && <button type="button" className="cha-dash-cta" onClick={() => navigate(cta.view)}>{cta.label}</button>}
+        </div>
+      )}
+
+      {challenge && showOnboarding && <div className="cha-dash-sep" role="presentation" />}
+
+      {showOnboarding && onboarding && (
+        <div className="cha-dash-onboard">
+          <div className="cha-dash-focus-top">
+            <span className="cha-dash-kicker">Bien démarrer</span>
+            <span className="cha-dash-steps">{onboarding.completedCount} / {onboarding.totalCount} étapes · {intFmt.format(onboarding.earnedPoints)} / {intFmt.format(onboarding.totalPoints)} pts</span>
+          </div>
+          <div className="cha-bar cha-bar-sm"><span style={{ width: `${onboardingPct}%` }} /></div>
+          {nextMission && (
+            <button type="button" className="cha-dash-next" onClick={() => navigate(nextMission.view)}>
+              <span className="cha-dash-next-label">Prochaine étape · {nextMission.title}</span>
+              <em>+{intFmt.format(nextMission.points)} pts</em>
+              <span aria-hidden="true">→</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {showPoints && points && (
+        <p className="cha-dash-foot">
+          <span aria-hidden="true"><NavIcon id="star" /></span>
+          {intFmt.format(points.totalPoints)} point{points.totalPoints > 1 ? "s" : ""} au total
+          {points.rank !== null && <> · <strong>#{points.rank}</strong> en famille</>}
+        </p>
+      )}
     </section>
   );
 }

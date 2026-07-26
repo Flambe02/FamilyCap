@@ -7,6 +7,10 @@ import "./family.css";
 // bitcoin-investments.tsx garde son propre import (même module → un seul <link>), et les surcharges
 // pea/cto/lesson-pea-portfolio, chargées après, continuent de gagner.
 import "./bitcoin-investments.css";
+// Styles des Défis (.cha-*, tous préfixés → aucune fuite) : la carte « Mes défis » est rendue sur
+// le TABLEAU DE BORD, donc dès le premier écran. Sans cet import, elle s'afficherait brièvement
+// sans styles le temps que le chunk de l'écran Défis arrive.
+import "./challenges.css";
 
 export default function Home() {
   const version = process.env.NEXT_PUBLIC_APP_VERSION ?? "local";

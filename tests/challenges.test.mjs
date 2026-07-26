@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   isPurchaseEligible, computeChallengeProgress, completionKey, reversalKey, resolvePointsAction, buildLeaderboard,
   validateChallengeInput, canTransition, rankLeaderboard, compareLeaderboard, memberChallengeState,
+  effectiveWindowStart,
 } from "../lib/challenges.ts";
 
 const WINDOW = { startsOn: "2026-07-01", endsOn: "2026-07-31", eligibleInstrumentTypes: ["etf", "stock"] };
@@ -174,7 +175,66 @@ test("transitions de statut", () => {
   assert.equal(canTransition("active", "completed"), true);
   assert.equal(canTransition("completed", "archived"), true);
   assert.equal(canTransition("active", "draft"), false);
-  assert.equal(canTransition("archived", "active"), false);
+});
+
+test("un défi archivé ou terminé se réactive (désarchivage en place)", () => {
+  assert.equal(canTransition("archived", "active"), true);
+  assert.equal(canTransition("archived", "draft"), true); // rouvre l'édition du contenu
+  assert.equal(canTransition("archived", "scheduled"), true);
+  assert.equal(canTransition("completed", "active"), true);
+  // Un défi actif ne redevient jamais brouillon directement : il faut le terminer ou l'archiver.
+  assert.equal(canTransition("active", "scheduled"), false);
+});
+
+// ---- Défis SANS DATE (permanents) --------------------------------------------------------
+test("un défi sans aucune date est valide (permanent) et les dates ressortent à null", () => {
+  const result = validateChallengeInput({ title: "Mon cap continu", pointsReward: 300 });
+  assert.equal(result.ok, true);
+  assert.equal(result.value.startsOn, null);
+  assert.equal(result.value.endsOn, null);
+});
+
+test("des dates vides valent absence de date (permanent)", () => {
+  const result = validateChallengeInput({ title: "X", startsOn: "", endsOn: "" });
+  assert.equal(result.ok, true);
+  assert.equal(result.value.startsOn, null);
+});
+
+test("une seule des deux dates est refusée (période ambiguë)", () => {
+  assert.equal(validateChallengeInput({ title: "X", startsOn: "2026-07-01" }).ok, false);
+  assert.equal(validateChallengeInput({ title: "X", endsOn: "2026-07-31" }).ok, false);
+  assert.equal(validateChallengeInput({ title: "X", startsOn: "2026-07-01", endsOn: null }).ok, false);
+});
+
+test("une date mal formée est refusée", () => {
+  assert.equal(validateChallengeInput({ title: "X", startsOn: "01/07/2026", endsOn: "31/07/2026" }).ok, false);
+});
+
+test("fenêtre effective : date du défi si datée, date d'inscription si permanent", () => {
+  assert.equal(effectiveWindowStart("2026-07-01", "2026-07-20"), "2026-07-01");
+  assert.equal(effectiveWindowStart(null, "2026-07-20"), "2026-07-20");
+  assert.equal(effectiveWindowStart(null, null), null); // inconnu → l'appelant doit refuser
+});
+
+test("défi permanent : les achats ANTÉRIEURS à l'inscription ne comptent pas", () => {
+  const permanent = { startsOn: null, endsOn: null, eligibleInstrumentTypes: ["etf", "stock"] };
+  const joined = { memberId: "me", targetAccountId: "acc-1", joinedOn: "2026-07-15" };
+  assert.equal(isPurchaseEligible(op({ date: "2026-07-14" }), joined, permanent).eligible, false);
+  assert.equal(isPurchaseEligible(op({ date: "2026-07-15" }), joined, permanent).eligible, true); // borne incluse
+  assert.equal(isPurchaseEligible(op({ date: "2027-03-02" }), joined, permanent).eligible, true); // aucune échéance
+});
+
+test("défi permanent sans date d'inscription connue : achat refusé (fail-closed)", () => {
+  const permanent = { startsOn: null, endsOn: null, eligibleInstrumentTypes: ["etf", "stock"] };
+  const verdict = isPurchaseEligible(op({}), { memberId: "me", targetAccountId: "acc-1" }, permanent);
+  assert.equal(verdict.eligible, false);
+  assert.equal(verdict.reason, "no_join_date");
+});
+
+test("défi daté : la date d'inscription ne restreint PAS la période du défi", () => {
+  // Rejoindre en cours de mois n'annule pas les achats déjà faits dans la période annoncée.
+  const late = { memberId: "me", targetAccountId: "acc-1", joinedOn: "2026-07-28" };
+  assert.equal(isPurchaseEligible(op({ date: "2026-07-10" }), late, WINDOW).eligible, true);
 });
 
 // ---- Classement (ordre, départage, aucune donnée privée) ---------------------------------

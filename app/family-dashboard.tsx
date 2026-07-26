@@ -12,7 +12,7 @@ const Settings = dynamic(() => import("./settings").then((module) => module.Sett
 const AdminMemberSettings = dynamic(() => import("./settings-admin-member").then((module) => module.AdminMemberSettings));
 const AdminUsers = dynamic(() => import("./admin-users").then((module) => module.AdminUsers));
 const ChallengesPage = dynamic(() => import("./challenges-page").then((module) => module.ChallengesPage));
-const OnboardingDashboardCard = dynamic(() => import("./challenges-page").then((module) => module.OnboardingDashboardCard));
+const ChallengesDashboardCard = dynamic(() => import("./challenges-page").then((module) => module.ChallengesDashboardCard));
 const AdminChallenges = dynamic(() => import("./admin-challenges").then((module) => module.AdminChallenges));
 const BitcoinInvestmentPage = dynamic(() => import("./bitcoin-investments").then((module) => module.BitcoinInvestmentPage));
 const PeaInvestmentPage = dynamic(() => import("./pea-investments").then((module) => module.PeaInvestmentPage));
@@ -619,7 +619,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           </nav>
         )}
 
-        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} checklist={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null} onboardingCard={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingDashboardCard navigate={navigate} asMemberId={isPreview && viewer.role === "admin" ? previewMemberId ?? undefined : undefined} /> : null} />}
+        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} checklist={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null} challengesCard={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <ChallengesDashboardCard navigate={navigate} asMemberId={isPreview && viewer.role === "admin" ? previewMemberId ?? undefined : undefined} /> : null} />}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} onOpenTransactions={openFilteredTransactions} />}
         {view === "bitcoin" && (
@@ -860,7 +860,7 @@ function homeDonutGradient(assets: HomeAsset[]): string {
 // Seul le Bitcoin existe aujourd'hui (cadeaux réels + cours en direct) ; le PEA et le
 // compte-titres n'apparaissent que lorsque des comptes (public.financial_accounts) et des
 // positions (public.holdings) sont réellement saisis dans Supabase. Aucune donnée fictive.
-function Dashboard({ name, navigate, home, marketLoading, checklist, onboardingCard }: { name: string; navigate: (view: View) => void; home: HomeData; marketLoading: boolean; checklist?: ReactNode; onboardingCard?: ReactNode }) {
+function Dashboard({ name, navigate, home, marketLoading, checklist, challengesCard }: { name: string; navigate: (view: View) => void; home: HomeData; marketLoading: boolean; checklist?: ReactNode; challengesCard?: ReactNode }) {
   const valueLabel = home.valueEur !== null ? euro.format(home.valueEur) : marketLoading ? "Mise à jour…" : "Valeur indisponible";
   const donutLabel = home.repartition.map((asset) => `${asset.key} ${asset.pct.toFixed(0)} %`).join(", ");
   const showGain = home.gainEur !== null && home.gainPct !== null;
@@ -916,7 +916,7 @@ function Dashboard({ name, navigate, home, marketLoading, checklist, onboardingC
       </div>
 
       {checklist && <div className="home-row">{checklist}</div>}
-      {onboardingCard && <div className="home-row">{onboardingCard}</div>}
+      {challengesCard && <div className="home-row">{challengesCard}</div>}
 
       <div className="home-row home-row-split">
         <section className="panel home-card home-repartition">

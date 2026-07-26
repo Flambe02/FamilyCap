@@ -10,13 +10,13 @@ import { supabaseRest } from "./supabase-rest.ts";
 import { instrumentKey, priceKeyOf } from "./portfolio-account.ts";
 import {
   isPurchaseEligible, computeChallengeProgress, completionKey, reversalKey, resolvePointsAction, buildLeaderboard, memberChallengeState,
-  validateChallengeInput, canTransition, CHALLENGE_STATUSES,
+  validateChallengeInput, canTransition, CHALLENGE_STATUSES, effectiveWindowStart,
   type ParticipantStatus, type MemberChallengeState, type ChallengeStatus, type ChallengeInput, type LeaderboardBuildRow,
 } from "./challenges.ts";
 
 export type ChallengeRow = {
   id: string; title: string; description: string | null; challenge_type: string; status: string;
-  starts_on: string; ends_on: string; points_reward: number;
+  starts_on: string | null; ends_on: string | null; points_reward: number; // dates NULL = défi permanent
   eligible_account_types: string[]; eligible_instrument_types: string[];
   created_by: string | null; created_at: string; updated_at: string;
 };
@@ -61,11 +61,17 @@ const PARTICIPANT_SELECT = "id,challenge_id,member_id,target_account_id,target_a
 const MONTHLY_TYPE_FILTER = "&challenge_type=eq.monthly_investment";
 
 // ---- Lectures de base ---------------------------------------------------------------------
-/** Défi « courant » : actif et dont la période contient aujourd'hui (le plus récent). */
+/**
+ * Défi « courant » : actif et dont la période contient aujourd'hui (le plus récent).
+ * Un défi PERMANENT (starts_on/ends_on NULL) est toujours courant : une borne absente ne filtre
+ * rien. Sans ce traitement des NULL, un défi sans date serait invisible côté membre.
+ * `nullsfirst` : à statut égal, le défi permanent passe avant les défis datés.
+ */
 export async function getActiveChallenge(): Promise<ChallengeRow | null> {
   const today = todayISO();
+  const period = `and=(or(starts_on.is.null,starts_on.lte.${today}),or(ends_on.is.null,ends_on.gte.${today}))`;
   const rows = await supabaseRest<ChallengeRow[]>(
-    `challenges?select=${CHALLENGE_SELECT}&status=eq.active&starts_on=lte.${today}&ends_on=gte.${today}${MONTHLY_TYPE_FILTER}&order=starts_on.desc&limit=1`,
+    `challenges?select=${CHALLENGE_SELECT}&status=eq.active&${period}${MONTHLY_TYPE_FILTER}&order=starts_on.desc.nullsfirst&limit=1`,
   );
   return rows[0] ?? null;
 }
@@ -77,7 +83,7 @@ export async function getChallengeById(id: string): Promise<ChallengeRow | null>
 
 /** Défis mensuels visibles par un membre (non-brouillon). */
 export async function listVisibleChallenges(): Promise<ChallengeRow[]> {
-  return supabaseRest<ChallengeRow[]>(`challenges?select=${CHALLENGE_SELECT}&status=neq.draft${MONTHLY_TYPE_FILTER}&order=starts_on.desc&limit=50`);
+  return supabaseRest<ChallengeRow[]>(`challenges?select=${CHALLENGE_SELECT}&status=neq.draft${MONTHLY_TYPE_FILTER}&order=starts_on.desc.nullsfirst&limit=50`);
 }
 
 export async function getParticipant(challengeId: string, memberId: string): Promise<ParticipantRow | null> {
@@ -155,13 +161,19 @@ export async function reconcileParticipant(participant: ParticipantRow, challeng
   const targetAccountId = participant.target_account_id;
 
   // 1) Achats candidats sur le compte cible, dans la période. Sans compte cible → rien à lier.
+  // La fenêtre vient de effectiveWindowStart (source unique) : date de début du défi, ou date
+  // d'inscription pour un défi permanent. Sans borne basse calculable, on ne charge rien plutôt
+  // que de balayer tout l'historique du compte (le moteur pur refuserait de toute façon : fail-closed).
   const eligibleInstrumentTypes = challenge.eligible_instrument_types?.length ? challenge.eligible_instrument_types : ["etf", "stock"];
+  const joinedOn = participant.joined_at ? participant.joined_at.slice(0, 10) : null;
+  const windowStart = effectiveWindowStart(challenge.starts_on, joinedOn);
   let operations: OperationRow[] = [];
   let holdings: HoldingRow[] = [];
-  if (targetAccountId) {
+  if (targetAccountId && windowStart) {
+    const upperBound = challenge.ends_on ? `&operation_date=lte.${challenge.ends_on}` : "";
     [operations, holdings] = await Promise.all([
       supabaseRest<OperationRow[]>(
-        `account_operations?select=id,account_id,member_id,type,operation_date,asset_name,ticker,isin,quantity,unit_price,gross_amount,fees,net_amount&account_id=eq.${encodeURIComponent(targetAccountId)}&type=eq.achat&operation_date=gte.${challenge.starts_on}&operation_date=lte.${challenge.ends_on}`,
+        `account_operations?select=id,account_id,member_id,type,operation_date,asset_name,ticker,isin,quantity,unit_price,gross_amount,fees,net_amount&account_id=eq.${encodeURIComponent(targetAccountId)}&type=eq.achat&operation_date=gte.${windowStart}${upperBound}`,
       ),
       supabaseRest<HoldingRow[]>(`holdings?select=asset_type,name,symbol,isin&account_id=eq.${encodeURIComponent(targetAccountId)}`),
     ]);
@@ -174,7 +186,7 @@ export async function reconcileParticipant(participant: ParticipantRow, challeng
   const linkedIds = new Set(existingLinks.map((link) => link.operation_id));
 
   // 3) Nouveaux achats éligibles → insertion des liens (idempotent via unique(challenge,operation)).
-  const scope = { memberId: participant.member_id, targetAccountId };
+  const scope = { memberId: participant.member_id, targetAccountId, joinedOn };
   const window = { startsOn: challenge.starts_on, endsOn: challenge.ends_on, eligibleInstrumentTypes };
   let lastEligibleDate: string | null = null;
   let skippedUnknownInstrument = 0;
@@ -319,7 +331,7 @@ export async function getCurrentForMember(memberId: string): Promise<CurrentForM
 
 // ---- Historique des défis du membre (écran « Défis ») ------------------------------------
 export type MemberChallengeSummary = {
-  id: string; title: string; startsOn: string; endsOn: string; status: string; pointsReward: number;
+  id: string; title: string; startsOn: string | null; endsOn: string | null; status: string; pointsReward: number;
   joined: boolean; participantStatus: ParticipantStatus | null; pointsEarned: number;
 };
 
@@ -443,7 +455,7 @@ export type AdminChallengeRow = ChallengeRow & { participants: number; completed
 
 export async function listChallengesForAdmin(): Promise<AdminChallengeRow[]> {
   const [challenges, participants, ledger] = await Promise.all([
-    supabaseRest<ChallengeRow[]>(`challenges?select=${CHALLENGE_SELECT}${MONTHLY_TYPE_FILTER}&order=starts_on.desc&limit=100`),
+    supabaseRest<ChallengeRow[]>(`challenges?select=${CHALLENGE_SELECT}${MONTHLY_TYPE_FILTER}&order=starts_on.desc.nullsfirst&limit=100`),
     supabaseRest<Array<{ challenge_id: string; status: ParticipantStatus }>>("challenge_participants?select=challenge_id,status"),
     supabaseRest<Array<{ challenge_id: string | null; points: number }>>("points_ledger?select=challenge_id,points"),
   ]);

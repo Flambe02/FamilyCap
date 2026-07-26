@@ -75,6 +75,11 @@
 .ach-field > span { font-size: 12px; font-weight: 700; color: var(--muted); }
 .ach-field input { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 14px; }
 .ach-field-wide { grid-column: 1 / -1; }
+/* Case « Défi permanent » : ligne horizontale (case + libellé), contrairement aux champs empilés. */
+.ach-field-check { flex-direction: row; align-items: center; gap: 9px; }
+.ach-field-check input { width: 16px; height: 16px; padding: 0; flex: 0 0 auto; }
+.ach-field-check > span { font-size: 13px; font-weight: 700; color: var(--ink); }
+.ach-field input:disabled { background: #f4f7f6; color: var(--muted); cursor: not-allowed; }
 .ach-checks { display: flex; gap: 18px; flex-wrap: wrap; }
 .ach-checks label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
 .ach-modal-actions { display: flex; justify-content: flex-end; gap: 12px; padding-top: 8px; }

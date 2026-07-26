@@ -26,15 +26,31 @@ function round2(value: number): number {
 
 // ---- Éligibilité d'un achat ---------------------------------------------------------------
 export type ChallengeWindow = {
-  startsOn: string; // YYYY-MM-DD (inclus)
-  endsOn: string; // YYYY-MM-DD (inclus)
+  startsOn: string | null; // YYYY-MM-DD (inclus) ; null = défi permanent, cf. effectiveWindowStart
+  endsOn: string | null; // YYYY-MM-DD (inclus) ; null = défi sans échéance
   eligibleInstrumentTypes: string[]; // ex. ['etf','stock'] (holdings.asset_type)
 };
 
 export type ParticipantScope = {
   memberId: string;
   targetAccountId: string | null;
+  joinedOn?: string | null; // YYYY-MM-DD ; date d'inscription (challenge_participants.joined_at)
 };
+
+/**
+ * Borne basse RÉELLE de la fenêtre d'éligibilité, source de vérité unique partagée par le moteur
+ * pur et par la requête serveur (challenges-service).
+ *
+ * Défi daté : sa date de début. Défi PERMANENT (sans date) : la date d'inscription du participant
+ * — c'est déjà l'instant où son objectif est figé (target_amount_snapshot). Compter les achats
+ * ANTÉRIEURS à l'inscription offrirait les points sans aucun effort ; la fenêtre reste donc
+ * personnelle et commence à l'engagement. Renvoie null si la date d'inscription est inconnue :
+ * l'appelant doit alors refuser l'achat (fail-closed), jamais l'accepter sans borne.
+ */
+export function effectiveWindowStart(challengeStartsOn: string | null, joinedOn: string | null | undefined): string | null {
+  if (challengeStartsOn && ISO_DATE.test(challengeStartsOn)) return challengeStartsOn;
+  return joinedOn && ISO_DATE.test(joinedOn) ? joinedOn : null;
+}
 
 export type CandidateOperation = {
   memberId?: string | null;
@@ -50,9 +66,12 @@ export type CandidateOperation = {
 
 export type EligibilityResult = { eligible: boolean; amount: number; reason?: string };
 
-function withinPeriod(date: string, startsOn: string, endsOn: string): boolean {
+function withinPeriod(date: string, startsOn: string, endsOn: string | null): boolean {
   // Comparaison lexicographique valide pour des dates ISO (YYYY-MM-DD), bornes incluses.
-  return ISO_DATE.test(date) && date >= startsOn && date <= endsOn;
+  // endsOn null = défi sans échéance : aucune borne haute (un achat futur reste refusé plus loin
+  // par les règles d'écriture, jamais ici).
+  if (!ISO_DATE.test(date) || date < startsOn) return false;
+  return endsOn === null || date <= endsOn;
 }
 
 /**
@@ -62,13 +81,18 @@ function withinPeriod(date: string, startsOn: string, endsOn: string): boolean {
  * pas être identifié à partir du référentiel `holdings` de l'opération, l'achat est NON éligible
  * (`instrument_unknown`) — on ne devine jamais une classification. Le montant est le montant
  * réellement déboursé (net = brut + frais).
+ *
+ * Défi PERMANENT (sans date) : la borne basse est la date d'inscription du participant. Sans
+ * date d'inscription connue, l'achat est refusé (`no_join_date`) — jamais accepté sans borne.
  */
 export function isPurchaseEligible(op: CandidateOperation, participant: ParticipantScope, challenge: ChallengeWindow): EligibilityResult {
   if (op.type !== "achat") return { eligible: false, amount: 0, reason: "type" };
   if (!participant.targetAccountId) return { eligible: false, amount: 0, reason: "no_target_account" };
   if (op.accountId !== participant.targetAccountId) return { eligible: false, amount: 0, reason: "account" };
   if (op.memberId != null && op.memberId !== participant.memberId) return { eligible: false, amount: 0, reason: "member" };
-  if (!withinPeriod(op.date, challenge.startsOn, challenge.endsOn)) return { eligible: false, amount: 0, reason: "period" };
+  const windowStart = effectiveWindowStart(challenge.startsOn, participant.joinedOn);
+  if (!windowStart) return { eligible: false, amount: 0, reason: "no_join_date" };
+  if (!withinPeriod(op.date, windowStart, challenge.endsOn)) return { eligible: false, amount: 0, reason: "period" };
   if (challenge.eligibleInstrumentTypes.length > 0) {
     const assetType = op.assetType ? op.assetType.toLowerCase().trim() : null;
     if (!assetType) return { eligible: false, amount: 0, reason: "instrument_unknown" };
@@ -170,7 +194,7 @@ export const ELIGIBLE_INSTRUMENT_TYPES = ["etf", "stock", "fund", "bond"] as con
 
 export type ChallengeInput = {
   title?: string; description?: string | null;
-  startsOn?: string; endsOn?: string;
+  startsOn?: string | null; endsOn?: string | null; // null / "" = défi permanent (les deux ensemble)
   pointsReward?: number | string | null;
   eligibleAccountTypes?: string[] | null;
   eligibleInstrumentTypes?: string[] | null;
@@ -178,7 +202,7 @@ export type ChallengeInput = {
 };
 
 export type ValidatedChallenge = {
-  title: string; description: string | null; startsOn: string; endsOn: string; pointsReward: number;
+  title: string; description: string | null; startsOn: string | null; endsOn: string | null; pointsReward: number;
   eligibleAccountTypes: string[]; eligibleInstrumentTypes: string[]; challengeType: "monthly_investment";
 };
 
@@ -186,9 +210,18 @@ export function validateChallengeInput(input: ChallengeInput): { ok: true; value
   const title = (input.title ?? "").trim();
   if (!title) return { ok: false, error: "Le titre est obligatoire." };
   if ((input.challengeType ?? "monthly_investment") !== "monthly_investment") return { ok: false, error: "Type de défi non supporté dans cette phase." };
-  if (!input.startsOn || !ISO_DATE.test(input.startsOn)) return { ok: false, error: "La date de début (AAAA-MM-JJ) est obligatoire." };
-  if (!input.endsOn || !ISO_DATE.test(input.endsOn)) return { ok: false, error: "La date de fin (AAAA-MM-JJ) est obligatoire." };
-  if (input.endsOn < input.startsOn) return { ok: false, error: "La date de fin doit être postérieure ou égale à la date de début." };
+
+  // Période FACULTATIVE : les deux dates ou aucune. Aucune date = défi permanent, sans échéance ;
+  // la fenêtre d'éligibilité de chaque membre démarre alors à son inscription (effectiveWindowStart).
+  // Une seule des deux dates rendrait la période ambiguë (début sans fin, ou fin sans début) : refusé.
+  const startsOn = (input.startsOn ?? "").trim() || null;
+  const endsOn = (input.endsOn ?? "").trim() || null;
+  if (startsOn && !ISO_DATE.test(startsOn)) return { ok: false, error: "La date de début doit être au format AAAA-MM-JJ." };
+  if (endsOn && !ISO_DATE.test(endsOn)) return { ok: false, error: "La date de fin doit être au format AAAA-MM-JJ." };
+  if (Boolean(startsOn) !== Boolean(endsOn)) {
+    return { ok: false, error: "Renseignez les deux dates, ou laissez-les vides pour un défi permanent." };
+  }
+  if (startsOn && endsOn && endsOn < startsOn) return { ok: false, error: "La date de fin doit être postérieure ou égale à la date de début." };
 
   const points = Math.round(Number(input.pointsReward ?? 300));
   if (!Number.isInteger(points) || points < 1 || points > 1000) return { ok: false, error: "Les points doivent être un entier entre 1 et 1000." };
@@ -200,7 +233,7 @@ export function validateChallengeInput(input: ChallengeInput): { ok: true; value
 
   return {
     ok: true,
-    value: { title, description: (input.description ?? "").trim() || null, startsOn: input.startsOn, endsOn: input.endsOn, pointsReward: points, eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes, challengeType: "monthly_investment" },
+    value: { title, description: (input.description ?? "").trim() || null, startsOn, endsOn, pointsReward: points, eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes, challengeType: "monthly_investment" },
   };
 }
 
@@ -210,12 +243,18 @@ function normalizeList(value: string[] | null | undefined, allowed: readonly str
 }
 
 // ---- Transitions de statut (admin), PURE --------------------------------------------------
+// `archived` et `completed` sont RÉVERSIBLES : un défi rangé par erreur (ou dont la période court
+// encore) se réactive en place, en conservant son identité, ses participants, ses liens d'achats et
+// ses points déjà attribués — plutôt que d'imposer un doublon. Le retour en `draft` est la porte
+// d'entrée de l'édition du contenu (règle inchangée : on ne modifie titre/dates/points qu'en
+// brouillon ou programmé). L'unicité « un seul défi mensuel actif » reste garantie par l'index
+// challenges_single_active_idx : réactiver alors qu'un autre défi mensuel est actif échoue en base.
 const STATUS_TRANSITIONS: Record<ChallengeStatus, ChallengeStatus[]> = {
   draft: ["scheduled", "active", "archived"],
   scheduled: ["active", "draft", "archived"],
   active: ["completed", "archived"],
-  completed: ["archived"],
-  archived: [],
+  completed: ["archived", "active"],
+  archived: ["draft", "scheduled", "active"],
 };
 
 export function canTransition(from: ChallengeStatus, to: ChallengeStatus): boolean {
