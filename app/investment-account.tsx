@@ -8,7 +8,7 @@
 // impact du change), 3e carte de répartition (géographique vs devise), vue agrégée multi-compte,
 // colonnes du tableau de positions, cartes « Investir », champs de la modale, FAQ, états vides.
 
-import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { Viewer } from "../lib/auth-types";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { authenticatedFetch, OP_LABEL, OP_ICON, OP_INFLOW } from "./investment-shared";
@@ -437,9 +437,6 @@ export function InvestmentAccountShell({
             <PositionsTab model={model!} canManage={canManage}
               canRefreshPrices={canManage && selectedAccount !== null} pricesBusy={pricesBusy} onRefreshPrices={refreshPrices}
               priceReport={priceReport} onDismissPriceReport={() => setPriceReport(null)}
-              operationsOfPosition={operationsOfPosition}
-              onEditOperation={setEditingOp}
-              onAddOperation={canManage ? () => setModal({ open: true, type: "achat", mode: "admin" }) : undefined}
               onOpenPosition={setDetailPosition} />
           )}
           {tab === "historique" && (
@@ -512,6 +509,9 @@ export function InvestmentAccountShell({
           operations={operationsOfPosition(detailPosition.key)}
           canManage={canManage}
           onClassified={onReload}
+          onViewOperations={() => { setDetailPosition(null); setTab("historique"); }}
+          onAddRelated={canManage ? () => { setDetailPosition(null); setModal({ open: true, type: "achat", mode: "admin" }); } : undefined}
+          onViewDividends={() => { setDetailPosition(null); setTab("revenus"); }}
           onClose={() => setDetailPosition(null)}
         />
       )}
@@ -769,25 +769,26 @@ function priceAge(lastPriceAt: string | null): string | null {
   if (days === 1) return "hier";
   return `il y a ${days} j`;
 }
-function quoteStatus(position: PortfolioPosition): string {
-  if (position.lastPrice === null) return "Indisponible";
-  if (position.quoteMode === "manual") return "Cours manuel";
-  if (position.quoteMode === "eod") return `Dernière clôture${position.lastPriceAt ? ` · ${dayOf(position.lastPriceAt)}` : ""}`;
-  if (position.quoteMode === "delayed" && position.dataDelayMinutes !== null) return `Donnée différée de ${position.dataDelayMinutes} min`;
-  if (position.quoteMode === "realtime") return "Temps réel";
-  return position.lastPriceAt ? `Cours au ${dayOf(position.lastPriceAt)}` : "Cours disponible";
+function shortQuoteDate(lastPriceAt: string | null): string | null {
+  if (!lastPriceAt) return null;
+  const date = new Date(lastPriceAt);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(date).replace(/\.$/, "");
+}
+
+function isQuoteStale(position: PortfolioPosition): boolean {
+  if (!position.lastPriceAt || position.lastPrice === null || position.quoteMode === "manual") return false;
+  const stamp = new Date(position.lastPriceAt).getTime();
+  return Number.isFinite(stamp) && Date.now() - stamp > 2 * 86_400_000;
 }
 
 function PositionsTab({
   model, canManage, canRefreshPrices, pricesBusy, onRefreshPrices, priceReport, onDismissPriceReport,
-  operationsOfPosition, onEditOperation, onAddOperation, onOpenPosition,
+  onOpenPosition,
 }: {
   model: AccountModel; canManage: boolean;
   canRefreshPrices: boolean; pricesBusy: boolean; onRefreshPrices: () => void;
   priceReport: PriceRefreshReport | null; onDismissPriceReport: () => void;
-  operationsOfPosition: (key: string) => InvestmentOperation[];
-  onEditOperation: (op: InvestmentOperation) => void;
-  onAddOperation?: () => void;
   onOpenPosition: (position: PortfolioPosition) => void;
 }) {
   const [search, setSearch] = useState("");
@@ -795,8 +796,7 @@ function PositionsTab({
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
   const [sort, setSort] = useState<"value" | "gain" | "gainPct" | "weight" | "name" | "type">("value");
-  // Position dont on déplie les lignes (opérations) pour les modifier une à une.
-  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(15);
 
   const accountOptions = useMemo(() => [...new Set(model.positions.flatMap((position) => position.accounts))].sort(), [model.positions]);
   const currencyOptions = useMemo(() => [...new Set(model.positions.map((position) => position.currency))].sort(), [model.positions]);
@@ -819,34 +819,39 @@ function PositionsTab({
     if (sort === "weight") return b.weightPct - a.weightPct;
     return (b.currentValueEur ?? -Infinity) - (a.currentValueEur ?? -Infinity);
   });
+  const visiblePositions = filtered.slice(0, visibleCount);
+  const quoteDates = model.positions.map((position) => position.lastPriceAt).filter((date): date is string => Boolean(date));
+  const latestQuoteAt = quoteDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+  const hasActiveFilters = Boolean(search || typeFilter !== "all" || currencyFilter !== "all" || accountFilter !== "all" || sort !== "value");
+  const resetFilters = () => {
+    setSearch(""); setTypeFilter("all"); setCurrencyFilter("all"); setAccountFilter("all"); setSort("value"); setVisibleCount(15);
+  };
 
   return (
-    <section className="panel table-panel btc-table-card">
+    <section className="panel table-panel btc-table-card inv-positions-panel">
       <div className="inv-positions-head">
         <div><h2>Positions</h2><p className="inv-positions-subtitle">Composition actuelle calculée à partir des opérations</p></div>
-        {canManage && (
-          <div className="inv-actions">
-            {canRefreshPrices && (
-              <button type="button" className="secondary-button inv-import-btn" disabled={pricesBusy} onClick={onRefreshPrices}
-                title="Met à jour les dernières clôtures EODHD, avec cache quotidien et sans exposer la clé fournisseur.">
-                {pricesBusy ? "Mise à jour des cours…" : "↻ Actualiser les cours"}
-              </button>
-            )}
-            {onAddOperation && <button type="button" className="primary-button inv-import-btn" onClick={onAddOperation}>+ Enregistrer une opération</button>}
-          </div>
-        )}
+        <div className="inv-quote-actions">
+          <span className="inv-quote-asof">{latestQuoteAt ? `Cours au ${dayOf(latestQuoteAt)}` : "Cours indisponibles"}</span>
+          {canManage && canRefreshPrices && (
+            <button type="button" className="inv-refresh-button" disabled={pricesBusy} onClick={onRefreshPrices}
+              title="Met à jour les dernières clôtures EODHD, avec cache quotidien et sans exposer la clé fournisseur.">
+              {pricesBusy ? "Actualisation…" : "Actualiser"}
+            </button>
+          )}
+        </div>
         {model.positions.length > 0 && (
           <div className="inv-filters">
-            <label><span className="sr-only">Rechercher une position</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher…" /></label>
+            <label className="inv-filter-search"><span className="sr-only">Rechercher une position</span><input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setVisibleCount(15); }} placeholder="Rechercher un actif, un ticker ou un ISIN" /></label>
             <label><span className="sr-only">Filtrer par type</span>
-              <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+              <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setVisibleCount(15); }}>
                 <option value="all">Tous les types</option>
                 {Object.entries(ASSET_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
             {currencyOptions.length > 1 && (
               <label><span className="sr-only">Filtrer par devise</span>
-                <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)}>
+                <select value={currencyFilter} onChange={(event) => { setCurrencyFilter(event.target.value); setVisibleCount(15); }}>
                   <option value="all">Toutes devises</option>
                   {currencyOptions.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                 </select>
@@ -854,13 +859,14 @@ function PositionsTab({
             )}
             {accountOptions.length > 1 && (
               <label><span className="sr-only">Filtrer par compte</span>
-                <select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}>
+                <select value={accountFilter} onChange={(event) => { setAccountFilter(event.target.value); setVisibleCount(15); }}>
                   <option value="all">Tous les comptes</option>
                   {accountOptions.map((account) => <option key={account} value={account}>{account}</option>)}
                 </select>
               </label>
             )}
-            <label><span className="sr-only">Trier les positions</span><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="value">Valeur décroissante</option><option value="gain">Performance (€)</option><option value="gainPct">Performance (%)</option><option value="weight">Poids</option><option value="name">Nom</option><option value="type">Type</option></select></label>
+            <label><span className="sr-only">Trier les positions</span><select value={sort} onChange={(event) => { setSort(event.target.value as typeof sort); setVisibleCount(15); }}><option value="value">Valeur décroissante</option><option value="gain">Performance (€)</option><option value="gainPct">Performance (%)</option><option value="weight">Poids</option><option value="name">Nom</option><option value="type">Type</option></select></label>
+            {hasActiveFilters && <button type="button" className="inv-reset-filters" onClick={resetFilters}>Réinitialiser</button>}
           </div>
         )}
       </div>
@@ -884,22 +890,18 @@ function PositionsTab({
           <table className="btc-table inv-table">
             <thead><tr><th>Actif</th><th>Type</th><th className="num">Quantité</th><th className="num">PRU</th><th className="num">Cours</th><th className="num">Valeur</th><th className="num">Performance</th><th className="num">Poids</th><th>Action</th></tr></thead>
             <tbody>
-              {filtered.map((position) => {
-                const lines = canManage && openKey === position.key ? operationsOfPosition(position.key) : [];
-                const age = priceAge(position.lastPriceAt);
+              {visiblePositions.map((position) => {
+                const quoteDate = shortQuoteDate(position.lastPriceAt);
+                const stale = isQuoteStale(position);
                 return (
-                <Fragment key={position.key}>
-                <tr>
+                <tr key={position.key}>
                   <td data-label="Actif" className="inv-asset-cell">
                     {/* Le nom entier ouvre la fiche de l'actif : identité, ma position, marché. */}
                     <button type="button" className="inv-asset-btn" onClick={() => onOpenPosition(position)}
                       title={`Voir la fiche de ${position.name}`}>
                       <span className="inv-asset-name">{position.name}</span>
                       <span className="inv-asset-meta">
-                        {position.ticker && <span className="inv-tag inv-tag-ticker">{position.ticker}</span>}
-                        {position.exchange && <span>{position.exchange}</span>}
-                        {position.isin && <span className="inv-tag inv-tag-isin">{position.isin}</span>}
-                        {position.currency !== "EUR" && <span className="inv-tag inv-tag-ccy">{position.currency}</span>}
+                        {[position.ticker, position.exchange, position.isin].filter(Boolean).join(" · ") || position.currency}
                       </span>
                     </button>
                   </td>
@@ -907,44 +909,21 @@ function PositionsTab({
                   <td data-label="Quantité" className="num">{qty.format(position.quantity)}</td>
                   <td data-label="PRU" className="num">{position.averageCost === null ? "—" : money(position.averageCost, position.currency)}</td>
                   <td data-label="Cours" className="num">
-                    {position.lastPrice === null ? <span className="inv-muted">Indisponible</span> : money(position.lastPrice, position.currency)}
-                    <br /><small className="inv-muted">{quoteStatus(position)}{age && position.quoteMode === null ? ` · ${age}` : ""}</small>
+                    {position.lastPrice === null ? <span className="inv-quote-unavailable">Indisponible</span> : <><span>{money(position.lastPrice, position.currency)}</span><small className={`inv-quote-date${stale ? " is-stale" : ""}`} title={stale ? "Cours possiblement périmé" : undefined}>{quoteDate ?? "Date indisponible"}</small></>}
                   </td>
                   <td data-label="Valeur" className="num">{position.currentValueEur === null ? "Indisponible" : money(position.currentValueEur, position.referenceCurrency)}</td>
-                  <td data-label="Performance" className="num">{position.gainEur === null ? "—" : <span className={position.gainEur >= 0 ? "up" : "down"}>{position.gainEur >= 0 ? "+" : "−"}{money(Math.abs(position.gainEur), position.referenceCurrency)}{position.gainPct === null ? "" : <><br /><small>{position.gainPct >= 0 ? "+" : ""}{position.gainPct.toFixed(1)} %</small></>}</span>}</td>
+                  <td data-label="Performance" className="num">{position.gainEur === null ? "—" : <span className={position.gainEur === 0 ? "" : position.gainEur > 0 ? "up" : "down"}>{position.gainEur === 0 ? money(0, position.referenceCurrency) : `${position.gainEur > 0 ? "+" : "−"}${money(Math.abs(position.gainEur), position.referenceCurrency)}`}{position.gainPct === null ? "" : <small>{position.gainPct === 0 ? "0,0 %" : `${position.gainPct > 0 ? "+" : ""}${position.gainPct.toFixed(1)} %`}</small>}</span>}</td>
                   <td data-label="Poids" className="num">{position.currentValueEur === null ? "—" : <><span>{position.weightPct.toFixed(1)} %</span><span className="inv-weight-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, position.weightPct)}%` }} /></span></>}</td>
-                  <td data-label="Action"><div className="inv-row-actions"><button type="button" className="inv-icon-btn" onClick={() => onOpenPosition(position)}>Détail</button>{canManage && <button type="button" className="inv-icon-btn" aria-expanded={openKey === position.key} onClick={() => setOpenKey(openKey === position.key ? null : position.key)}>{openKey === position.key ? "Masquer" : "Voir les opérations"}</button>}</div></td>
+                  <td data-label="Action"><div className="inv-row-actions"><button type="button" className="inv-view-button" onClick={() => onOpenPosition(position)}>Voir</button></div></td>
                 </tr>
-                {lines.length > 0 && (
-                  <tr className="inv-lines-row">
-                    <td colSpan={9}>
-                      <div className="inv-lines">
-                        <p className="inv-lines-head">
-                          {lines.length} opération(s) sur <b>{position.name}</b>. La quantité et le prix de revient en découlent&nbsp;: corrigez une ligne, le portefeuille se recalcule.
-                        </p>
-                        <ul>
-                          {lines.map((op) => (
-                            <li key={op.id}>
-                              <span className="inv-line-date">{dateOf(op.date)}</span>
-                              <span className="inv-line-type">{OP_ICON[op.type]} {OP_LABEL[op.type]}</span>
-                              <span className="inv-line-qty">{op.quantity ? `${qty.format(op.quantity)} × ${op.unitPrice ? euro.format(op.unitPrice) : "—"}` : "—"}</span>
-                              <span className="inv-line-amount">{op.netAmount === null || op.netAmount === undefined ? "—" : euro.format(Math.abs(op.netAmount))}</span>
-                              <span className="inv-line-actions">
-                                <button type="button" className="inv-icon-btn" onClick={() => onEditOperation(op)} title="Modifier cette opération">✏️ Modifier</button>
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
+      )}
+      {filtered.length > visiblePositions.length && (
+        <div className="inv-show-more"><button type="button" className="secondary-button" onClick={() => setVisibleCount((count) => count + 15)}>Afficher plus ({filtered.length - visiblePositions.length})</button></div>
       )}
       {model.unpricedPositions > 0 && (
         <p className="btc-chart-source">
@@ -1029,8 +1008,9 @@ type MarketState =
   | { status: "ok"; instrument: InstrumentSnapshot; currencyMismatch: boolean }
   | { status: "error"; message: string };
 
-function PositionDetailModal({ position, envLabel, operations, canManage, onClassified, onClose }: {
-  position: PortfolioPosition; envLabel: string; operations: InvestmentOperation[]; canManage: boolean; onClassified: () => void; onClose: () => void;
+function PositionDetailModal({ position, envLabel, operations, canManage, onClassified, onViewOperations, onAddRelated, onViewDividends, onClose }: {
+  position: PortfolioPosition; envLabel: string; operations: InvestmentOperation[]; canManage: boolean; onClassified: () => void;
+  onViewOperations: () => void; onAddRelated?: () => void; onViewDividends: () => void; onClose: () => void;
 }) {
   const dialogRef = useDialogA11y(true, onClose);
   const [market, setMarket] = useState<MarketState>({ status: "loading" });
@@ -1107,6 +1087,11 @@ function PositionDetailModal({ position, envLabel, operations, canManage, onClas
               {firstDate ? ` · depuis le ${dateOf(firstDate)}` : ""}.
               La quantité et le prix de revient sont <b>dérivés de ces opérations</b>, jamais saisis directement.
             </p>
+            <div className="inv-detail-actions" aria-label="Actions pour cette position">
+              <button type="button" className="secondary-button" onClick={onViewOperations}>Voir les opérations</button>
+              {onAddRelated && <button type="button" className="secondary-button" onClick={onAddRelated}>Ajouter une opération liée</button>}
+              <button type="button" className="secondary-button" onClick={onViewDividends}>Voir les dividendes</button>
+            </div>
           </section>
 
           {canManage && position.assetType === "other" && position.assetId && (
