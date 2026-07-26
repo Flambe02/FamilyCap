@@ -40,6 +40,10 @@ export type AccountOperation = {
   fees: number | null;
   netAmount: number | null;
   currency: string;
+  // Nombre d'unités de devise de référence reçues pour une unité de devise native.
+  // Renseigné sur l'opération quand elle est connue ; jamais deviné par le moteur.
+  exchangeRate?: number | null;
+  taxes?: number | null;
   source: string | null;
   note: string | null;
 };
@@ -50,6 +54,20 @@ export type InstrumentPrice = {
   lastPriceAt: string | null;
   assetType: string | null; // 'stock' | 'etf' | 'fund' | 'bond' | 'crypto' | 'cash' | 'other'
   name: string | null;
+  assetId?: string | null;
+  providerSymbol?: string | null;
+  exchange?: string | null;
+  micCode?: string | null;
+  dataProvider?: string | null;
+  quoteMode?: "eod" | "delayed" | "realtime" | "manual" | null;
+  country?: string | null;
+  marketStatus?: string | null;
+  dataDelayMinutes?: number | null;
+  fetchedAt?: string | null;
+  // Taux à la date du cours : devise native -> devise du compte. null signifie qu'aucune
+  // valorisation de référence n'est présentée, plutôt qu'une addition EUR/USD incorrecte.
+  fxRateToReference?: number | null;
+  referenceCurrency?: string | null;
 };
 
 export type AssetClass = "etf" | "action" | "obligation" | "fonds" | "autre";
@@ -60,6 +78,16 @@ export type PortfolioPosition = {
   ticker: string | null;
   isin: string | null;
   assetClass: AssetClass;
+  assetType: "stock" | "etf" | "fund" | "bond" | "reit" | "gold" | "crypto" | "cash" | "other";
+  assetId: string | null;
+  providerSymbol: string | null;
+  exchange: string | null;
+  micCode: string | null;
+  dataProvider: string | null;
+  quoteMode: "eod" | "delayed" | "realtime" | "manual" | null;
+  marketStatus: string | null;
+  dataDelayMinutes: number | null;
+  quoteFetchedAt: string | null;
   quantity: number;
   averageCost: number | null; // prix de revient unitaire moyen pondéré (CUMP/PMP)
   investedEur: number; // prix de revient de la quantité encore détenue
@@ -70,6 +98,8 @@ export type PortfolioPosition = {
   gainPct: number | null;
   weightPct: number;
   currency: string; // devise de l'actif (telle que saisie ; jamais convertie automatiquement)
+  referenceCurrency: string;
+  fxRateToReference: number | null;
   accounts: string[]; // nom des comptes qui contribuent à cette position (vue agrégée multi-CTO)
 };
 
@@ -93,6 +123,7 @@ export type AccountModel = {
   // Trésorerie & versements
   netInvestedEur: number; // versements − retraits (argent apporté, cf. Étape 4)
   cashEur: number; // espèces disponibles
+  hasUnconvertedCash: boolean;
   dividendsNetEur: number;
   dividendsGrossEur: number;
   feesEur: number;
@@ -128,6 +159,10 @@ export const ASSET_CLASS_META: Record<AssetClass, { label: string; color: string
   obligation: { label: "Obligations", color: "#9b7fd4" },
   fonds: { label: "Fonds", color: "#3aa17e" },
   autre: { label: "Autres", color: "#94a3ab" },
+};
+export const ASSET_TYPE_LABEL: Record<PortfolioPosition["assetType"], string> = {
+  stock: "Action", etf: "ETF", fund: "Fonds", bond: "Obligation", reit: "Immobilier coté",
+  gold: "Or", crypto: "Crypto", cash: "Liquidités", other: "À classifier",
 };
 const CASH_COLOR = "#f0a63a";
 
@@ -166,6 +201,12 @@ function assetClassOf(assetType: string | null): AssetClass {
       return "autre";
   }
 }
+function assetTypeOf(assetType: string | null): PortfolioPosition["assetType"] {
+  switch ((assetType ?? "").toLowerCase()) {
+    case "stock": case "etf": case "fund": case "bond": case "reit": case "gold": case "crypto": case "cash": return (assetType ?? "other").toLowerCase() as PortfolioPosition["assetType"];
+    default: return "other";
+  }
+}
 
 // Montant net (mouvement de trésorerie réel) d'une opération, en repli si non renseigné.
 // Convention : + = entrée d'espèces, calculé positif ici puis signé par `cashDelta`.
@@ -197,6 +238,12 @@ function cashDelta(op: AccountOperation): number {
   }
 }
 
+function amountInReference(amount: number, currency: string, referenceCurrency: string, exchangeRate?: number | null): number | null {
+  if ((currency || "EUR").toUpperCase() === referenceCurrency) return amount;
+  const rate = Number(exchangeRate);
+  return Number.isFinite(rate) && rate > 0 ? amount * rate : null;
+}
+
 // Coût d'un achat porté au prix de revient (frais inclus, comme pour un PEA réel).
 function buyCost(op: AccountOperation): number {
   const gross = op.grossAmount !== null && op.grossAmount !== undefined && Number.isFinite(op.grossAmount)
@@ -215,8 +262,10 @@ export function computeAccountModel(params: {
   priceByKey: Map<string, InstrumentPrice>;
   accountType: AccountType;
   today?: string; // injectable pour les tests
+  referenceCurrency?: string;
 }): AccountModel {
   const { operations, priceByKey, accountType } = params;
+  const referenceCurrency = (params.referenceCurrency || "EUR").toUpperCase();
   const today = params.today ?? new Date().toISOString().slice(0, 10);
   const ops = [...operations].sort((a, b) => a.date.localeCompare(b.date));
 
@@ -226,25 +275,34 @@ export function computeAccountModel(params: {
   let dividendsNet = 0;
   let dividendsGross = 0;
   let feesTotal = 0;
+  let hasUnconvertedCash = false;
   for (const op of ops) {
-    cash += cashDelta(op);
-    if (op.type === "versement") netInvested += magnitude(op);
-    else if (op.type === "retrait") netInvested -= magnitude(op);
+    const movement = amountInReference(cashDelta(op), op.currency, referenceCurrency, op.exchangeRate);
+    if (movement === null && Math.abs(cashDelta(op)) > EPS) hasUnconvertedCash = true;
+    else cash += movement ?? 0;
+    const operationAmount = amountInReference(magnitude(op), op.currency, referenceCurrency, op.exchangeRate);
+    if (op.type === "versement" && operationAmount !== null) netInvested += operationAmount;
+    else if (op.type === "retrait" && operationAmount !== null) netInvested -= operationAmount;
+    else if ((op.type === "versement" || op.type === "retrait") && operationAmount === null) hasUnconvertedCash = true;
     else if (op.type === "dividende") {
-      dividendsNet += magnitude(op);
-      dividendsGross += op.grossAmount !== null && op.grossAmount !== undefined ? Math.abs(num(op.grossAmount)) : magnitude(op);
-    } else if (op.type === "frais") feesTotal += magnitude(op);
-    feesTotal += Math.abs(num(op.fees)); // frais embarqués dans achats/ventes
+      if (operationAmount !== null) {
+        dividendsNet += operationAmount;
+        const gross = op.grossAmount !== null && op.grossAmount !== undefined ? Math.abs(num(op.grossAmount)) : magnitude(op);
+        dividendsGross += amountInReference(gross, op.currency, referenceCurrency, op.exchangeRate) ?? 0;
+      } else hasUnconvertedCash = true;
+    } else if (op.type === "frais" && operationAmount !== null) feesTotal += operationAmount;
+    const feesRef = amountInReference(Math.abs(num(op.fees)), op.currency, referenceCurrency, op.exchangeRate);
+    if (feesRef !== null) feesTotal += feesRef; // frais embarqués dans achats/ventes
   }
 
   // ---- Positions dérivées (CUMP/PMP) ----
-  type Acc = { name: string; ticker: string | null; isin: string | null; qty: number; cost: number; currency: string; accounts: Set<string> };
+  type Acc = { name: string; ticker: string | null; isin: string | null; qty: number; cost: number; costReference: number | null; currency: string; accounts: Set<string> };
   const byKey = new Map<string, Acc>();
   const getAcc = (op: AccountOperation): Acc => {
     const key = instrumentKey(op);
     let acc = byKey.get(key);
     if (!acc) {
-      acc = { name: (op.assetName ?? "").trim() || "Actif sans nom", ticker: op.ticker, isin: op.isin, qty: 0, cost: 0, currency: (op.currency || "EUR").toUpperCase(), accounts: new Set() };
+      acc = { name: (op.assetName ?? "").trim() || "Actif sans nom", ticker: op.ticker, isin: op.isin, qty: 0, cost: 0, costReference: 0, currency: (op.currency || "EUR").toUpperCase(), accounts: new Set() };
       byKey.set(key, acc);
     }
     if (!acc.name || acc.name === "Actif sans nom") acc.name = (op.assetName ?? acc.name).trim() || acc.name;
@@ -259,13 +317,18 @@ export function computeAccountModel(params: {
     if (op.type === "achat" || op.type === "transfer_in") {
       const acc = getAcc(op);
       acc.qty += num(op.quantity);
-      acc.cost += buyCost(op); // un transfert entrant reprend le prix de revient (prix unitaire × qté + frais)
+      const nativeCost = buyCost(op);
+      const rate = (op.currency || "EUR").toUpperCase() === referenceCurrency ? 1 : (op.exchangeRate ?? null);
+      acc.cost += nativeCost; // un transfert entrant reprend le prix de revient (prix unitaire × qté + frais)
+      acc.costReference = acc.costReference === null || !rate || rate <= 0 ? null : acc.costReference + nativeCost * rate;
     } else if (op.type === "vente" || op.type === "transfer_out") {
       const acc = getAcc(op);
-      const avg = acc.qty > EPS ? acc.cost / acc.qty : 0;
+      const priorQty = acc.qty;
+      const avg = priorQty > EPS ? acc.cost / priorQty : 0;
       const soldQty = Math.min(num(op.quantity), acc.qty);
       acc.qty -= num(op.quantity);
       acc.cost -= avg * soldQty; // on retire le coût moyen de la quantité sortie (plus/moins-value réalisée ignorée ici)
+      if (acc.costReference !== null && priorQty > EPS) acc.costReference -= acc.costReference * (soldQty / priorQty);
       if (acc.qty < EPS) {
         acc.qty = 0;
         acc.cost = 0;
@@ -274,11 +337,18 @@ export function computeAccountModel(params: {
       const acc = getAcc(op);
       const q = num(op.quantity); // quantité signée
       acc.qty += q;
-      if (q > 0) acc.cost += buyCost(op); // une correction positive avec valeur ajuste le coût
+      if (q > 0) {
+        const nativeCost = buyCost(op);
+        const rate = (op.currency || "EUR").toUpperCase() === referenceCurrency ? 1 : (op.exchangeRate ?? null);
+        acc.cost += nativeCost;
+        acc.costReference = acc.costReference === null || !rate || rate <= 0 ? null : acc.costReference + nativeCost * rate;
+      } // une correction positive avec valeur ajuste le coût
       else if (acc.qty > EPS) acc.cost = (acc.cost / (acc.qty - q)) * acc.qty; // proportionnel
+      if (q < 0 && acc.costReference !== null && acc.qty > EPS) acc.costReference = (acc.costReference / (acc.qty - q)) * acc.qty;
       if (acc.qty < EPS) {
         acc.qty = 0;
         acc.cost = 0;
+        acc.costReference = 0;
       }
     }
   }
@@ -287,18 +357,23 @@ export function computeAccountModel(params: {
     .map(([key, acc]) => {
       const price = priceByKey.get(key) ?? null;
       const lastPrice = price && price.lastPrice !== null && Number.isFinite(price.lastPrice) ? Number(price.lastPrice) : null;
-      const currentValueEur = lastPrice !== null ? acc.qty * lastPrice : null;
-      const gainEur = currentValueEur === null ? null : currentValueEur - acc.cost;
-      const gainPct = gainEur === null || acc.cost <= EPS ? null : (gainEur / acc.cost) * 100;
+      const fxRateToReference = price?.fxRateToReference ?? (acc.currency === referenceCurrency ? 1 : null);
+      const currentValueEur = lastPrice !== null && fxRateToReference !== null ? acc.qty * lastPrice * fxRateToReference : null;
+      const gainEur = currentValueEur === null || acc.costReference === null ? null : currentValueEur - acc.costReference;
+      const gainPct = gainEur === null || !acc.costReference || acc.costReference <= EPS ? null : (gainEur / acc.costReference) * 100;
       return {
         key,
         name: price?.name?.trim() || acc.name,
         ticker: acc.ticker,
         isin: acc.isin,
         assetClass: assetClassOf(price?.assetType ?? null),
+        assetType: assetTypeOf(price?.assetType ?? null),
+        assetId: price?.assetId ?? null, providerSymbol: price?.providerSymbol ?? null, exchange: price?.exchange ?? null,
+        micCode: price?.micCode ?? null, dataProvider: price?.dataProvider ?? null, quoteMode: price?.quoteMode ?? null,
+        marketStatus: price?.marketStatus ?? null, dataDelayMinutes: price?.dataDelayMinutes ?? null, quoteFetchedAt: price?.fetchedAt ?? null,
         quantity: acc.qty,
         averageCost: acc.qty > EPS ? acc.cost / acc.qty : null,
-        investedEur: acc.cost,
+        investedEur: acc.costReference ?? 0,
         lastPrice,
         lastPriceAt: lastPrice === null ? null : price?.lastPriceAt ?? null,
         currentValueEur,
@@ -306,6 +381,8 @@ export function computeAccountModel(params: {
         gainPct,
         weightPct: 0,
         currency: acc.currency,
+        referenceCurrency,
+        fxRateToReference,
         accounts: [...acc.accounts],
       } satisfies PortfolioPosition;
     })
@@ -326,7 +403,7 @@ export function computeAccountModel(params: {
     }))
     .sort((a, b) => (b.currentValueEur ?? -1) - (a.currentValueEur ?? -1) || b.investedEur - a.investedEur);
 
-  const totalValueEur = positionsValueEur === null && Math.abs(cash) < EPS ? null : (positionsValueEur ?? 0) + cash;
+  const totalValueEur = hasUnconvertedCash || (positionsValueEur === null && Math.abs(cash) < EPS) ? null : (positionsValueEur ?? 0) + cash;
   const unrealizedGainEur = positionsValueEur === null ? null : positionsValueEur - investedInAssetsEur;
   const unrealizedGainPct = unrealizedGainEur === null || investedInAssetsEur <= EPS ? null : (unrealizedGainEur / investedInAssetsEur) * 100;
   const performanceEur = totalValueEur === null ? null : totalValueEur - netInvested;
@@ -393,6 +470,7 @@ export function computeAccountModel(params: {
     startDate: ops[0]?.date ?? null,
     netInvestedEur: netInvested,
     cashEur: cash,
+    hasUnconvertedCash,
     dividendsNetEur: dividendsNet,
     dividendsGrossEur: dividendsGross,
     feesEur: feesTotal,

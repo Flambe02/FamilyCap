@@ -60,6 +60,19 @@
 /* ---- Filtres partagés (positions / historique — PEA & compte-titres) ---- */
 .inv-positions-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .inv-positions-head .btc-panel-kicker { margin: 0; }
+.inv-positions-head h2 { margin: 0; font-size: 21px; color: var(--ink); }
+.inv-positions-subtitle { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.inv-position-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 14px 0; }
+.inv-position-kpis > div { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; }
+.inv-position-kpis small { display: block; color: var(--muted); font-size: 10px; }
+.inv-position-kpis strong { display: block; margin-top: 4px; font-size: 15px; color: var(--ink); }
+.inv-tag-warning { background: #fff3d6; border-color: #e9bd62; color: #8c5a00; }
+.inv-weight-bar { display: block; height: 4px; width: 72px; margin: 5px 0 0 auto; border-radius: 99px; overflow: hidden; background: var(--btc-track); }
+.inv-weight-bar i { display: block; height: 100%; border-radius: inherit; background: var(--teal); }
+.inv-classify p { margin: 0 0 9px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.inv-classify-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; align-items: end; }
+.inv-classify-form label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.inv-classify-form input, .inv-classify-form select { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; color: var(--ink); background: #fff; }
 .inv-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .inv-filters label { display: inline-flex; }
 .inv-filters input, .inv-filters select {
@@ -218,6 +231,8 @@
      ici le min-width hérité du palier 1024px — sans quoi chaque carte forcerait 720px de
      large et ferait défiler toute la page horizontalement. */
   .pea-page .inv-table { min-width: 0; }
+  .inv-position-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inv-classify-form { grid-template-columns: 1fr; }
   /* L'actif devient l'EN-TÊTE de la carte : pleine largeur, sans étiquette redondante. */
   .pea-page .inv-table tbody td.inv-asset-cell { display: block; padding: 4px 0 10px; text-align: left; }
   .pea-page .inv-table tbody td.inv-asset-cell::before { content: none; }

@@ -18,11 +18,17 @@ type HoldingInput = {
 
 const assetTypes = new Set(["stock", "etf", "fund", "bond", "crypto", "cash", "other"]);
 
+async function isOperationPortfolio(accountId: string) {
+  const rows = await supabaseRest<Array<{ account_type: string }>>(`financial_accounts?select=account_type&id=eq.${encodeURIComponent(accountId)}&limit=1`);
+  return rows[0]?.account_type === "pea" || rows[0]?.account_type === "securities";
+}
+
 export async function POST(request: Request) {
   try {
     await requireAdmin(request);
     const body = await request.json() as HoldingInput;
     if (!body.accountId || !body.name?.trim()) return Response.json({ error: "Le compte et le nom de l'actif sont obligatoires." }, { status: 400 });
+    if (await isOperationPortfolio(body.accountId)) return Response.json({ error: "Les positions PEA et compte-titres sont créées par les opérations. Enregistrez une opération, puis classez l'actif si nécessaire." }, { status: 409 });
     const rows = await supabaseRest<Array<{ id: string }>>("holdings", {
       method: "POST",
       headers: { prefer: "return=representation" },
@@ -53,6 +59,8 @@ export async function PATCH(request: Request) {
     await requireAdmin(request);
     const body = await request.json() as HoldingInput;
     if (!body.id) return Response.json({ error: "Position manquante." }, { status: 400 });
+    const existing = await supabaseRest<Array<{ account_id: string }>>(`holdings?select=account_id&id=eq.${encodeURIComponent(body.id)}&limit=1`);
+    if (existing[0] && await isOperationPortfolio(existing[0].account_id)) return Response.json({ error: "Une position PEA ou compte-titres ne se modifie pas directement : corrigez une opération ou utilisez une vente, un transfert ou une correction." }, { status: 409 });
     const changes: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.quantity !== undefined) changes.quantity = Number(body.quantity);
     if (body.averageCost !== undefined) changes.average_cost = Number(body.averageCost);
@@ -77,6 +85,8 @@ export async function DELETE(request: Request) {
     await requireAdmin(request);
     const id = new URL(request.url).searchParams.get("id");
     if (!id) return Response.json({ error: "Position manquante." }, { status: 400 });
+    const existing = await supabaseRest<Array<{ account_id: string }>>(`holdings?select=account_id&id=eq.${encodeURIComponent(id)}&limit=1`);
+    if (existing[0] && await isOperationPortfolio(existing[0].account_id)) return Response.json({ error: "Une position PEA ou compte-titres ne peut pas être supprimée directement. Supprimez ou corrigez l'opération concernée." }, { status: 409 });
     await supabaseRest(`holdings?id=eq.${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: { prefer: "return=minimal" },

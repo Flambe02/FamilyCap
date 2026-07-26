@@ -44,13 +44,15 @@ async function fetchAccounts(filter: string): Promise<AccountRow[]> {
     throw error;
   }
 }
-type HoldingRow = { account_id: string; asset_type: string | null; name: string | null; symbol: string | null; isin: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at: string | null; currency: string };
+type HoldingRow = { id: string; account_id: string; asset_type: string | null; name: string | null; symbol: string | null; isin: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at: string | null; currency: string; exchange?: string | null; provider_symbol?: string | null; market_symbol?: string | null; mic_code?: string | null; data_provider?: string | null; quote_mode?: string | null; country?: string | null };
+type QuoteRow = { asset_id: string; provider: string; provider_symbol: string; price: number; currency: string; quoted_at: string; market_status: string; data_delay_minutes: number | null; fetched_at: string };
+type FxRow = { base_currency: string; quote_currency: string; rate: number; quoted_at: string };
 type MemberRow = { id: string; name: string };
 type OperationRow = {
   id: string; account_id: string; member_id: string; type: string; operation_date: string;
   asset_name: string | null; ticker: string | null; isin: string | null; quantity: number | null;
   unit_price: number | null; gross_amount: number | null; fees: number | null; net_amount: number | null;
-  currency: string; source: string | null; note: string | null;
+  currency: string; source: string | null; note: string | null; exchange_rate?: number | null; taxes?: number | null;
 };
 
 function isMissingTable(message: string) {
@@ -84,7 +86,7 @@ export async function GET(request: Request) {
         ? supabaseRest<MemberRow[]>(`family_members?select=id,name&id=in.(${memberIds.join(",")})`)
         : Promise.resolve<MemberRow[]>([]),
       accountIds.length
-        ? supabaseRest<HoldingRow[]>(`holdings?select=account_id,asset_type,name,symbol,isin,quantity,average_cost,last_price,last_price_at,currency&account_id=in.(${accountIds.join(",")})`)
+        ? fetchHoldings(accountIds)
         : Promise.resolve<HoldingRow[]>([]),
     ]);
 
@@ -107,7 +109,24 @@ export async function GET(request: Request) {
       openingBalance: account.opening_balance === null || account.opening_balance === undefined ? null : Number(account.opening_balance),
       notes: account.notes ?? null,
     }));
-    const holdings = holdingRows.map((holding) => ({
+    const [quoteRows, fxRows] = await Promise.all([
+      holdingRows.length ? fetchQuotes(holdingRows.map((holding) => holding.id)) : Promise.resolve<QuoteRow[]>([]),
+      fetchFxRates(),
+    ]);
+    const latestQuoteByAsset = new Map<string, QuoteRow>();
+    const latestQuoteBySymbol = new Map<string, QuoteRow>();
+    for (const quote of quoteRows) if (!latestQuoteByAsset.has(quote.asset_id)) latestQuoteByAsset.set(quote.asset_id, quote);
+    for (const quote of quoteRows) if (!latestQuoteBySymbol.has(`${quote.provider}:${quote.provider_symbol}`)) latestQuoteBySymbol.set(`${quote.provider}:${quote.provider_symbol}`, quote);
+    const fxByPair = new Map<string, FxRow>();
+    for (const rate of fxRows) if (!fxByPair.has(`${rate.base_currency}:${rate.quote_currency}`)) fxByPair.set(`${rate.base_currency}:${rate.quote_currency}`, rate);
+    const accountCurrencyById = new Map(accountRows.map((account) => [account.id, account.currency.toUpperCase()]));
+    const holdings = holdingRows.map((holding) => {
+      const quote = latestQuoteByAsset.get(holding.id) ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined);
+      const referenceCurrency = accountCurrencyById.get(holding.account_id) ?? "EUR";
+      const nativeCurrency = (quote?.currency ?? holding.currency).toUpperCase();
+      const fx = nativeCurrency === referenceCurrency ? 1 : fxByPair.get(`${nativeCurrency}:${referenceCurrency}`)?.rate ?? null;
+      return ({
+      id: holding.id,
       account_id: holding.account_id,
       asset_type: holding.asset_type,
       name: holding.name,
@@ -115,10 +134,14 @@ export async function GET(request: Request) {
       isin: holding.isin,
       quantity: Number(holding.quantity) || 0,
       average_cost: holding.average_cost === null || holding.average_cost === undefined ? null : Number(holding.average_cost),
-      last_price: holding.last_price === null || holding.last_price === undefined ? null : Number(holding.last_price),
-      last_price_at: holding.last_price_at ?? null,
+      last_price: quote ? Number(quote.price) : (holding.last_price === null || holding.last_price === undefined ? null : Number(holding.last_price)),
+      last_price_at: quote?.quoted_at ?? holding.last_price_at ?? null,
       currency: holding.currency,
-    }));
+      exchange: holding.exchange ?? null, providerSymbol: holding.provider_symbol ?? holding.market_symbol ?? null, micCode: holding.mic_code ?? null,
+      dataProvider: quote?.provider ?? holding.data_provider ?? null, quoteMode: holding.quote_mode ?? (quote ? "eod" : null), country: holding.country ?? null,
+      marketStatus: quote?.market_status ?? null, dataDelayMinutes: quote?.data_delay_minutes ?? null, fetchedAt: quote?.fetched_at ?? null,
+      fxRateToReference: fx, referenceCurrency,
+    }); });
     const operations = operationRows.map((op) => ({
       id: op.id,
       accountId: op.account_id,
@@ -134,6 +157,8 @@ export async function GET(request: Request) {
       fees: op.fees === null || op.fees === undefined ? null : Number(op.fees),
       netAmount: op.net_amount === null || op.net_amount === undefined ? null : Number(op.net_amount),
       currency: op.currency,
+      exchangeRate: op.exchange_rate === null || op.exchange_rate === undefined ? null : Number(op.exchange_rate),
+      taxes: op.taxes === null || op.taxes === undefined ? null : Number(op.taxes),
       source: op.source,
       note: op.note,
     }));
@@ -152,11 +177,29 @@ export async function GET(request: Request) {
 async function fetchOperations(accountIds: string[]): Promise<OperationRow[]> {
   try {
     return await supabaseRest<OperationRow[]>(
-      `account_operations?select=id,account_id,member_id,type,operation_date,asset_name,ticker,isin,quantity,unit_price,gross_amount,fees,net_amount,currency,source,note&account_id=in.(${accountIds.join(",")})&order=operation_date.desc`,
+      `account_operations?select=id,account_id,member_id,type,operation_date,asset_name,ticker,isin,quantity,unit_price,gross_amount,fees,net_amount,currency,source,note,exchange_rate,taxes&account_id=in.(${accountIds.join(",")})&order=operation_date.desc`,
     );
   } catch (error) {
     // Table account_operations absente (migration non jouée) → aucune opération, pas d'erreur.
     if (error instanceof Error && (error.message.includes("account_operations") || error.message.includes("PGRST205"))) return [];
     throw error;
   }
+}
+
+async function fetchHoldings(accountIds: string[]): Promise<HoldingRow[]> {
+  const select = "id,account_id,asset_type,name,symbol,isin,quantity,average_cost,last_price,last_price_at,currency,exchange,provider_symbol,market_symbol,mic_code,data_provider,quote_mode,country";
+  try { return await supabaseRest<HoldingRow[]>(`holdings?select=${select}&account_id=in.(${accountIds.join(",")})`); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!/provider_symbol|mic_code|data_provider|quote_mode|country|PGRST20[0-9]|42703/.test(message)) throw error;
+    return await supabaseRest<HoldingRow[]>(`holdings?select=id,account_id,asset_type,name,symbol,isin,quantity,average_cost,last_price,last_price_at,currency&account_id=in.(${accountIds.join(",")})`);
+  }
+}
+async function fetchQuotes(assetIds: string[]): Promise<QuoteRow[]> {
+  try { return await supabaseRest<QuoteRow[]>(`market_quotes?select=asset_id,provider,provider_symbol,price,currency,quoted_at,market_status,data_delay_minutes,fetched_at&asset_id=in.(${assetIds.join(",")})&order=fetched_at.desc`); }
+  catch { return []; }
+}
+async function fetchFxRates(): Promise<FxRow[]> {
+  try { return await supabaseRest<FxRow[]>("market_fx_rates?select=base_currency,quote_currency,rate,quoted_at&order=quoted_at.desc"); }
+  catch { return []; }
 }

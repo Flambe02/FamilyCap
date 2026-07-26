@@ -117,6 +117,7 @@ export async function resolveSymbols(target: QuoteTarget): Promise<string[]> {
 
 /** Cours d'un symbole Yahoo (prix, devise, horodatage). null si indisponible. */
 export async function yahooQuote(symbol: string): Promise<Quote | null> {
+  if (process.env.ENABLE_EXPERIMENTAL_YAHOO_PROVIDER !== "true") return null;
   try {
     const response = await fetchWithTimeout(`${YAHOO_CHART}/${encodeURIComponent(symbol)}?range=5d&interval=1d`);
     if (!response.ok) return null;
@@ -207,6 +208,7 @@ export function resolvePreviousClose(closes: number[], price: number, explicit: 
 
 /** Fiche complète d'un symbole Yahoo (cours + bornes + historique 1 mois). null si indisponible. */
 export async function yahooInstrument(symbol: string): Promise<InstrumentSnapshot | null> {
+  if (process.env.ENABLE_EXPERIMENTAL_YAHOO_PROVIDER !== "true") return null;
   try {
     const response = await fetchWithTimeout(`${YAHOO_CHART}/${encodeURIComponent(symbol)}?range=1mo&interval=1d`);
     if (!response.ok) return null;

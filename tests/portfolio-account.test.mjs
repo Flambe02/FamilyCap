@@ -226,7 +226,7 @@ test("transfert sortant : retire la quantité, espèces inchangées", () => {
   assert.ok(approx(model.cashEur, -1000)); // seul l'achat a bougé les espèces (−1000)
 });
 
-test("répartition par devise : positions groupées par devise, non converties", () => {
+test("répartition par devise : une devise sans taux n'est pas ajoutée au total de référence", () => {
   const model = computeAccountModel({
     operations: [
       op({ type: "achat", isin: "AAA", quantity: 10, unitPrice: 50, grossAmount: 500, fees: 5, netAmount: 505, currency: "EUR" }),
@@ -239,9 +239,7 @@ test("répartition par devise : positions groupées par devise, non converties",
     ...cto,
   });
   const currencies = model.currencyAllocation.map((bucket) => bucket.currency).sort();
-  assert.deepEqual(currencies, ["EUR", "USD"]);
-  const usd = model.currencyAllocation.find((bucket) => bucket.currency === "USD");
-  assert.ok(approx(usd.value, 250));
+  assert.deepEqual(currencies, ["EUR"]);
   assert.equal(model.positions.find((position) => position.isin === "BBB").currency, "USD");
   const totalPct = model.currencyAllocation.reduce((sum, bucket) => sum + bucket.pct, 0);
   assert.ok(approx(totalPct, 100, 0.001));
@@ -254,6 +252,17 @@ test("impact du change : jamais estimé (null) au lot 1", () => {
     ...cto,
   });
   assert.equal(model.fxImpactEur, null);
+});
+
+test("cours USD converti avec le taux du cours, sans mélanger USD et EUR", () => {
+  const model = computeAccountModel({
+    operations: [op({ type: "achat", isin: "USD", quantity: 10, unitPrice: 100, grossAmount: 1000, netAmount: 1000, currency: "USD", exchangeRate: 0.9 })],
+    priceByKey: new Map([[instrumentKey({ isin: "USD", ticker: null, assetName: null }), { lastPrice: 120, lastPriceAt: "2026-07-22", assetType: "stock", name: null, fxRateToReference: 0.8 }]]),
+    ...cto,
+  });
+  assert.ok(approx(model.positions[0].currentValueEur, 960));
+  assert.ok(approx(model.positions[0].gainEur, 60));
+  assert.equal(model.positions[0].currency, "USD");
 });
 
 test("agrégation multi-compte : même ISIN fusionné, comptes attribués", () => {

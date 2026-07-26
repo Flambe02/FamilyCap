@@ -37,7 +37,7 @@ export type InvestmentAccount = {
   accountNumberLast4?: string | null; ibanLast4?: string | null; openedAt?: string | null;
   monthlyTarget?: number | null; openingBalance?: number | null; notes?: string | null;
 };
-export type InvestmentHolding = { account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string };
+export type InvestmentHolding = { id?: string; account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string; exchange?: string | null; providerSymbol?: string | null; micCode?: string | null; dataProvider?: string | null; quoteMode?: "eod" | "delayed" | "realtime" | "manual" | null; country?: string | null; marketStatus?: string | null; dataDelayMinutes?: number | null; fetchedAt?: string | null; fxRateToReference?: number | null; referenceCurrency?: string | null };
 export type InvestmentOperation = AccountOperation;
 
 // Plan d'investissement du membre affiché (sous-ensemble utile au shell). L'objectif mensuel
@@ -49,12 +49,11 @@ export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "p
 // Compte rendu du rafraîchissement des cours (une ligne par position). Aucune valeur n'est
 // inventée : un instrument introuvable ou coté dans une autre devise est RAPPORTÉ, pas écrit.
 export type PriceRefreshRow = {
-  key: string; name: string; isin: string | null; ticker: string | null;
-  status: "updated" | "unchanged" | "not_found" | "currency_mismatch" | "provider_error";
-  price: number | null; currency: string | null; previousPrice: number | null;
-  asOf: string | null; provider: string | null; symbol: string | null; message: string | null;
+  assetId: string; name: string;
+  status: "fresh" | "stale" | "unavailable" | "manual";
+  message?: string;
 };
-export type PriceRefreshReport = { refreshed: number; failed: number; results: PriceRefreshRow[]; error?: string };
+export type PriceRefreshReport = { refreshed: number; skipped: number; cached: number; errors: number; apiLimitReached: boolean; results: PriceRefreshRow[]; error?: string };
 
 // ---- Config d'enveloppe (PEA / CTO) ------------------------------------------------------
 export type EnvelopeConfig = {
@@ -204,14 +203,18 @@ export function InvestmentAccountShell({
     for (const holding of holdings.filter((item) => scopeIds.has(item.account_id))) {
       map.set(priceKeyOf({ isin: holding.isin ?? null, symbol: holding.symbol ?? null, name: holding.name ?? null }), {
         lastPrice: holding.last_price, lastPriceAt: holding.last_price_at ?? null, assetType: holding.asset_type ?? null, name: holding.name ?? null,
+        assetId: holding.id ?? null, providerSymbol: holding.providerSymbol ?? null, exchange: holding.exchange ?? null, micCode: holding.micCode ?? null,
+        dataProvider: holding.dataProvider ?? null, quoteMode: holding.quoteMode ?? null, country: holding.country ?? null,
+        marketStatus: holding.marketStatus ?? null, dataDelayMinutes: holding.dataDelayMinutes ?? null, fetchedAt: holding.fetchedAt ?? null,
+        fxRateToReference: holding.fxRateToReference ?? null, referenceCurrency: holding.referenceCurrency ?? null,
       });
     }
     return map;
   }, [holdings, scopeIds]);
 
   const model = useMemo(
-    () => (hasScope ? computeAccountModel({ operations: scopeOps, priceByKey, accountType: config.kind, today: todayISO() }) : null),
-    [hasScope, scopeOps, priceByKey, config.kind],
+    () => (hasScope ? computeAccountModel({ operations: scopeOps, priceByKey, accountType: config.kind, today: todayISO(), referenceCurrency: selectedAccount?.currency ?? "EUR" }) : null),
+    [hasScope, scopeOps, priceByKey, config.kind, selectedAccount?.currency],
   );
 
   // Compte cible d'une écriture : le compte sélectionné, ou le premier en mode agrégé.
@@ -291,19 +294,19 @@ export function InvestmentAccountShell({
     if (!selectedAccount || pricesBusy) return;
     setPricesBusy(true);
     try {
-      const response = await authenticatedFetch("/api/admin/market/refresh", {
+      const response = await authenticatedFetch("/api/market-data/refresh", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ accountId: selectedAccount.id }),
       });
       const data = (await response.json().catch(() => ({}))) as PriceRefreshReport & { error?: string };
       if (!response.ok) {
-        setPriceReport({ refreshed: 0, failed: 0, results: [], error: data.error ?? "Mise à jour des cours impossible." });
+        setPriceReport({ refreshed: 0, skipped: 0, cached: 0, errors: 0, apiLimitReached: false, results: [], error: data.error ?? "Mise à jour des cours impossible." });
       } else {
-        setPriceReport({ refreshed: data.refreshed ?? 0, failed: data.failed ?? 0, results: data.results ?? [] });
+        setPriceReport({ refreshed: data.refreshed ?? 0, skipped: data.skipped ?? 0, cached: data.cached ?? 0, errors: data.errors ?? 0, apiLimitReached: data.apiLimitReached ?? false, results: data.results ?? [] });
         onReload();
       }
     } catch {
-      setPriceReport({ refreshed: 0, failed: 0, results: [], error: "Réseau indisponible." });
+      setPriceReport({ refreshed: 0, skipped: 0, cached: 0, errors: 0, apiLimitReached: false, results: [], error: "Réseau indisponible." });
     }
     setPricesBusy(false);
   }
@@ -431,19 +434,11 @@ export function InvestmentAccountShell({
               onReport={() => setNotice("Le report sera enregistré dans une prochaine version. Saisissez le versement le moment venu.")} recent={scopeOps} />
           )}
           {tab === "positions" && (
-            <PositionsTab config={config} model={model!} canManage={canManage}
+            <PositionsTab model={model!} canManage={canManage}
               canRefreshPrices={canManage && selectedAccount !== null} pricesBusy={pricesBusy} onRefreshPrices={refreshPrices}
               priceReport={priceReport} onDismissPriceReport={() => setPriceReport(null)}
               operationsOfPosition={operationsOfPosition}
               onEditOperation={setEditingOp}
-              onDeletePosition={(position) => {
-                const ids = operationsOfPosition(position.key).map((op) => op.id);
-                setConfirmDelete({
-                  title: `Supprimer la position « ${position.name} » ?`,
-                  detail: `${ids.length} opération(s) liée(s) à cet actif seront définitivement supprimées. La position disparaîtra du portefeuille (elle en est dérivée). Les versements et les autres actifs ne sont pas touchés.`,
-                  ids,
-                });
-              }}
               onAddOperation={canManage ? () => setModal({ open: true, type: "achat", mode: "admin" }) : undefined}
               onOpenPosition={setDetailPosition} />
           )}
@@ -458,7 +453,7 @@ export function InvestmentAccountShell({
               })}
               onPurge={selectedAccount ? () => setPurgeAccount(selectedAccount) : undefined} />
           )}
-          {tab === "revenus" && <RevenusTab model={model!} operations={scopeOps} />}
+          {tab === "revenus" && <RevenusTab model={model!} operations={scopeOps} accountIds={scopeAccounts.map((account) => account.id)} />}
           {tab === "investir" && <InvestirTab config={config} model={model!} canManage={canManage} memberCanRecord={memberCanRecord} onAdd={(type) => setModal({ open: true, type, mode: "admin" })} onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })} />}
           {tab === "performance" && <PerformanceTab model={model!} onGoto={setTab} />}
           {tab === "comprendre" && <ComprendreTab config={config} />}
@@ -515,6 +510,8 @@ export function InvestmentAccountShell({
           position={detailPosition}
           envLabel={config.kind === "CTO" ? "Compte-titres" : "PEA"}
           operations={operationsOfPosition(detailPosition.key)}
+          canManage={canManage}
+          onClassified={onReload}
           onClose={() => setDetailPosition(null)}
         />
       )}
@@ -760,7 +757,7 @@ export function OperationList({ operations, subtitle }: { operations: Investment
 // ==========================================================================================
 // MES POSITIONS
 // ==========================================================================================
-const ASSET_LABEL: Record<string, string> = { etf: "ETF", action: "Action", obligation: "Obligation", fonds: "Fonds", autre: "Autre" };
+const ASSET_LABEL: Record<PortfolioPosition["assetType"], string> = { stock: "Action", etf: "ETF", fund: "Fonds", bond: "Obligation", reit: "Immobilier coté", gold: "Or", crypto: "Crypto", cash: "Liquidités", other: "À classifier" };
 
 // Fraîcheur d'un cours, telle quelle (jamais arrondie à l'avantage de l'affichage).
 function priceAge(lastPriceAt: string | null): string | null {
@@ -772,25 +769,32 @@ function priceAge(lastPriceAt: string | null): string | null {
   if (days === 1) return "hier";
   return `il y a ${days} j`;
 }
+function quoteStatus(position: PortfolioPosition): string {
+  if (position.lastPrice === null) return "Indisponible";
+  if (position.quoteMode === "manual") return "Cours manuel";
+  if (position.quoteMode === "eod") return `Dernière clôture${position.lastPriceAt ? ` · ${dayOf(position.lastPriceAt)}` : ""}`;
+  if (position.quoteMode === "delayed" && position.dataDelayMinutes !== null) return `Donnée différée de ${position.dataDelayMinutes} min`;
+  if (position.quoteMode === "realtime") return "Temps réel";
+  return position.lastPriceAt ? `Cours au ${dayOf(position.lastPriceAt)}` : "Cours disponible";
+}
 
 function PositionsTab({
-  config, model, canManage, canRefreshPrices, pricesBusy, onRefreshPrices, priceReport, onDismissPriceReport,
-  operationsOfPosition, onEditOperation, onDeletePosition, onAddOperation, onOpenPosition,
+  model, canManage, canRefreshPrices, pricesBusy, onRefreshPrices, priceReport, onDismissPriceReport,
+  operationsOfPosition, onEditOperation, onAddOperation, onOpenPosition,
 }: {
-  config: EnvelopeConfig; model: AccountModel; canManage: boolean;
+  model: AccountModel; canManage: boolean;
   canRefreshPrices: boolean; pricesBusy: boolean; onRefreshPrices: () => void;
   priceReport: PriceRefreshReport | null; onDismissPriceReport: () => void;
   operationsOfPosition: (key: string) => InvestmentOperation[];
   onEditOperation: (op: InvestmentOperation) => void;
-  onDeletePosition: (position: PortfolioPosition) => void;
   onAddOperation?: () => void;
   onOpenPosition: (position: PortfolioPosition) => void;
 }) {
-  const cto = config.positionsVariant === "cto";
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
+  const [sort, setSort] = useState<"value" | "gain" | "gainPct" | "weight" | "name" | "type">("value");
   // Position dont on déplie les lignes (opérations) pour les modifier une à une.
   const [openKey, setOpenKey] = useState<string | null>(null);
 
@@ -798,33 +802,40 @@ function PositionsTab({
   const currencyOptions = useMemo(() => [...new Set(model.positions.map((position) => position.currency))].sort(), [model.positions]);
 
   const filtered = model.positions.filter((position) => {
-    if (typeFilter !== "all" && position.assetClass !== typeFilter) return false;
-    if (cto && currencyFilter !== "all" && position.currency !== currencyFilter) return false;
-    if (cto && accountFilter !== "all" && !position.accounts.includes(accountFilter)) return false;
+    if (typeFilter !== "all" && position.assetType !== typeFilter) return false;
+    if (currencyFilter !== "all" && position.currency !== currencyFilter) return false;
+    if (accountFilter !== "all" && !position.accounts.includes(accountFilter)) return false;
     if (search.trim()) {
       const needle = search.trim().toLowerCase();
       const hay = `${position.name} ${position.ticker ?? ""} ${position.isin ?? ""}`.toLowerCase();
       if (!hay.includes(needle)) return false;
     }
     return true;
+  }).sort((a, b) => {
+    if (sort === "name") return a.name.localeCompare(b.name, "fr");
+    if (sort === "type") return ASSET_LABEL[a.assetType].localeCompare(ASSET_LABEL[b.assetType], "fr");
+    if (sort === "gain") return (b.gainEur ?? -Infinity) - (a.gainEur ?? -Infinity);
+    if (sort === "gainPct") return (b.gainPct ?? -Infinity) - (a.gainPct ?? -Infinity);
+    if (sort === "weight") return b.weightPct - a.weightPct;
+    return (b.currentValueEur ?? -Infinity) - (a.currentValueEur ?? -Infinity);
   });
 
   return (
     <section className="panel table-panel btc-table-card">
       <div className="inv-positions-head">
-        <h3 className="btc-panel-kicker">DÉTAIL DES POSITIONS</h3>
+        <div><h2>Positions</h2><p className="inv-positions-subtitle">Composition actuelle calculée à partir des opérations</p></div>
         {canManage && (
           <div className="inv-actions">
             {canRefreshPrices && (
               <button type="button" className="secondary-button inv-import-btn" disabled={pricesBusy} onClick={onRefreshPrices}
-                title="Relit le cours de chaque position auprès d’un fournisseur de marché gratuit (Yahoo Finance, repli Stooq)">
+                title="Met à jour les dernières clôtures EODHD, avec cache quotidien et sans exposer la clé fournisseur.">
                 {pricesBusy ? "Mise à jour des cours…" : "↻ Actualiser les cours"}
               </button>
             )}
-            {onAddOperation && <button type="button" className="secondary-button inv-import-btn" onClick={onAddOperation}>+ Ajouter une ligne</button>}
+            {onAddOperation && <button type="button" className="primary-button inv-import-btn" onClick={onAddOperation}>+ Enregistrer une opération</button>}
           </div>
         )}
-        {cto && model.positions.length > 0 && (
+        {model.positions.length > 0 && (
           <div className="inv-filters">
             <label><span className="sr-only">Rechercher une position</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher…" /></label>
             <label><span className="sr-only">Filtrer par type</span>
@@ -849,8 +860,15 @@ function PositionsTab({
                 </select>
               </label>
             )}
+            <label><span className="sr-only">Trier les positions</span><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="value">Valeur décroissante</option><option value="gain">Performance (€)</option><option value="gainPct">Performance (%)</option><option value="weight">Poids</option><option value="name">Nom</option><option value="type">Type</option></select></label>
           </div>
         )}
+      </div>
+      <div className="inv-position-kpis" aria-label="Synthèse des positions">
+        <div><small>Valeur du portefeuille</small><strong>{model.totalValueEur === null ? "Indisponible" : money(model.totalValueEur, model.positions[0]?.referenceCurrency ?? "EUR")}</strong></div>
+        <div><small>Montant investi</small><strong>{money(model.investedInAssetsEur, model.positions[0]?.referenceCurrency ?? "EUR")}</strong></div>
+        <div><small>Plus ou moins-value</small><strong className={model.unrealizedGainEur === null ? "" : model.unrealizedGainEur >= 0 ? "up" : "down"}>{model.unrealizedGainEur === null ? "Indisponible" : `${model.unrealizedGainEur >= 0 ? "+" : "−"}${money(Math.abs(model.unrealizedGainEur), model.positions[0]?.referenceCurrency ?? "EUR")}`}</strong></div>
+        <div><small>Dividendes encaissés</small><strong>{money(model.dividendsNetEur, model.positions[0]?.referenceCurrency ?? "EUR")}</strong></div>
       </div>
       {priceReport && <PriceRefreshPanel report={priceReport} onDismiss={onDismissPriceReport} />}
       {model.positions.length === 0 ? (
@@ -864,13 +882,7 @@ function PositionsTab({
               qu'un périmètre, et le détail d'une position rappelle ses comptes). Résultat : 8
               colonnes au lieu de 11, plus de débordement horizontal ni de ligne coupée. */}
           <table className="btc-table inv-table">
-            <thead>
-              {cto ? (
-                <tr><th>Actif</th><th className="num">Quantité</th><th className="num">PRU</th><th className="num">Cours</th><th className="num">Valeur</th><th className="num">Gain</th><th className="num">Poids</th>{canManage && <th>Actions</th>}</tr>
-              ) : (
-                <tr><th>Actif</th><th className="num">Quantité</th><th className="num">Prix de revient</th><th className="num">Cours</th><th className="num">Valeur</th><th className="num">Poids</th><th className="num">Perf.</th>{canManage && <th>Actions</th>}</tr>
-              )}
-            </thead>
+            <thead><tr><th>Actif</th><th>Type</th><th className="num">Quantité</th><th className="num">PRU</th><th className="num">Cours</th><th className="num">Valeur</th><th className="num">Performance</th><th className="num">Poids</th><th>Action</th></tr></thead>
             <tbody>
               {filtered.map((position) => {
                 const lines = canManage && openKey === position.key ? operationsOfPosition(position.key) : [];
@@ -885,41 +897,27 @@ function PositionsTab({
                       <span className="inv-asset-name">{position.name}</span>
                       <span className="inv-asset-meta">
                         {position.ticker && <span className="inv-tag inv-tag-ticker">{position.ticker}</span>}
+                        {position.exchange && <span>{position.exchange}</span>}
                         {position.isin && <span className="inv-tag inv-tag-isin">{position.isin}</span>}
-                        <span className="inv-tag inv-tag-class">{ASSET_LABEL[position.assetClass] ?? "Autre"}</span>
                         {position.currency !== "EUR" && <span className="inv-tag inv-tag-ccy">{position.currency}</span>}
                       </span>
                     </button>
                   </td>
+                  <td data-label="Type"><span className={`inv-tag inv-tag-class${position.assetType === "other" ? " inv-tag-warning" : ""}`}>{ASSET_LABEL[position.assetType]}</span></td>
                   <td data-label="Quantité" className="num">{qty.format(position.quantity)}</td>
-                  <td data-label={cto ? "PRU" : "Prix de revient"} className="num">{position.averageCost === null ? "—" : money(position.averageCost, position.currency)}</td>
+                  <td data-label="PRU" className="num">{position.averageCost === null ? "—" : money(position.averageCost, position.currency)}</td>
                   <td data-label="Cours" className="num">
-                    {position.lastPrice === null ? <span className="inv-muted">Indispo.</span> : money(position.lastPrice, position.currency)}
-                    {age && <><br /><small className="inv-muted">{age}</small></>}
+                    {position.lastPrice === null ? <span className="inv-muted">Indisponible</span> : money(position.lastPrice, position.currency)}
+                    <br /><small className="inv-muted">{quoteStatus(position)}{age && position.quoteMode === null ? ` · ${age}` : ""}</small>
                   </td>
-                  <td data-label="Valeur" className="num">{position.currentValueEur === null ? "—" : money(position.currentValueEur, position.currency)}</td>
-                  {cto ? (
-                    <td data-label="Gain" className="num">{position.gainEur === null ? "—" : <span className={position.gainEur >= 0 ? "up" : "down"}>{position.gainEur >= 0 ? "+" : "−"}{money(Math.abs(position.gainEur), position.currency)}{position.gainPct === null ? "" : <><br /><small>{position.gainPct >= 0 ? "+" : ""}{position.gainPct.toFixed(1)} %</small></>}</span>}</td>
-                  ) : null}
-                  <td data-label="Poids" className="num">{position.currentValueEur === null ? "—" : `${position.weightPct.toFixed(1)} %`}</td>
-                  {!cto && <td data-label="Perf." className="num">{position.gainPct === null ? "—" : <span className={position.gainPct >= 0 ? "up" : "down"}>{position.gainPct >= 0 ? "+" : ""}{position.gainPct.toFixed(1)} %</span>}</td>}
-                  {canManage && (
-                    <td data-label="Actions">
-                      <div className="inv-row-actions">
-                        <button type="button" className="inv-icon-btn" aria-expanded={openKey === position.key}
-                          onClick={() => setOpenKey(openKey === position.key ? null : position.key)}
-                          title="Voir et modifier les opérations de cette position">
-                          {openKey === position.key ? "▾ Lignes" : "▸ Lignes"}
-                        </button>
-                        <button type="button" className="inv-icon-btn inv-icon-danger" onClick={() => onDeletePosition(position)}
-                          title="Supprimer toutes les opérations de cette position">🗑</button>
-                      </div>
-                    </td>
-                  )}
+                  <td data-label="Valeur" className="num">{position.currentValueEur === null ? "Indisponible" : money(position.currentValueEur, position.referenceCurrency)}</td>
+                  <td data-label="Performance" className="num">{position.gainEur === null ? "—" : <span className={position.gainEur >= 0 ? "up" : "down"}>{position.gainEur >= 0 ? "+" : "−"}{money(Math.abs(position.gainEur), position.referenceCurrency)}{position.gainPct === null ? "" : <><br /><small>{position.gainPct >= 0 ? "+" : ""}{position.gainPct.toFixed(1)} %</small></>}</span>}</td>
+                  <td data-label="Poids" className="num">{position.currentValueEur === null ? "—" : <><span>{position.weightPct.toFixed(1)} %</span><span className="inv-weight-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, position.weightPct)}%` }} /></span></>}</td>
+                  <td data-label="Action"><div className="inv-row-actions"><button type="button" className="inv-icon-btn" onClick={() => onOpenPosition(position)}>Détail</button>{canManage && <button type="button" className="inv-icon-btn" aria-expanded={openKey === position.key} onClick={() => setOpenKey(openKey === position.key ? null : position.key)}>{openKey === position.key ? "Masquer" : "Voir les opérations"}</button>}</div></td>
                 </tr>
                 {lines.length > 0 && (
                   <tr className="inv-lines-row">
-                    <td colSpan={7 + (canManage ? 1 : 0)}>
+                    <td colSpan={9}>
                       <div className="inv-lines">
                         <p className="inv-lines-head">
                           {lines.length} opération(s) sur <b>{position.name}</b>. La quantité et le prix de revient en découlent&nbsp;: corrigez une ligne, le portefeuille se recalcule.
@@ -961,7 +959,7 @@ function PositionsTab({
 // Compte rendu du rafraîchissement : chaque position a une ligne, y compris les échecs. Rien
 // n'est masqué — une position sans cours doit se voir, pas disparaître du total en silence.
 function PriceRefreshPanel({ report, onDismiss }: { report: PriceRefreshReport; onDismiss: () => void }) {
-  const failures = report.results.filter((row) => row.status !== "updated" && row.status !== "unchanged");
+  const failures = report.results.filter((row) => row.status === "unavailable");
   return (
     <div className={`inv-price-report${report.error || failures.length > 0 ? " warn" : ""}`} role="status">
       <button type="button" className="inv-price-report-close" onClick={onDismiss} aria-label="Fermer">×</button>
@@ -969,23 +967,15 @@ function PriceRefreshPanel({ report, onDismiss }: { report: PriceRefreshReport; 
         <strong>{report.error}</strong>
       ) : (
         <>
-          <strong>{report.refreshed} cours mis à jour{failures.length > 0 ? `, ${failures.length} non résolu(s)` : ""}.</strong>
-          {report.results.some((row) => row.provider) && (
-            <small> Source&nbsp;: {[...new Set(report.results.map((row) => row.provider).filter(Boolean))].join(", ")}.</small>
-          )}
+          <strong>{report.refreshed} cours actualisé(s), {report.cached} servi(s) depuis le cache{failures.length > 0 ? `, ${failures.length} indisponible(s)` : ""}.</strong>
+          {report.apiLimitReached && <small> Limite quotidienne EODHD atteinte : les derniers cours valides sont conservés.</small>}
           {failures.length > 0 && (
             <>
               <ul className="inv-price-report-list">
                 {failures.map((row) => (
-                  <li key={row.key}><b>{row.name}</b>{row.isin ? ` (${row.isin})` : ""} — {row.message ?? "Cours indisponible."}</li>
+                  <li key={row.assetId}><b>{row.name}</b> — {row.message ?? "Cours indisponible."}</li>
                 ))}
               </ul>
-              {failures.some((row) => row.status === "currency_mismatch") && (
-                <small>
-                  Une position libellée dans la mauvaise devise vient généralement d’un import&nbsp;: si le fichier n’avait pas de colonne «&nbsp;devise&nbsp;», celle du compte a été reprise.
-                  Corrigez la devise sur les opérations concernées (onglet Historique&nbsp;› ✏️) pour que le cours puisse s’appliquer.
-                </small>
-              )}
             </>
           )}
         </>
@@ -1039,11 +1029,12 @@ type MarketState =
   | { status: "ok"; instrument: InstrumentSnapshot; currencyMismatch: boolean }
   | { status: "error"; message: string };
 
-function PositionDetailModal({ position, envLabel, operations, onClose }: {
-  position: PortfolioPosition; envLabel: string; operations: InvestmentOperation[]; onClose: () => void;
+function PositionDetailModal({ position, envLabel, operations, canManage, onClassified, onClose }: {
+  position: PortfolioPosition; envLabel: string; operations: InvestmentOperation[]; canManage: boolean; onClassified: () => void; onClose: () => void;
 }) {
   const dialogRef = useDialogA11y(true, onClose);
   const [market, setMarket] = useState<MarketState>({ status: "loading" });
+  const [classificationStatus, setClassificationStatus] = useState("");
   const { isin, ticker, name, currency } = position;
 
   // Pas de remise à « loading » ici : la modale est montée avec `key={position.key}`, donc
@@ -1084,7 +1075,7 @@ function PositionDetailModal({ position, envLabel, operations, onClose }: {
       <section className="modal pea-modal inv-detail-modal" ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Fiche de ${position.name}`} tabIndex={-1}>
         <header className="pea-modal-head">
           <div className="inv-detail-title">
-            <span className="soft-pill">{envLabel} · {ASSET_LABEL[position.assetClass] ?? "Autre"}</span>
+            <span className="soft-pill">{envLabel} · {ASSET_LABEL[position.assetType]}</span>
             <h2>{position.name}</h2>
             <p className="inv-detail-codes">
               {position.ticker && <span className="inv-tag inv-tag-ticker">{position.ticker}</span>}
@@ -1117,6 +1108,30 @@ function PositionDetailModal({ position, envLabel, operations, onClose }: {
               La quantité et le prix de revient sont <b>dérivés de ces opérations</b>, jamais saisis directement.
             </p>
           </section>
+
+          {canManage && position.assetType === "other" && position.assetId && (
+            <section className="inv-detail-block inv-classify">
+              <h3 className="btc-panel-kicker">À CLASSIFIER</h3>
+              <p>Renseignez une identité validée : ISIN en priorité, sinon ticker et place. Aucun titre n’est deviné depuis son nom.</p>
+              <form onSubmit={async (event) => {
+                event.preventDefault(); setClassificationStatus("Enregistrement…");
+                const data = new FormData(event.currentTarget);
+                const response = await authenticatedFetch(`/api/market-data/assets/${position.assetId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.fromEntries(data)) });
+                if (!response.ok) { const result = await response.json().catch(() => ({})) as { error?: string }; setClassificationStatus(result.error ?? "Enregistrement impossible."); return; }
+                setClassificationStatus("Classification enregistrée."); onClassified();
+              }} className="inv-classify-form">
+                <label>Type<select name="assetType" defaultValue="other">{Object.entries(ASSET_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label>ISIN<input name="isin" defaultValue={position.isin ?? ""} /></label>
+                <label>Ticker<input name="ticker" defaultValue={position.ticker ?? ""} /></label>
+                <label>Symbole EODHD<input name="providerSymbol" defaultValue={position.providerSymbol ?? ""} placeholder="ex. AIR.PA" /></label>
+                <label>Place<input name="exchange" defaultValue={position.exchange ?? ""} /></label>
+                <label>Devise<input name="currency" defaultValue={position.currency} maxLength={3} /></label>
+                <label>MIC (optionnel)<input name="micCode" defaultValue={position.micCode ?? ""} /></label>
+                <button type="submit" className="secondary-button">Enregistrer la classification</button>
+                {classificationStatus && <small role="status">{classificationStatus}</small>}
+              </form>
+            </section>
+          )}
 
           <section className="inv-detail-block">
             <h3 className="btc-panel-kicker">DONNÉES DE MARCHÉ</h3>
@@ -1259,17 +1274,41 @@ function HistoriqueTab({ config, operations, accountNameById, canManage, onImpor
 // ==========================================================================================
 // REVENUS (dividendes)
 // ==========================================================================================
-function RevenusTab({ model, operations }: { model: AccountModel; operations: InvestmentOperation[] }) {
+type AnnouncedDividend = { id: string; ex_date: string; payment_date: string | null; amount_per_share: number | null; currency: string | null; status: string; asset: { name: string; symbol: string | null; isin: string | null } | null };
+function RevenusTab({ model, operations, accountIds }: { model: AccountModel; operations: InvestmentOperation[]; accountIds: string[] }) {
   const dividends = operations.filter((op) => op.type === "dividende").sort((a, b) => b.date.localeCompare(a.date));
+  const [announced, setAnnounced] = useState<AnnouncedDividend[]>([]);
+  const [announcedLoading, setAnnouncedLoading] = useState(true);
+  const accountIdsKey = accountIds.join(",");
+  const year = new Date().getFullYear();
+  const paidThisYear = dividends.filter((op) => op.date.startsWith(String(year))).reduce((sum, op) => {
+    const amount = Math.abs(Number(op.netAmount ?? op.grossAmount ?? 0));
+    const rate = op.currency === "EUR" ? 1 : op.exchangeRate;
+    return sum + (Number.isFinite(rate) && Number(rate) > 0 ? amount * Number(rate) : 0);
+  }, 0);
+  useEffect(() => {
+    let active = true;
+    authenticatedFetch(`/api/market-data/dividends?accountIds=${encodeURIComponent(accountIdsKey)}`)
+      .then((response) => response.ok ? response.json() : { dividends: [] })
+      .then((data: { dividends?: AnnouncedDividend[] }) => { if (active) setAnnounced(data.dividends ?? []); })
+      .catch(() => { if (active) setAnnounced([]); })
+      .finally(() => { if (active) setAnnouncedLoading(false); });
+    return () => { active = false; };
+  }, [accountIdsKey]);
   return (
     <>
       <section className="panel btc-synth">
         <h3 className="btc-panel-kicker">DIVIDENDES</h3>
         <div className="btc-synth-grid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
           <div><small>Dividendes bruts</small><strong>{euro.format(model.dividendsGrossEur)}</strong></div>
-          <div><small>Dividendes nets</small><strong>{euro.format(model.dividendsNetEur)}</strong></div>
-          <div><small>Opérations</small><strong>{dividends.length}</strong></div>
+          <div><small>Encaissés cette année</small><strong>{euro.format(paidThisYear)}</strong></div>
+          <div><small>Opérations réelles</small><strong>{dividends.length}</strong></div>
         </div>
+      </section>
+      <section className="panel btc-ops-card">
+        <h3 className="btc-panel-kicker">DIVIDENDES ANNONCÉS</h3>
+        <p className="btc-chart-source">Annonce fournisseur uniquement : elle ne crée jamais un dividende encaissé ni une opération.</p>
+        {announcedLoading ? <p className="inv-muted">Chargement des annonces…</p> : announced.length === 0 ? <EmptyState title="Aucun dividende annoncé" description="Les annonces EODHD apparaîtront après une synchronisation réussie." /> : <ul className="btc-ops">{announced.slice(0, 12).map((event) => <li key={event.id}><span className="btc-ops-mark" aria-hidden="true">◌</span><div className="btc-ops-info"><strong>{event.asset?.name ?? "Actif"}</strong><small>Dividende annoncé · détachement {dateOf(event.ex_date)}</small></div><div className="btc-ops-amount"><b>{event.amount_per_share === null ? "Montant non communiqué" : money(event.amount_per_share, event.currency ?? "EUR")}</b><small>{event.payment_date ? `paiement ${dateOf(event.payment_date)}` : "date de paiement inconnue"}</small></div></li>)}</ul>}
       </section>
       <section className="panel btc-ops-card">
         <h3 className="btc-panel-kicker">DÉTAIL DES DIVIDENDES</h3>
