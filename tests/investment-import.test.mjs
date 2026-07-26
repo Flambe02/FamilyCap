@@ -8,6 +8,7 @@ import {
   parseDecimal, normalizeType, parseDate, detectDateFormat, isValidIsin, detectDelimiter,
   parseCsv, autoMapHeaders, matchInstrument, computeFingerprint, sanitizeCsvCell,
   buildTemplateCsv, buildPreview, normalizeRow, IMPORT_FIELDS,
+  detectNumberFormat, amountCoherenceWarning,
 } from "../lib/investment-import.ts";
 import { validateOperation, buildOperationRecord, OPERATION_TYPES } from "../lib/account-operation.ts";
 
@@ -298,4 +299,78 @@ test("buildOperationRecord : sans migration avancée, pas de colonnes taxes/exch
   assert.equal("taxes" in r.record, false);
   assert.equal("exchange_rate" in r.record, false);
   assert.equal(r.record.member_id, "m1");
+});
+
+// ---- RÉGRESSION : séparateur décimal à 3 chiffres (bug « portefeuille × 1000 ») -----------
+// Un relevé français cotant « 81,023 » (81 euros et 23 millièmes) était lu 81 023 € : la
+// virgule suivie de 3 chiffres était prise pour un séparateur de milliers. Une position de
+// 719 parts affichait alors 58 255 537 € au lieu de 58 255,54 €.
+test("parseDecimal : virgule + 3 décimales = décimal, pas un séparateur de milliers", () => {
+  assert.equal(parseDecimal("81,023"), 81.023);
+  assert.equal(parseDecimal("232,865"), 232.865);
+  assert.equal(parseDecimal("11,553"), 11.553);
+  assert.equal(parseDecimal("81,023", "fr"), 81.023);
+});
+test("parseDecimal : format US explicite → virgule = milliers", () => {
+  assert.equal(parseDecimal("81,023", "us"), 81023);
+  assert.equal(parseDecimal("1,234", "us"), 1234);
+  assert.equal(parseDecimal("1.234", "us"), 1.234);
+});
+test("parseDecimal : format FR explicite → point = milliers", () => {
+  assert.equal(parseDecimal("81.023", "fr"), 81023);
+  assert.equal(parseDecimal("75,90", "fr"), 75.9);
+});
+test("parseDecimal : les cas non ambigus ignorent le format du fichier", () => {
+  for (const format of ["fr", "us", "auto"]) {
+    assert.equal(parseDecimal("1.234.567,89", format), 1234567.89);
+    assert.equal(parseDecimal("1,234,567.89", format), 1234567.89);
+    assert.equal(parseDecimal("75,90", format), 75.9);
+    assert.equal(parseDecimal("0.5", format), 0.5);
+  }
+});
+
+test("detectNumberFormat : preuves non ambiguës du fichier", () => {
+  // « 75,90 » et « 0,54 » (2 décimales) prouvent que la virgule est décimale.
+  assert.equal(detectNumberFormat(["81,023", "75,90", "0,54"]), "fr");
+  // « 232.86 » (2 décimales) prouve que le point est décimal.
+  assert.equal(detectNumberFormat(["1,234", "232.86", "0.5"]), "us");
+  // Point répété = séparateur de milliers européen.
+  assert.equal(detectNumberFormat(["1.234.567"]), "fr");
+  // Virgule répétée = séparateur de milliers anglo-saxon.
+  assert.equal(detectNumberFormat(["1,234,567"]), "us");
+  // Sans aucune preuve : défaut européen (application francophone, courtiers FR).
+  assert.equal(detectNumberFormat(["81,023", "1,568"]), "fr");
+});
+
+test("amountCoherenceWarning : signale un montant incompatible avec quantité × prix", () => {
+  const base = { type: "achat", date: "2026-01-05", isin: null, ticker: "TTE", instrumentName: "TotalEnergies",
+    amount: null, fees: null, taxes: null, currency: "EUR", exchangeRate: null, externalReference: null, note: null };
+  assert.equal(amountCoherenceWarning({ ...base, quantity: 10, unitPrice: 51.834, amount: 518.34 }), null);
+  const warning = amountCoherenceWarning({ ...base, quantity: 10, unitPrice: 51834, amount: 518.34 });
+  assert.ok(warning);
+  assert.match(warning, /facteur ~1000/);
+  // Contrôle inapplicable (pas de montant, ou opération sans prix) → aucun avertissement.
+  assert.equal(amountCoherenceWarning({ ...base, quantity: 10, unitPrice: 51.834, amount: null }), null);
+  assert.equal(amountCoherenceWarning({ ...base, type: "versement", quantity: null, unitPrice: null, amount: 500 }), null);
+});
+
+test("buildPreview : format numérique détecté et cohérence contrôlée", () => {
+  const header = ["date", "type", "isin", "quantite", "prix", "montant"];
+  const mapping = autoMapHeaders(header);
+  // « 51,834 » est le prix unitaire ; « 518,34 » le montant → la virgule est bien décimale.
+  const rows = [["05/01/2026", "achat", "FR0000120271", "10", "51,834", "518,34"]];
+  const { rows: preview } = buildPreview({
+    rows, mapping, accountId: "a1", accountCurrency: "EUR", accountType: "PEA", holdings: [],
+  });
+  assert.equal(preview[0].op.unitPrice, 51.834);
+  assert.equal(preview[0].op.amount, 518.34);
+  assert.equal(preview[0].warnings.some((w) => w.startsWith("Incohérence :")), false);
+
+  // Forcer le format US relit « 51,834 » en 51 834 → l'incohérence est détectée, pas ignorée.
+  const forced = buildPreview({
+    rows, mapping, accountId: "a1", accountCurrency: "EUR", accountType: "PEA", holdings: [], numberFormat: "us",
+  });
+  assert.equal(forced.rows[0].op.unitPrice, 51834);
+  assert.ok(forced.rows[0].warnings.some((w) => w.startsWith("Incohérence :")));
+  assert.equal(forced.rows[0].status, "warning");
 });

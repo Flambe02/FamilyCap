@@ -184,6 +184,74 @@
 .imp-badge.imp-conf-medium { background: #fbeecb; color: #8a5200; }
 .imp-badge.imp-conf-low { background: #fbe0dd; color: #b23a30; }
 
+/* Choix du mode d'écriture de l'import (ajouter / remplacer) + garde-fous destructifs */
+.imp-mode-choice { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.imp-mode-choice legend { font-size: 9.5px; font-weight: 900; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); padding: 0 4px; }
+.imp-mode-choice label { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; cursor: pointer; }
+.imp-mode-choice label.active { border-color: var(--teal); background: var(--teal-soft); }
+.imp-mode-choice label.imp-danger.active { border-color: #d98b82; background: #fbeeec; }
+.imp-mode-choice input { margin-top: 3px; }
+.imp-mode-choice span { display: flex; flex-direction: column; gap: 2px; }
+.imp-mode-choice strong { font-size: 12.5px; }
+.imp-mode-choice small { font-size: 11px; color: var(--muted); line-height: 1.45; }
+.imp-recheck { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.imp-cell-warn { border-color: #d98b82; background: #fdf5f4; }
+.imp-fix { border: 0; background: none; padding: 0; cursor: pointer; text-decoration: underline; font: inherit; }
+.imp-danger-box { border: 1px solid #d98b82; background: #fdf5f4; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.imp-danger-box strong { color: #b23a30; font-size: 12.5px; }
+.imp-danger-box p { margin: 0; font-size: 12px; line-height: 1.5; }
+
+.danger-button {
+  min-height: 42px; border: 1px solid #d98b82; border-radius: 10px; padding: 12px 17px;
+  background: #fff; color: #b23a30; font-size: 11px; font-weight: 800; cursor: pointer; transition: .18s;
+}
+.danger-button:hover:not(:disabled) { background: #fbeeec; }
+.danger-button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Gestion des positions et des lignes (admin) */
+.inv-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.inv-row-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.inv-icon-btn {
+  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+  font-size: 11px; font-weight: 700; padding: 4px 8px; cursor: pointer; white-space: nowrap;
+}
+.inv-icon-btn:hover { background: #eef2f2; }
+.inv-icon-danger { color: #b23a30; border-color: #e6c4bf; }
+.inv-icon-danger:hover { background: #fbeeec; }
+.inv-muted { color: var(--muted); font-size: 10.5px; }
+
+.inv-lines-row td { background: #f7faf9; padding: 0; }
+.inv-lines { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.inv-lines-head { margin: 0; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.inv-lines ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.inv-lines li {
+  display: grid; grid-template-columns: 96px 150px 1fr 110px auto; gap: 10px; align-items: center;
+  padding: 6px 10px; background: #fff; border: 1px solid var(--line); border-radius: 9px; font-size: 12px;
+}
+.inv-line-amount, .inv-line-qty { font-variant-numeric: tabular-nums; text-align: right; }
+.inv-line-actions { text-align: right; }
+
+/* Compte rendu du rafraîchissement des cours */
+.inv-price-report {
+  position: relative; border: 1px solid var(--teal); background: var(--teal-soft); color: var(--ink);
+  border-radius: 12px; padding: 10px 34px 10px 14px; font-size: 12px; line-height: 1.5;
+}
+.inv-price-report.warn { border-color: #d8c78a; background: #fbf4dd; }
+.inv-price-report-close { position: absolute; top: 4px; right: 8px; border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: inherit; }
+.inv-price-report-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+
+.inv-confirm-modal { max-width: 520px; }
+.inv-confirm-body { display: flex; flex-direction: column; gap: 14px; padding: 0 4px 4px; }
+.inv-confirm-body p { margin: 0; font-size: 13px; line-height: 1.55; }
+.inv-pill-danger { background: #fbeeec; color: #b23a30; }
+
+@media (max-width: 780px) {
+  .inv-lines li { grid-template-columns: 1fr 1fr; row-gap: 4px; }
+  .inv-line-amount, .inv-line-qty, .inv-line-actions { text-align: left; }
+  .inv-actions { width: 100%; }
+  .inv-actions button { flex: 1; }
+}
+
 /* Onglet « Infos » : informations du compte (lecture seule) */
 .pea-infos-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 4px; }
 .pea-info-card { border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; background: #fff; }

@@ -146,7 +146,20 @@ export function normalizeType(label: string | null | undefined): OperationType |
 // ==========================================================================================
 // 3) NOMBRES (virgule OU point décimal, milliers, symboles/espaces)
 // ==========================================================================================
-export function parseDecimal(input: string | number | null | undefined): number | null {
+// Format numérique du FICHIER (propriété du document, pas de la cellule) :
+//   "fr" → 1 234,56 (virgule décimale, point/espace milliers)
+//   "us" → 1,234.56 (point décimal, virgule milliers)
+//   "auto" → décidé cellule par cellule ; un séparateur UNIQUE est toujours décimal.
+//
+// Pourquoi ce paramètre existe : « 81,023 » est structurellement ambigu (81 unités et
+// 23 millièmes, ou 81 023 unités). L'ancienne heuristique tranchait « milliers » dès que le
+// motif \d{1,3},\d{3} correspondait — ce qui multipliait par 1000 les cours d'un relevé
+// français à 3 décimales (81,023 € → 81 023 €) et faisait exploser la valeur du portefeuille.
+// L'ambiguïté ne se lève pas au niveau d'une cellule : elle se lève au niveau du FICHIER
+// (detectNumberFormat), avec correction manuelle possible dans l'assistant d'import.
+export type NumberFormat = "fr" | "us" | "auto";
+
+export function parseDecimal(input: string | number | null | undefined, format: NumberFormat = "auto"): number | null {
   if (input === null || input === undefined) return null;
   if (typeof input === "number") return Number.isFinite(input) ? input : null;
   let s = String(input).trim();
@@ -156,24 +169,62 @@ export function parseDecimal(input: string | number | null | undefined): number 
   // Retire tout sauf chiffres, séparateurs et signe.
   s = s.replace(/[^0-9.,-]/g, "");
   if (!s || !/[0-9]/.test(s)) return null;
-  const hasComma = s.includes(",");
-  const hasDot = s.includes(".");
-  if (hasComma && hasDot) {
-    // Le dernier séparateur rencontré est le décimal ; l'autre = milliers.
-    const decimal = s.lastIndexOf(",") > s.lastIndexOf(".") ? "," : ".";
-    const thousands = decimal === "," ? "." : ",";
-    s = s.split(thousands).join("").replace(decimal, ".");
-  } else if (hasComma) {
-    // Virgule seule → décimale, SAUF si elle groupe des milliers réguliers (1,234,567).
-    s = /^\d{1,3}(,\d{3})+$/.test(s.replace(/-/g, "")) ? s.split(",").join("") : s.replace(",", ".");
-  } else if (hasDot) {
-    // Point seul → décimal, SAUF milliers réguliers (1.234.567 ou 1.234 exact groupé plusieurs fois).
-    if (/^\d{1,3}(\.\d{3})+$/.test(s.replace(/-/g, ""))) s = s.split(".").join("");
+  const digits = s.replace(/-/g, "");
+  const commas = (digits.match(/,/g) ?? []).length;
+  const dots = (digits.match(/\./g) ?? []).length;
+
+  let decimal: "," | "." | null = null;
+  if (commas > 0 && dots > 0) {
+    // Les deux séparateurs présents → le DERNIER est le décimal (non ambigu, quel que soit le format).
+    decimal = digits.lastIndexOf(",") > digits.lastIndexOf(".") ? "," : ".";
+  } else if (commas > 1) decimal = "."; // 1,234,567 → virgules = milliers
+  else if (dots > 1) decimal = ","; // 1.234.567 → points = milliers
+  else if (commas === 1 || dots === 1) {
+    const sep: "," | "." = commas === 1 ? "," : ".";
+    const after = digits.length - digits.lastIndexOf(sep) - 1;
+    // Un séparateur unique suivi d'un nombre de chiffres ≠ 3 est forcément décimal (75,90 / 0.5).
+    // Suivi d'exactement 3 chiffres, il est ambigu : le format du fichier tranche.
+    if (after !== 3) decimal = sep;
+    else if (format === "fr") decimal = ",";
+    else if (format === "us") decimal = ".";
+    else decimal = sep; // "auto" : un séparateur unique reste décimal (jamais ×1000 par surprise)
   }
+
+  if (decimal === ",") s = s.split(".").join("").replace(/,/g, ".");
+  else if (decimal === ".") s = s.split(",").join("");
   const cleaned = s.replace(/-/g, "");
   const value = Number(cleaned);
   if (!Number.isFinite(value)) return null;
   return negative ? -value : value;
+}
+
+/**
+ * Détecte le format numérique d'un FICHIER à partir d'un échantillon de cellules.
+ * On ne compte que les preuves NON AMBIGUËS (séparateur suivi de ≠ 3 chiffres, deux
+ * séparateurs différents, ou un même séparateur répété). Défaut « fr » : l'application est
+ * francophone et les relevés proviennent de courtiers européens ; l'assistant d'import laisse
+ * de toute façon l'administrateur corriger avant tout enregistrement.
+ */
+export function detectNumberFormat(values: Array<string | number | null | undefined>): "fr" | "us" {
+  let fr = 0;
+  let us = 0;
+  for (const value of values) {
+    if (typeof value === "number") continue;
+    const s = String(value ?? "").replace(/[^0-9.,-]/g, "");
+    if (!/[0-9]/.test(s)) continue;
+    const commas = (s.match(/,/g) ?? []).length;
+    const dots = (s.match(/\./g) ?? []).length;
+    if (commas > 0 && dots > 0) {
+      if (s.lastIndexOf(",") > s.lastIndexOf(".")) fr++;
+      else us++;
+      continue;
+    }
+    if (commas > 1) { us++; continue; } // 1,234,567 → anglo-saxon
+    if (dots > 1) { fr++; continue; } // 1.234.567 → européen
+    if (commas === 1 && s.length - s.lastIndexOf(",") - 1 !== 3) { fr++; continue; }
+    if (dots === 1 && s.length - s.lastIndexOf(".") - 1 !== 3) us++;
+  }
+  return us > fr ? "us" : "fr";
 }
 
 // ==========================================================================================
@@ -301,24 +352,57 @@ function cell(raw: string[], idx: number): string {
   return idx >= 0 && idx < raw.length ? String(raw[idx] ?? "").trim() : "";
 }
 
-export function normalizeRow(raw: string[], mapping: Record<ImportField, number>, dateFormat: DateFormat, accountCurrency: string): NormalizedOp {
+export function normalizeRow(
+  raw: string[],
+  mapping: Record<ImportField, number>,
+  dateFormat: DateFormat,
+  accountCurrency: string,
+  numberFormat: NumberFormat = "auto",
+): NormalizedOp {
   const currency = (cell(raw, mapping.currency) || accountCurrency || "EUR").toUpperCase().slice(0, 3);
+  const dec = (index: number) => parseDecimal(cell(raw, index), numberFormat);
   return {
     type: normalizeType(cell(raw, mapping.type)),
     date: parseDate(cell(raw, mapping.date), dateFormat),
     isin: cell(raw, mapping.isin).toUpperCase() || null,
     ticker: cell(raw, mapping.ticker).toUpperCase() || null,
     instrumentName: cell(raw, mapping.instrumentName) || null,
-    quantity: parseDecimal(cell(raw, mapping.quantity)),
-    unitPrice: parseDecimal(cell(raw, mapping.unitPrice)),
-    amount: parseDecimal(cell(raw, mapping.amount)),
-    fees: parseDecimal(cell(raw, mapping.fees)),
-    taxes: parseDecimal(cell(raw, mapping.taxes)),
+    quantity: dec(mapping.quantity),
+    unitPrice: dec(mapping.unitPrice),
+    amount: dec(mapping.amount),
+    fees: dec(mapping.fees),
+    taxes: dec(mapping.taxes),
     currency: currency || "EUR",
-    exchangeRate: parseDecimal(cell(raw, mapping.exchangeRate)),
+    exchangeRate: dec(mapping.exchangeRate),
     externalReference: cell(raw, mapping.externalReference) || null,
     note: cell(raw, mapping.note) || null,
   };
+}
+
+/**
+ * Contrôle de COHÉRENCE ARITHMÉTIQUE d'une ligne : montant ≈ quantité × prix unitaire (± frais).
+ * Filet de sécurité contre une mauvaise lecture des nombres (séparateur décimal mal deviné) :
+ * un facteur 1000 sur le prix rend l'égalité fausse et la ligne passe « à vérifier » au lieu
+ * d'entrer silencieusement dans le portefeuille. Renvoie null si le contrôle n'est pas applicable.
+ */
+export function amountCoherenceWarning(op: NormalizedOp): string | null {
+  const priced = op.type === "achat" || op.type === "vente" || op.type === "transfer_in" || op.type === "transfer_out";
+  if (!priced) return null;
+  const quantity = Number(op.quantity);
+  const unitPrice = Number(op.unitPrice);
+  const amount = Number(op.amount);
+  if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice) || !Number.isFinite(amount)) return null;
+  if (quantity <= 0 || unitPrice <= 0 || amount <= 0) return null;
+  const expected = quantity * unitPrice;
+  const fees = Math.abs(Number(op.fees) || 0);
+  // Tolérance : 1 % OU le montant des frais (le montant du relevé peut être net de frais).
+  const tolerance = Math.max(expected * 0.01, fees + 0.02);
+  if (Math.abs(expected - amount) <= tolerance) return null;
+  const ratio = amount / expected;
+  const hint = ratio > 100 || ratio < 0.01
+    ? " Écart d'un facteur ~1000 : le séparateur décimal du fichier est probablement mal interprété."
+    : "";
+  return `Incohérence : montant ${amount} ≠ quantité × prix (${Math.round(expected * 100) / 100}).${hint}`;
 }
 
 /** Convertit une opération normalisée en OperationInput pour réutiliser validateOperation(). */
@@ -352,16 +436,24 @@ export type BuildPreviewParams = {
   existingExternalRefs?: Set<string>; // account_operations.external_reference déjà en base
   openingQuantities?: Record<string, number>; // quantité déjà détenue par instrument (ledger existant)
   dateFormat?: DateFormat;
+  numberFormat?: NumberFormat; // séparateur décimal du fichier (détecté, corrigeable par l'admin)
   allowAdvanced?: boolean; // migration 20260725 jouée (transferts/taxes/change) — sinon avertir
 };
 
 // Paramètres communs (hors source des lignes) partagés par les deux points d'entrée de preview.
-type EvalParams = Omit<BuildPreviewParams, "rows" | "mapping" | "dateFormat">;
+type EvalParams = Omit<BuildPreviewParams, "rows" | "mapping" | "dateFormat" | "numberFormat">;
+
+/** Colonnes numériques d'un fichier d'opérations : échantillon servant à détecter le format. */
+export function numericSamples(rows: string[][], mapping: Record<ImportField, number>): string[] {
+  const indexes = [mapping.quantity, mapping.unitPrice, mapping.amount, mapping.fees, mapping.taxes].filter((i) => i >= 0);
+  return rows.flatMap((raw) => indexes.map((i) => cell(raw, i))).filter((value) => value !== "");
+}
 
 export function buildPreview(params: BuildPreviewParams): { rows: PreviewRow[]; summary: PreviewSummary } {
   const { rows, mapping, accountCurrency } = params;
   const dateFormat = params.dateFormat ?? detectDateFormat(rows.map((r) => cell(r, mapping.date)));
-  const items = rows.map((raw, i) => ({ raw, index: i, op: normalizeRow(raw, mapping, dateFormat, accountCurrency) }));
+  const numberFormat = params.numberFormat ?? detectNumberFormat(numericSamples(rows, mapping));
+  const items = rows.map((raw, i) => ({ raw, index: i, op: normalizeRow(raw, mapping, dateFormat, accountCurrency, numberFormat) }));
   return evaluatePreview(items, params);
 }
 
@@ -399,6 +491,10 @@ function evaluatePreview(items: Array<{ raw: string[]; index: number; op: Normal
 
     // ISIN présent mais invalide → avertissement (pas bloquant : l'admin peut corriger).
     if (op.isin && !isValidIsin(op.isin)) warnings.push("ISIN invalide (clé de contrôle).");
+
+    // Cohérence arithmétique montant / quantité × prix (détecte un séparateur décimal mal lu).
+    const coherence = amountCoherenceWarning(op);
+    if (coherence) warnings.push(coherence);
 
     // Transferts / taxes / taux de change exigent la migration 20260725.
     if (params.allowAdvanced === false && (op.type === "transfer_in" || op.type === "transfer_out")) {

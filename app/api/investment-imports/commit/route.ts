@@ -29,6 +29,15 @@ type CommitBody = {
   operations?: NormalizedOp[];
   newInstruments?: NewInstrument[];
   portfolioSnapshot?: SnapshotInput;
+  /**
+   * « Remplacer le portefeuille » : les opérations existantes du compte sont supprimées et
+   * remplacées par celles du fichier. Destructif → l'appelant doit renvoyer le nom exact du
+   * compte dans `replaceConfirm`. L'ordre d'écriture est volontairement insertion PUIS
+   * suppression des anciennes lignes (identifiées avant l'insertion) : si la suppression
+   * échoue, on a un doublon réparable, jamais une perte de données.
+   */
+  replaceExisting?: boolean;
+  replaceConfirm?: string;
 };
 
 const ASSET_TYPES = new Set(["stock", "etf", "fund", "bond", "crypto", "cash", "other"]);
@@ -64,8 +73,20 @@ export async function POST(request: Request) {
     if (!isOperationAccount(account.accountType)) return Response.json({ error: "Ce type de compte n'accepte pas d'opérations." }, { status: 400 });
     if (!account.isActive) return Response.json({ error: "Ce compte est archivé : réactivez-le avant d'importer." }, { status: 409 });
 
-    const context = await loadImportContext(account);
+    // Mode « remplacer » : confirmation explicite, puis contexte calculé COMME SI le compte
+    // était vide (quantités d'ouverture nulles, aucun doublon opposé à des lignes qui vont
+    // disparaître). Sinon, contexte normal (ajout aux opérations existantes).
+    const replaceExisting = body.replaceExisting === true;
+    if (replaceExisting && String(body.replaceConfirm ?? "").trim() !== account.name.trim()) {
+      return Response.json({ error: `Confirmation requise : saisissez le nom exact du compte (« ${account.name} ») pour remplacer le portefeuille.` }, { status: 428 });
+    }
+    const context = await loadImportContext(account, { ignoreExistingOperations: replaceExisting });
     const held: Record<string, number> = { ...context.openingQuantities };
+    // Lignes actuelles, capturées AVANT toute écriture : ce sont elles (et elles seules) qui
+    // seront supprimées après une insertion réussie en mode « remplacer ».
+    const previousIds = replaceExisting
+      ? (await supabaseRest<Array<{ id: string }>>(`account_operations?select=id&account_id=eq.${encodeURIComponent(account.id)}`).catch(() => []))?.map((row) => row.id) ?? []
+      : [];
 
     // ---- PASSE 1 : validation complète, AUCUNE écriture ----
     const toInsert: Record<string, unknown>[] = [];
@@ -173,6 +194,24 @@ export async function POST(request: Request) {
       body: JSON.stringify(records),
     });
 
+    // Remplacement : les anciennes lignes ne sont supprimées qu'APRÈS l'insertion réussie.
+    let replaced = 0;
+    if (replaceExisting && previousIds.length > 0) {
+      const removed = await supabaseRest<Array<{ id: string }>>(
+        `account_operations?id=in.(${previousIds.map((value) => encodeURIComponent(value)).join(",")})`,
+        { method: "DELETE", headers: { prefer: "return=representation" } },
+      );
+      replaced = removed?.length ?? previousIds.length;
+      // Les lots d'import antérieurs n'ont plus d'opérations : on les marque annulés pour que
+      // l'historique des imports reste sincère (leur ligne d'audit est conservée).
+      try {
+        await supabaseRest(`investment_import_batches?account_id=eq.${encodeURIComponent(account.id)}&status=eq.completed${batchId ? `&id=neq.${encodeURIComponent(batchId)}` : ""}`, {
+          method: "PATCH", headers: { prefer: "return=minimal" },
+          body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
+        });
+      } catch { /* traçabilité non déployée : sans effet sur l'import */ }
+    }
+
     if (batchId) await supabaseRest(`investment_import_batches?id=eq.${encodeURIComponent(batchId)}`, {
       method: "PATCH",
       headers: { prefer: "return=minimal" },
@@ -183,7 +222,13 @@ export async function POST(request: Request) {
     // investissement » (best-effort ; couvre aussi bien l'import de relevé que l'import CSV/XLSX).
     try { await reconcileOnboardingForMember(account.memberId); } catch { /* best-effort */ }
 
-    return Response.json({ batchId, imported: records.length, duplicates, newInstruments: createdInstruments, tracking: context.importTracking ? "complete" : "limited", message: `${records.length} opération(s) importée(s).` }, { status: 201 });
+    return Response.json({
+      batchId, imported: records.length, duplicates, newInstruments: createdInstruments, replaced,
+      tracking: context.importTracking ? "complete" : "limited",
+      message: replaceExisting
+        ? `${records.length} opération(s) importée(s), ${replaced} ancienne(s) opération(s) remplacée(s).`
+        : `${records.length} opération(s) importée(s).`,
+    }, { status: 201 });
   } catch (error) {
     // Échec après création du lot → on marque le lot 'failed' (les opérations n'ont PAS été
     // insérées de façon partielle : l'insert est atomique). Best-effort, on n'écrase pas l'erreur.

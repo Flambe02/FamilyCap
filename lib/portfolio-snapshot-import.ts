@@ -1,9 +1,11 @@
 import {
+  detectNumberFormat,
   matchInstrument,
   parseDate,
   parseDecimal,
   type HoldingRef,
   type NormalizedOp,
+  type NumberFormat,
   type PreviewRow,
   type PreviewSummary,
   type RowStatus,
@@ -39,6 +41,11 @@ export type SnapshotRowMeta = {
   gainEur: number | null;
   gainPct: number | null;
   weightPct: number | null;
+  // Cours RECALCULÉ à partir du relevé lui-même (valorisation ÷ quantité). Ce n'est pas une
+  // estimation : c'est la même donnée, lue par une autre colonne du même document. Sert de
+  // contre-vérification du cours saisi et de correction proposée en un clic dans l'assistant.
+  derivedPrice: number | null;
+  priceMismatch: boolean;
 };
 
 export type SnapshotPreviewRow = PreviewRow & { snapshot: SnapshotRowMeta };
@@ -101,13 +108,20 @@ export function extractSnapshotDate(preamble: string[][], fallback?: string | nu
   return parseDate(date ?? fallback, "fr");
 }
 
-function percent(value: string): number | null {
-  const parsed = parseDecimal(value);
-  return parsed;
-}
-
 function statusFor(errors: string[], warnings: string[]): RowStatus {
   return errors.length > 0 ? "error" : warnings.length > 0 ? "warning" : "valid";
+}
+
+/** Colonnes numériques d'un relevé de positions : échantillon pour détecter le format du fichier. */
+export function snapshotNumericSamples(rows: string[][], mapping: SnapshotMapping): string[] {
+  const indexes = [mapping.quantity, mapping.averageCost, mapping.lastPrice, mapping.currentValue, mapping.gainEur]
+    .filter((index) => index >= 0);
+  return rows.flatMap((raw) => indexes.map((index) => cell(raw, index))).filter((value) => value !== "");
+}
+
+// Deux valeurs sont-elles cohérentes à 1 % près (tolérance d'arrondi du relevé) ?
+function closeEnough(a: number, b: number): boolean {
+  return Math.abs(a - b) <= Math.max(Math.abs(b) * 0.01, 0.02);
 }
 
 export function buildSnapshotPreview(params: {
@@ -116,30 +130,52 @@ export function buildSnapshotPreview(params: {
   asOfDate: string;
   accountCurrency: string;
   holdings: HoldingRef[];
+  numberFormat?: NumberFormat;
 }): { rows: SnapshotPreviewRow[]; summary: PreviewSummary; positions: SnapshotPosition[] } {
   const { rows, mapping, asOfDate, accountCurrency, holdings } = params;
+  const numberFormat = params.numberFormat ?? detectNumberFormat(snapshotNumericSamples(rows, mapping));
   const previewRows: SnapshotPreviewRow[] = [];
   const positions: SnapshotPosition[] = [];
 
   rows.forEach((raw, index) => {
     const errors: string[] = [];
     const warnings: string[] = [];
+    const dec = (position: number) => parseDecimal(cell(raw, position), numberFormat);
     const name = cell(raw, mapping.instrumentName);
     const isin = cell(raw, mapping.isin).toUpperCase() || null;
     const ticker = cell(raw, mapping.ticker).toUpperCase() || null;
-    const quantity = parseDecimal(cell(raw, mapping.quantity));
-    const averageCost = parseDecimal(cell(raw, mapping.averageCost));
-    const lastPrice = parseDecimal(cell(raw, mapping.lastPrice));
-    const currentValue = parseDecimal(cell(raw, mapping.currentValue));
-    const dayChangePct = percent(cell(raw, mapping.dayChangePct));
-    const gainEur = parseDecimal(cell(raw, mapping.gainEur));
-    const gainPct = percent(cell(raw, mapping.gainPct));
-    const weightPct = percent(cell(raw, mapping.weightPct));
+    const quantity = dec(mapping.quantity);
+    const averageCost = dec(mapping.averageCost);
+    const lastPrice = dec(mapping.lastPrice);
+    const currentValue = dec(mapping.currentValue);
+    const dayChangePct = dec(mapping.dayChangePct);
+    const gainEur = dec(mapping.gainEur);
+    const gainPct = dec(mapping.gainPct);
+    const weightPct = dec(mapping.weightPct);
     const currency = (cell(raw, mapping.currency) || accountCurrency || "EUR").toUpperCase().slice(0, 3);
 
     if (!name && !isin && !ticker) errors.push("Instrument absent.");
     if (quantity === null || quantity < 0) errors.push("Quantité absente ou invalide.");
     if (averageCost === null && lastPrice === null) errors.push("Prix de revient ou cours absent.");
+
+    // ---- Contre-vérification du cours par la valorisation du MÊME relevé -------------------
+    // valorisation ÷ quantité doit redonner le cours. Un écart d'un facteur 1000 trahit un
+    // séparateur décimal mal interprété ; la ligne passe « à vérifier » avec le cours recalculé
+    // proposé, au lieu d'entrer telle quelle dans le portefeuille.
+    const derivedPrice = currentValue !== null && quantity !== null && quantity > 0
+      ? Math.round((currentValue / quantity) * 1e6) / 1e6
+      : null;
+    const priceMismatch = derivedPrice !== null && lastPrice !== null && lastPrice > 0 && !closeEnough(lastPrice, derivedPrice);
+    if (priceMismatch) {
+      warnings.push(`Cours incohérent : ${lastPrice} × ${quantity} ≠ valorisation ${currentValue}. Cours recalculé depuis le relevé : ${derivedPrice}.`);
+    }
+    // Même contrôle sur le prix de revient quand le relevé fournit la +/- value.
+    if (gainEur !== null && currentValue !== null && averageCost !== null && quantity !== null && quantity > 0) {
+      const impliedCost = currentValue - gainEur;
+      if (!closeEnough(averageCost * quantity, impliedCost)) {
+        warnings.push(`Prix de revient incohérent : ${averageCost} × ${quantity} ≠ valorisation − plus-value (${Math.round(impliedCost * 100) / 100}).`);
+      }
+    }
 
     const match = matchInstrument({ isin, ticker, instrumentName: name || null }, holdings);
     if (!match.holdingId) warnings.push("Instrument non reconnu : il sera créé avec son dernier cours.");
@@ -160,7 +196,7 @@ export function buildSnapshotPreview(params: {
       externalReference: null,
       note: `Position importée depuis un relevé au ${asOfDate}`,
     };
-    const snapshot: SnapshotRowMeta = { asOfDate, lastPrice, currentValue, dayChangePct, gainEur, gainPct, weightPct };
+    const snapshot: SnapshotRowMeta = { asOfDate, lastPrice, currentValue, dayChangePct, gainEur, gainPct, weightPct, derivedPrice, priceMismatch };
     const fingerprint = `snapshot:${asOfDate}:${isin ?? ticker ?? name.toLowerCase()}:${index}`;
     const position: SnapshotPosition = {
       name: operation.instrumentName ?? "Actif sans nom",

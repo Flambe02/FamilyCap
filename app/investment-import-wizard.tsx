@@ -12,13 +12,16 @@ import { useMemo, useRef, useState } from "react";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { authenticatedFetch, OP_LABEL } from "./investment-account";
 import {
-  buildTemplateCsv, IMPORT_FIELDS,
+  amountCoherenceWarning, buildTemplateCsv, toOperationInput, IMPORT_FIELDS,
   type ImportField, type NormalizedOp, type PreviewRow, type PreviewSummary, type RowStatus,
 } from "../lib/investment-import";
+import { validateOperation } from "../lib/account-operation";
 import type { SnapshotPosition, SnapshotRowMeta } from "../lib/portfolio-snapshot-import";
 
 type TargetAccount = { id: string; name: string; kind: "PEA" | "CTO"; currency: string; memberName: string | null };
 type KnownHolding = { id: string; isin: string | null; symbol: string | null; name: string | null };
+
+type NumberFormatChoice = "fr" | "us";
 
 type PreviewResponse = {
   account: TargetAccount;
@@ -29,6 +32,7 @@ type PreviewResponse = {
   columns: string[];
   mapping: Record<ImportField, number>;
   dateFormat: "iso" | "fr" | "us";
+  numberFormat?: NumberFormatChoice;
   allowAdvanced: boolean;
   knownHoldings: KnownHolding[];
   summary: PreviewSummary;
@@ -72,14 +76,21 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
   const [rows, setRows] = useState<EditableRow[]>([]);
   const [mapping, setMapping] = useState<Record<ImportField, number> | null>(null);
   const [dateFormat, setDateFormat] = useState<"iso" | "fr" | "us">("fr");
+  // Séparateur décimal du fichier. « 81,023 » vaut 81,023 € en format FR et 81 023 € en format
+  // US : l'ambiguïté est une propriété du DOCUMENT, pas de la cellule. Détecté côté serveur,
+  // toujours affiché et corrigeable ici avant le moindre enregistrement.
+  const [numberFormat, setNumberFormat] = useState<NumberFormatChoice>("fr");
   const [snapshotDate, setSnapshotDate] = useState("");
+  // Mode d'écriture : ajouter aux opérations existantes (défaut) ou REMPLACER le portefeuille.
+  const [replaceExisting, setReplaceExisting] = useState(false);
+  const [replaceConfirm, setReplaceConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | "anomalies">("all");
-  const [result, setResult] = useState<{ imported: number; duplicates: number; newInstruments: number; tracking?: "complete" | "limited" } | null>(null);
+  const [result, setResult] = useState<{ imported: number; duplicates: number; newInstruments: number; replaced?: number; tracking?: "complete" | "limited" } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  async function runPreview(nextMapping?: Record<ImportField, number>, nextDateFormat?: "iso" | "fr" | "us") {
+  async function runPreview(nextMapping?: Record<ImportField, number>, nextDateFormat?: "iso" | "fr" | "us", nextNumberFormat?: NumberFormatChoice) {
     if (!file) return;
     setBusy(true); setError("");
     try {
@@ -88,6 +99,7 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
       form.append("accountId", account.id);
       if (nextMapping) form.append("mapping", JSON.stringify(nextMapping));
       if (nextDateFormat) form.append("dateFormat", nextDateFormat);
+      if (nextNumberFormat) form.append("numberFormat", nextNumberFormat);
       if (snapshotDate) form.append("snapshotDate", snapshotDate);
       const response = await authenticatedFetch("/api/investment-imports/preview", { method: "POST", body: form });
       const data = (await response.json().catch(() => ({}))) as PreviewResponse & { error?: string };
@@ -95,6 +107,7 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
       setPreview(data);
       setMapping(data.mapping);
       setDateFormat(data.dateFormat);
+      if (data.numberFormat) setNumberFormat(data.numberFormat);
       setRows(data.rows.map((row) => ({
         ...row,
         include: row.status !== "error" && row.status !== "duplicate_certain",
@@ -133,8 +146,44 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
     setBusy(false);
   }
 
+  // Une ligne corrigée à la main doit voir son statut recalculé IMMÉDIATEMENT, sinon une erreur
+  // que l'administrateur vient de résoudre continuerait de bloquer l'import. On rejoue ici les
+  // mêmes fonctions pures que le serveur (validateOperation / amountCoherenceWarning) : la
+  // revalidation complète reste faite au commit, celle-ci n'est qu'un miroir immédiat.
+  function revalidateRow(row: EditableRow): EditableRow {
+    const op = row.op;
+    const errors: string[] = [];
+    // Erreurs que le client ne peut pas rejouer (garde PEA, migration manquante, ligne vide).
+    const kept = row.errors.filter((message) => /vente de |migration|ligne vide/i.test(message));
+    if (!op.type) errors.push("Type d'opération non reconnu.");
+    if (!op.date) errors.push("Date illisible ou absente.");
+    if (op.type && op.date) {
+      const validation = validateOperation(toOperationInput(op));
+      if (!validation.ok) errors.push(validation.error);
+    }
+    const needsInstrument = op.type === "achat" || op.type === "vente" || op.type === "dividende" || op.type === "transfer_in" || op.type === "transfer_out";
+    if (needsInstrument && !row.instrumentHoldingId && !op.isin && !op.ticker && !op.instrumentName) {
+      errors.push("Instrument manquant pour cette opération.");
+    }
+    const warnings = row.warnings.filter((message) => !message.startsWith("Incohérence :"));
+    const coherence = amountCoherenceWarning(op);
+    if (coherence) warnings.push(coherence);
+    const allErrors = [...new Set([...kept, ...errors])];
+    const status: RowStatus = allErrors.length > 0
+      ? "error"
+      : row.status === "duplicate_certain" || row.status === "duplicate_possible"
+        ? row.status
+        : warnings.length > 0 ? "warning" : "valid";
+    return { ...row, errors: allErrors, warnings, status };
+  }
+
   function updateRow(index: number, patch: Partial<NormalizedOp>) {
-    setRows((current) => current.map((row) => (row.index === index ? { ...row, op: { ...row.op, ...patch } } : row)));
+    setRows((current) => current.map((row) => (row.index === index ? revalidateRow({ ...row, op: { ...row.op, ...patch } }) : row)));
+  }
+  // Correction d'un cours de relevé (mode « portefeuille instantané »). C'est cette valeur qui
+  // sera écrite dans holdings.last_price au commit — elle doit donc rester éditable ici.
+  function updateSnapshot(index: number, patch: Partial<SnapshotRowMeta>) {
+    setRows((current) => current.map((row) => (row.index === index && row.snapshot ? { ...row, snapshot: { ...row.snapshot, ...patch } } : row)));
   }
   function toggleInclude(index: number, include: boolean) {
     setRows((current) => current.map((row) => (row.index === index ? { ...row, include } : row)));
@@ -146,6 +195,17 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
   const included = useMemo(() => rows.filter((row) => row.include), [rows]);
   const blocking = useMemo(() => included.filter((row) => row.errors.length > 0), [included]);
   const visibleRows = filter === "anomalies" ? rows.filter((row) => row.status !== "valid") : rows;
+  // Lignes dont le cours contredit la valorisation du relevé (cours × quantité ≠ valorisation).
+  const mismatchCount = useMemo(() => rows.filter((row) => row.snapshot?.priceMismatch && row.snapshot.derivedPrice !== null).length, [rows]);
+
+  /** Remplace les cours contredits par le cours RECALCULÉ (valorisation ÷ quantité du relevé). */
+  function applyDerivedPrices() {
+    setRows((current) => current.map((row) => (
+      row.snapshot?.priceMismatch && row.snapshot.derivedPrice !== null
+        ? { ...row, snapshot: { ...row.snapshot, lastPrice: row.snapshot.derivedPrice, priceMismatch: false } }
+        : row
+    )));
+  }
 
   async function commit() {
     if (!preview) return;
@@ -186,14 +246,16 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
           operations: included.map((row) => row.op),
           newInstruments,
           portfolioSnapshot,
+          replaceExisting,
+          replaceConfirm: replaceExisting ? replaceConfirm.trim() : undefined,
         }),
       });
-      const data = (await response.json().catch(() => ({}))) as { imported?: number; duplicates?: number; newInstruments?: number; tracking?: "complete" | "limited"; error?: string; invalidLines?: Array<{ line: number; error: string }> };
+      const data = (await response.json().catch(() => ({}))) as { imported?: number; duplicates?: number; newInstruments?: number; replaced?: number; tracking?: "complete" | "limited"; error?: string; invalidLines?: Array<{ line: number; error: string }> };
       if (!response.ok) {
         setError(data.error ?? "Import impossible." + (data.invalidLines?.length ? ` (${data.invalidLines.length} ligne(s) invalide(s))` : ""));
         setBusy(false); return;
       }
-      setResult({ imported: data.imported ?? 0, duplicates: data.duplicates ?? 0, newInstruments: data.newInstruments ?? 0, tracking: data.tracking });
+      setResult({ imported: data.imported ?? 0, duplicates: data.duplicates ?? 0, newInstruments: data.newInstruments ?? 0, replaced: data.replaced ?? 0, tracking: data.tracking });
       setStep(6);
       onDone();
     } catch {
@@ -231,6 +293,19 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
               <p>Vous allez importer l’historique d’opérations du compte&nbsp;:</p>
               <div className="imp-account-card"><strong>{account.name}</strong><small>{account.kind} · {account.currency}{account.memberName ? ` · ${account.memberName}` : ""}</small></div>
               <p className="imp-hint">Importez l’historique fourni par votre banque ou votre courtier. Le fichier n’est pas conservé ; il sert uniquement à préparer les opérations que vous validerez.</p>
+
+              <fieldset className="imp-mode-choice">
+                <legend>Que faire des opérations déjà enregistrées&nbsp;?</legend>
+                <label className={replaceExisting ? "" : "active"}>
+                  <input type="radio" name="import-write-mode" checked={!replaceExisting} onChange={() => setReplaceExisting(false)} />
+                  <span><strong>Ajouter</strong><small>Les opérations du fichier s’ajoutent à l’existant. Les doublons certains sont écartés.</small></span>
+                </label>
+                <label className={replaceExisting ? "active imp-danger" : "imp-danger"}>
+                  <input type="radio" name="import-write-mode" checked={replaceExisting} onChange={() => setReplaceExisting(true)} />
+                  <span><strong>Remplacer tout le portefeuille</strong><small>Toutes les opérations actuelles de ce compte sont supprimées et remplacées par celles du fichier. Irréversible — une confirmation sera demandée.</small></span>
+                </label>
+              </fieldset>
+
               <div className="pea-form-actions">
                 <button type="button" className="secondary-button" onClick={onClose}>Annuler</button>
                 <button type="button" className="primary-button" onClick={() => setStep(2)}>Continuer</button>
@@ -289,6 +364,13 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                   <option value="iso">Année-Mois-Jour (ISO)</option>
                 </select>
               </label>
+              <label className="imp-inline">Format des nombres&nbsp;
+                <select value={numberFormat} onChange={(event) => setNumberFormat(event.target.value as NumberFormatChoice)}>
+                  <option value="fr">1 234,56 — virgule décimale (FR)</option>
+                  <option value="us">1,234.56 — point décimal (US)</option>
+                </select>
+              </label>
+              <p className="imp-hint">Vérifiez ce réglage&nbsp;: dans un fichier français, «&nbsp;81,023&nbsp;» vaut <b>81,023&nbsp;€</b>&nbsp;; lu en format américain, il vaudrait <b>81&nbsp;023&nbsp;€</b> — soit une valeur de portefeuille multipliée par mille. La prévisualisation signale les lignes dont le montant ne correspond pas à quantité&nbsp;× prix.</p>
               <div className="imp-mapping-grid">
                 {IMPORT_FIELDS.map((field) => (
                   <label key={field} className="imp-map-row">
@@ -302,7 +384,7 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
               </div>
               <div className="pea-form-actions">
                 <button type="button" className="secondary-button" onClick={() => setStep(2)}>Retour</button>
-                <button type="button" className="primary-button" disabled={busy} onClick={() => runPreview(mapping, dateFormat).then(() => setStep(4))}>{busy ? "Analyse…" : "Prévisualiser"}</button>
+                <button type="button" className="primary-button" disabled={busy} onClick={() => runPreview(mapping, dateFormat, numberFormat).then(() => setStep(4))}>{busy ? "Analyse…" : "Prévisualiser"}</button>
               </div>
             </div>
           )}
@@ -321,6 +403,24 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                 <span className="imp-dup"><b>{summary.duplicatesCertain + summary.duplicatesPossible}</b> doublons</span>
                 <span><b>{summary.unknownInstruments}</b> instruments non reconnus</span>
               </div>
+              {mode !== "ai" && (
+                <div className="imp-recheck">
+                  <label className="imp-inline">Format des nombres&nbsp;
+                    <select value={numberFormat} disabled={busy}
+                      onChange={(event) => { const next = event.target.value as NumberFormatChoice; setNumberFormat(next); runPreview(mapping ?? undefined, dateFormat, next); }}>
+                      <option value="fr">1 234,56 — virgule décimale (FR)</option>
+                      <option value="us">1,234.56 — point décimal (US)</option>
+                    </select>
+                  </label>
+                  <small className="imp-hint">Changer ce réglage relit le fichier immédiatement. Toute ligne dont le montant ne correspond pas à quantité × prix est signalée «&nbsp;à vérifier&nbsp;».</small>
+                </div>
+              )}
+              {mismatchCount > 0 && (
+                <p className="imp-ai-banner imp-warn" role="note">
+                  ⚠ {mismatchCount} cours ne correspond{mismatchCount > 1 ? "ent" : ""} pas à la valorisation du relevé (valorisation ÷ quantité).
+                  <button type="button" className="btc-link" onClick={applyDerivedPrices}>Utiliser les cours recalculés depuis le relevé</button>
+                </p>
+              )}
               <label className="imp-inline"><input type="checkbox" checked={filter === "anomalies"} onChange={(event) => setFilter(event.target.checked ? "anomalies" : "all")} /> N’afficher que les anomalies</label>
               <div className="responsive-table imp-table-wrap">
                 <table className="btc-table imp-table">
@@ -347,11 +447,35 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                             {row.instrumentHoldingId ? <small className="imp-msg imp-ok">reconnu ({row.matchedBy})</small>
                               : unknownInstrument ? <label className="imp-msg"><input type="checkbox" checked={row.createInstrument} onChange={(event) => toggleCreate(row.index, event.target.checked)} /> créer l’instrument</label> : null}
                           </td>
-                          <td className="num">{row.op.quantity ?? "—"}</td>
-                          <td className="num">{row.op.unitPrice ?? "—"}</td>
-                          {preview.mode === "snapshot" && <td className="num">{row.snapshot?.lastPrice ?? "—"}</td>}
+                          <td className="num">
+                            <input className="imp-cell num" type="number" step="any" value={row.op.quantity ?? ""}
+                              aria-label={`Quantité ligne ${row.index}`}
+                              onChange={(event) => updateRow(row.index, { quantity: event.target.value === "" ? null : Number(event.target.value) })} />
+                          </td>
+                          <td className="num">
+                            <input className="imp-cell num" type="number" step="any" value={row.op.unitPrice ?? ""}
+                              aria-label={`${preview.mode === "snapshot" ? "Prix de revient" : "Prix unitaire"} ligne ${row.index}`}
+                              onChange={(event) => updateRow(row.index, { unitPrice: event.target.value === "" ? null : Number(event.target.value) })} />
+                          </td>
+                          {preview.mode === "snapshot" && (
+                            <td className="num">
+                              <input className={`imp-cell num${row.snapshot?.priceMismatch ? " imp-cell-warn" : ""}`} type="number" step="any" value={row.snapshot?.lastPrice ?? ""}
+                                aria-label={`Cours ligne ${row.index}`}
+                                onChange={(event) => updateSnapshot(row.index, { lastPrice: event.target.value === "" ? null : Number(event.target.value), priceMismatch: false })} />
+                              {row.snapshot?.priceMismatch && row.snapshot.derivedPrice !== null && (
+                                <button type="button" className="imp-msg imp-warn imp-fix" title="Cours recalculé : valorisation ÷ quantité, d'après le relevé lui-même"
+                                  onClick={() => updateSnapshot(row.index, { lastPrice: row.snapshot!.derivedPrice, priceMismatch: false })}>
+                                  → {row.snapshot.derivedPrice}
+                                </button>
+                              )}
+                            </td>
+                          )}
                           {preview.mode === "snapshot" && <td className="num">{row.snapshot?.dayChangePct === null || row.snapshot?.dayChangePct === undefined ? "—" : `${row.snapshot.dayChangePct} %`}</td>}
-                          <td className="num">{preview.mode === "snapshot" ? (row.snapshot?.currentValue ?? "—") : (row.op.amount ?? "—")}</td>
+                          <td className="num">{preview.mode === "snapshot" ? (row.snapshot?.currentValue ?? "—") : (
+                            <input className="imp-cell num" type="number" step="any" value={row.op.amount ?? ""}
+                              aria-label={`Montant ligne ${row.index}`}
+                              onChange={(event) => updateRow(row.index, { amount: event.target.value === "" ? null : Number(event.target.value) })} />
+                          )}</td>
                           {preview.mode === "snapshot" && <td className="num">{row.snapshot?.gainEur ?? "—"}{row.snapshot?.gainPct === null || row.snapshot?.gainPct === undefined ? "" : ` (${row.snapshot.gainPct} %)`}</td>}
                           <td>{row.op.currency}</td>
                           {mode === "ai" && (
@@ -383,10 +507,22 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                 <p>{summary.duplicatesCertain} doublon(s) certain(s) exclus.</p>
                 <p>{included.filter((r) => r.createInstrument && !r.instrumentHoldingId).length} nouvel(s) instrument(s) seront créés sans cours de marché.</p>
               </div>
-              <p className="imp-hint">L’enregistrement est revalidé côté serveur. En cas d’erreur, aucun import partiel n’est créé.</p>
+              {replaceExisting && (
+                <div className="imp-danger-box" role="group" aria-labelledby="imp-replace-title">
+                  <strong id="imp-replace-title">⚠ Remplacement du portefeuille</strong>
+                  <p>Toutes les opérations actuellement enregistrées sur <b>{account.name}</b> seront <b>définitivement supprimées</b> et remplacées par celles de ce fichier. Cette action est irréversible.</p>
+                  <label className="pea-field pea-field-wide">
+                    <span>Saisissez le nom exact du compte pour confirmer</span>
+                    <input value={replaceConfirm} onChange={(event) => setReplaceConfirm(event.target.value)} placeholder={account.name} autoComplete="off" />
+                  </label>
+                </div>
+              )}
+              <p className="imp-hint">L’enregistrement est revalidé côté serveur. En cas d’erreur, aucun import partiel n’est créé{replaceExisting ? " — et les opérations existantes ne sont supprimées qu’après une insertion réussie" : ""}.</p>
               <div className="pea-form-actions">
                 <button type="button" className="secondary-button" onClick={() => setStep(4)}>Retour</button>
-                <button type="button" className="primary-button" disabled={busy} onClick={commit}>{busy ? "Import…" : "Confirmer l'import"}</button>
+                <button type="button" className={replaceExisting ? "danger-button" : "primary-button"} disabled={busy || (replaceExisting && replaceConfirm.trim() !== account.name.trim())} onClick={commit}>
+                  {busy ? "Import…" : replaceExisting ? "Remplacer le portefeuille" : "Confirmer l'import"}
+                </button>
               </div>
             </div>
           )}
@@ -396,7 +532,8 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
             <div className="imp-panel imp-result">
               <span className="imp-result-icon" aria-hidden="true">✓</span>
               <h3>Import terminé</h3>
-              <p><b>{result.imported}</b> opération(s) importée(s){result.duplicates ? `, ${result.duplicates} doublon(s) exclus` : ""}{result.newInstruments ? `, ${result.newInstruments} instrument(s) créé(s)` : ""}.</p>
+              <p><b>{result.imported}</b> opération(s) importée(s){result.replaced ? `, ${result.replaced} ancienne(s) opération(s) remplacée(s)` : ""}{result.duplicates ? `, ${result.duplicates} doublon(s) exclus` : ""}{result.newInstruments ? `, ${result.newInstruments} instrument(s) créé(s)` : ""}.</p>
+              <p className="imp-hint">Les cours issus d’un fichier peuvent être périmés&nbsp;: depuis l’onglet «&nbsp;Mes positions&nbsp;», utilisez <b>Actualiser les cours</b> pour les relire auprès d’un fournisseur de marché.</p>
               {result.tracking === "limited" && <p className="imp-hint">Import enregistré. La migration de traçabilité des imports n&apos;est pas encore appliquée : le portefeuille fonctionne, mais l&apos;historique détaillé et le dédoublonnage inter-imports seront complets après application de la migration Supabase.</p>}
               <p className="imp-hint">Le portefeuille (valeur, positions, prix de revient) a été recalculé à partir des opérations.</p>
               <div className="pea-form-actions">

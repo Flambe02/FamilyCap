@@ -8,7 +8,7 @@
 // impact du change), 3e carte de répartition (géographique vs devise), vue agrégée multi-compte,
 // colonnes du tableau de positions, cartes « Investir », champs de la modale, FAQ, états vides.
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { Viewer } from "../lib/auth-types";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { authenticatedFetch, OP_LABEL, OP_ICON, OP_INFLOW } from "./investment-shared";
@@ -19,8 +19,8 @@ import {
   EvolutionChart, PeriodFilter, EmptyState, InfoNote, type ChartSeries,
 } from "./bitcoin-components";
 import {
-  computeAccountModel, windowAccountTimeline, supportedRanges, priceKeyOf,
-  type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice,
+  computeAccountModel, windowAccountTimeline, supportedRanges, priceKeyOf, instrumentKey,
+  type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice, type PortfolioPosition,
 } from "../lib/portfolio-account";
 import { computeMonthlyPlanProgress, type MonthlyPlanProgress } from "../lib/investment-plan";
 import "./pea-investments.css";
@@ -42,6 +42,16 @@ export type InvestmentOperation = AccountOperation;
 export type ShellInvestmentPlan = { monthlyTarget: number | null; targetAccountId: string | null };
 
 export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "performance" | "historique" | "comprendre" | "infos";
+
+// Compte rendu du rafraîchissement des cours (une ligne par position). Aucune valeur n'est
+// inventée : un instrument introuvable ou coté dans une autre devise est RAPPORTÉ, pas écrit.
+export type PriceRefreshRow = {
+  key: string; name: string; isin: string | null; ticker: string | null;
+  status: "updated" | "unchanged" | "not_found" | "currency_mismatch" | "provider_error";
+  price: number | null; currency: string | null; previousPrice: number | null;
+  asOf: string | null; provider: string | null; symbol: string | null; message: string | null;
+};
+export type PriceRefreshReport = { refreshed: number; failed: number; results: PriceRefreshRow[]; error?: string };
 
 // ---- Config d'enveloppe (PEA / CTO) ------------------------------------------------------
 export type EnvelopeConfig = {
@@ -119,6 +129,14 @@ export function InvestmentAccountShell({
   const [range, setRange] = useState<"1M" | "3M" | "6M" | "1A" | "3A" | "TOUT">("TOUT");
   const [modal, setModal] = useState<{ open: boolean; type: AccountOperationType; mode: "admin" | "member" }>({ open: false, type: "achat", mode: "admin" });
   const [importOpen, setImportOpen] = useState(false);
+  // Gestion des lignes : modification d'une opération existante, suppression (une ligne ou toute
+  // une position), et vidage complet du compte. Toutes ces actions passent par le serveur ; le
+  // portefeuille reste dérivé des opérations restantes (aucune quantité n'est stockée).
+  const [editingOp, setEditingOp] = useState<InvestmentOperation | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ title: string; detail: string; ids: string[] } | null>(null);
+  const [purgeAccount, setPurgeAccount] = useState<InvestmentAccount | null>(null);
+  const [pricesBusy, setPricesBusy] = useState(false);
+  const [priceReport, setPriceReport] = useState<PriceRefreshReport | null>(null);
   // Assistant de création de compte, ouvert EN PLACE (plus de détour par Administration).
   // `null` = fermé ; la valeur mémorise l'intention de départ pour proposer la bonne suite.
   const [setupIntent, setSetupIntent] = useState<SetupNext | null>(null);
@@ -219,6 +237,77 @@ export function InvestmentAccountShell({
     } catch {
       return { ok: false, error: "Réseau indisponible." };
     }
+  }
+
+  // Modification d'une ligne existante (admin). Le compte et le titulaire sont immuables côté
+  // serveur : seul le contenu de l'opération change, et la validation est identique à la création.
+  async function submitOperationEdit(payload: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const response = await authenticatedFetch("/api/pea/operations", {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, id: editingOp?.id }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) return { ok: false, error: result.error ?? "Modification impossible." };
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Réseau indisponible." };
+    }
+  }
+
+  // Suppression d'une ou plusieurs lignes (une opération, ou toutes celles d'une position).
+  async function deleteOperations(ids: string[]): Promise<{ ok: boolean; error?: string; removed?: number }> {
+    try {
+      const response = await authenticatedFetch(`/api/pea/operations?ids=${ids.map(encodeURIComponent).join(",")}`, { method: "DELETE" });
+      const result = (await response.json().catch(() => ({}))) as { error?: string; removed?: number };
+      if (!response.ok) return { ok: false, error: result.error ?? "Suppression impossible." };
+      return { ok: true, removed: result.removed };
+    } catch {
+      return { ok: false, error: "Réseau indisponible." };
+    }
+  }
+
+  // Vidage complet d'un compte : le nom exact du compte est exigé par le serveur (garde-fou).
+  async function purgeOperations(account: InvestmentAccount, confirm: string): Promise<{ ok: boolean; error?: string; removed?: number }> {
+    try {
+      const query = `accountId=${encodeURIComponent(account.id)}&scope=all&confirm=${encodeURIComponent(confirm)}`;
+      const response = await authenticatedFetch(`/api/pea/operations?${query}`, { method: "DELETE" });
+      const result = (await response.json().catch(() => ({}))) as { error?: string; removed?: number };
+      if (!response.ok) return { ok: false, error: result.error ?? "Suppression impossible." };
+      return { ok: true, removed: result.removed };
+    } catch {
+      return { ok: false, error: "Réseau indisponible." };
+    }
+  }
+
+  // Rafraîchissement des cours auprès d'un fournisseur de marché gratuit (Yahoo Finance, repli
+  // Stooq). N'écrit qu'un cours et son horodatage : ni quantité, ni prix de revient.
+  async function refreshPrices() {
+    if (!selectedAccount || pricesBusy) return;
+    setPricesBusy(true);
+    try {
+      const response = await authenticatedFetch("/api/admin/market/refresh", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accountId: selectedAccount.id }),
+      });
+      const data = (await response.json().catch(() => ({}))) as PriceRefreshReport & { error?: string };
+      if (!response.ok) {
+        setPriceReport({ refreshed: 0, failed: 0, results: [], error: data.error ?? "Mise à jour des cours impossible." });
+      } else {
+        setPriceReport({ refreshed: data.refreshed ?? 0, failed: data.failed ?? 0, results: data.results ?? [] });
+        onReload();
+      }
+    } catch {
+      setPriceReport({ refreshed: 0, failed: 0, results: [], error: "Réseau indisponible." });
+    }
+    setPricesBusy(false);
+  }
+
+  // Toutes les opérations d'une position (clé d'instrument), pour l'édition ligne à ligne.
+  function operationsOfPosition(key: string): InvestmentOperation[] {
+    return scopeOps
+      .filter((op) => instrumentKey({ isin: op.isin, ticker: op.ticker, assetName: op.assetName }) === key)
+      .sort((a, b) => b.date.localeCompare(a.date));
   }
 
   // Progression de l'objectif mensuel : dérivée des ACHATS réels du mois civil, sur le compte
@@ -336,8 +425,33 @@ export function InvestmentAccountShell({
               onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })}
               onReport={() => setNotice("Le report sera enregistré dans une prochaine version. Saisissez le versement le moment venu.")} recent={scopeOps} />
           )}
-          {tab === "positions" && <PositionsTab config={config} model={model!} />}
-          {tab === "historique" && <HistoriqueTab config={config} operations={scopeOps} accountNameById={accountNameById} canManage={canManage} onImport={importAccount ? () => setImportOpen(true) : undefined} />}
+          {tab === "positions" && (
+            <PositionsTab config={config} model={model!} canManage={canManage}
+              canRefreshPrices={canManage && selectedAccount !== null} pricesBusy={pricesBusy} onRefreshPrices={refreshPrices}
+              priceReport={priceReport} onDismissPriceReport={() => setPriceReport(null)}
+              operationsOfPosition={operationsOfPosition}
+              onEditOperation={setEditingOp}
+              onDeletePosition={(position) => {
+                const ids = operationsOfPosition(position.key).map((op) => op.id);
+                setConfirmDelete({
+                  title: `Supprimer la position « ${position.name} » ?`,
+                  detail: `${ids.length} opération(s) liée(s) à cet actif seront définitivement supprimées. La position disparaîtra du portefeuille (elle en est dérivée). Les versements et les autres actifs ne sont pas touchés.`,
+                  ids,
+                });
+              }}
+              onAddOperation={canManage ? () => setModal({ open: true, type: "achat", mode: "admin" }) : undefined} />
+          )}
+          {tab === "historique" && (
+            <HistoriqueTab config={config} operations={scopeOps} accountNameById={accountNameById} canManage={canManage}
+              onImport={importAccount ? () => setImportOpen(true) : undefined}
+              onEdit={setEditingOp}
+              onDelete={(op) => setConfirmDelete({
+                title: "Supprimer cette opération ?",
+                detail: `${OP_LABEL[op.type]} du ${dateOf(op.date)}${op.assetName ? ` · ${op.assetName}` : ""}. La suppression est définitive ; le portefeuille sera recalculé à partir des opérations restantes.`,
+                ids: [op.id],
+              })}
+              onPurge={selectedAccount ? () => setPurgeAccount(selectedAccount) : undefined} />
+          )}
           {tab === "revenus" && <RevenusTab model={model!} operations={scopeOps} />}
           {tab === "investir" && <InvestirTab config={config} model={model!} canManage={canManage} memberCanRecord={memberCanRecord} onAdd={(type) => setModal({ open: true, type, mode: "admin" })} onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })} />}
           {tab === "performance" && <PerformanceTab model={model!} onGoto={setTab} />}
@@ -368,6 +482,41 @@ export function InvestmentAccountShell({
         <InvestmentImportWizard account={importAccount}
           onClose={() => setImportOpen(false)}
           onDone={() => { setNotice("Import enregistré."); onReload(); }} />
+      )}
+      {editingOp && canManage && (
+        <InvestmentOperationModal config={config} accounts={envAccounts.filter((item) => item.id === editingOp.accountId)}
+          defaultAccountId={editingOp.accountId} defaultType={editingOp.type} editing={editingOp}
+          onClose={() => setEditingOp(null)}
+          onSubmit={submitOperationEdit}
+          onSaved={() => { setEditingOp(null); setNotice("Opération modifiée."); onReload(); }} />
+      )}
+      {confirmDelete && canManage && (
+        <ConfirmDangerDialog title={confirmDelete.title} detail={confirmDelete.detail}
+          confirmLabel={confirmDelete.ids.length > 1 ? `Supprimer ${confirmDelete.ids.length} opérations` : "Supprimer"}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={async () => {
+            const result = await deleteOperations(confirmDelete.ids);
+            if (!result.ok) return result.error ?? "Suppression impossible.";
+            setConfirmDelete(null);
+            setNotice(`${result.removed ?? confirmDelete.ids.length} opération(s) supprimée(s).`);
+            onReload();
+            return null;
+          }} />
+      )}
+      {purgeAccount && canManage && (
+        <ConfirmDangerDialog title={`Vider le portefeuille « ${purgeAccount.name} » ?`}
+          detail="TOUTES les opérations de ce compte (versements, achats, ventes, dividendes, frais) seront définitivement supprimées. Le compte lui-même, ses informations et le référentiel des cours sont conservés. Cette action est irréversible."
+          confirmLabel="Vider le portefeuille"
+          challenge={{ label: "Saisissez le nom exact du compte pour confirmer", expected: purgeAccount.name }}
+          onCancel={() => setPurgeAccount(null)}
+          onConfirm={async (value) => {
+            const result = await purgeOperations(purgeAccount, value);
+            if (!result.ok) return result.error ?? "Suppression impossible.";
+            setPurgeAccount(null);
+            setNotice(`${result.removed ?? 0} opération(s) supprimée(s). Le portefeuille est vide.`);
+            onReload();
+            return null;
+          }} />
       )}
       {notice && <div className="toast" role="status">✓ {notice}</div>}
     </div>
@@ -597,12 +746,36 @@ export function OperationList({ operations, subtitle }: { operations: Investment
 // ==========================================================================================
 const ASSET_LABEL: Record<string, string> = { etf: "ETF", action: "Action", obligation: "Obligation", fonds: "Fonds", autre: "Autre" };
 
-function PositionsTab({ config, model }: { config: EnvelopeConfig; model: AccountModel }) {
+// Fraîcheur d'un cours, telle quelle (jamais arrondie à l'avantage de l'affichage).
+function priceAge(lastPriceAt: string | null): string | null {
+  if (!lastPriceAt) return null;
+  const stamp = new Date(lastPriceAt).getTime();
+  if (!Number.isFinite(stamp)) return null;
+  const days = Math.floor((Date.now() - stamp) / 86_400_000);
+  if (days <= 0) return "aujourd’hui";
+  if (days === 1) return "hier";
+  return `il y a ${days} j`;
+}
+
+function PositionsTab({
+  config, model, canManage, canRefreshPrices, pricesBusy, onRefreshPrices, priceReport, onDismissPriceReport,
+  operationsOfPosition, onEditOperation, onDeletePosition, onAddOperation,
+}: {
+  config: EnvelopeConfig; model: AccountModel; canManage: boolean;
+  canRefreshPrices: boolean; pricesBusy: boolean; onRefreshPrices: () => void;
+  priceReport: PriceRefreshReport | null; onDismissPriceReport: () => void;
+  operationsOfPosition: (key: string) => InvestmentOperation[];
+  onEditOperation: (op: InvestmentOperation) => void;
+  onDeletePosition: (position: PortfolioPosition) => void;
+  onAddOperation?: () => void;
+}) {
   const cto = config.positionsVariant === "cto";
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
+  // Position dont on déplie les lignes (opérations) pour les modifier une à une.
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   const accountOptions = useMemo(() => [...new Set(model.positions.flatMap((position) => position.accounts))].sort(), [model.positions]);
   const currencyOptions = useMemo(() => [...new Set(model.positions.map((position) => position.currency))].sort(), [model.positions]);
@@ -623,6 +796,17 @@ function PositionsTab({ config, model }: { config: EnvelopeConfig; model: Accoun
     <section className="panel table-panel btc-table-card">
       <div className="inv-positions-head">
         <h3 className="btc-panel-kicker">DÉTAIL DES POSITIONS</h3>
+        {canManage && (
+          <div className="inv-actions">
+            {canRefreshPrices && (
+              <button type="button" className="secondary-button inv-import-btn" disabled={pricesBusy} onClick={onRefreshPrices}
+                title="Relit le cours de chaque position auprès d’un fournisseur de marché gratuit (Yahoo Finance, repli Stooq)">
+                {pricesBusy ? "Mise à jour des cours…" : "↻ Actualiser les cours"}
+              </button>
+            )}
+            {onAddOperation && <button type="button" className="secondary-button inv-import-btn" onClick={onAddOperation}>+ Ajouter une ligne</button>}
+          </div>
+        )}
         {cto && model.positions.length > 0 && (
           <div className="inv-filters">
             <label><span className="sr-only">Rechercher une position</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher…" /></label>
@@ -651,6 +835,7 @@ function PositionsTab({ config, model }: { config: EnvelopeConfig; model: Accoun
           </div>
         )}
       </div>
+      {priceReport && <PriceRefreshPanel report={priceReport} onDismiss={onDismissPriceReport} />}
       {model.positions.length === 0 ? (
         <EmptyState title="Aucune position" description="Aucune position détenue à ce jour." />
       ) : filtered.length === 0 ? (
@@ -660,14 +845,18 @@ function PositionsTab({ config, model }: { config: EnvelopeConfig; model: Accoun
           <table className="btc-table">
             <thead>
               {cto ? (
-                <tr><th>Actif</th><th>Type</th><th>Compte</th><th>Quantité</th><th>PRU</th><th>Cours</th><th>Devise</th><th>Valeur</th><th>Gain</th><th>Poids</th></tr>
+                <tr><th>Actif</th><th>Type</th><th>Compte</th><th>Quantité</th><th>PRU</th><th>Cours</th><th>Devise</th><th>Valeur</th><th>Gain</th><th>Poids</th>{canManage && <th>Actions</th>}</tr>
               ) : (
-                <tr><th>Actif</th><th>Type</th><th>Ticker / ISIN</th><th>Quantité</th><th>Prix de revient</th><th>Cours</th><th>Valeur</th><th>Poids</th><th>Perf.</th></tr>
+                <tr><th>Actif</th><th>Type</th><th>Ticker / ISIN</th><th>Quantité</th><th>Prix de revient</th><th>Cours</th><th>Valeur</th><th>Poids</th><th>Perf.</th>{canManage && <th>Actions</th>}</tr>
               )}
             </thead>
             <tbody>
-              {filtered.map((position) => (
-                <tr key={position.key}>
+              {filtered.map((position) => {
+                const lines = canManage && openKey === position.key ? operationsOfPosition(position.key) : [];
+                const age = priceAge(position.lastPriceAt);
+                return (
+                <Fragment key={position.key}>
+                <tr>
                   <td data-label="Actif"><strong>{position.name}</strong>{cto && (position.ticker || position.isin) ? <><br /><small className="inv-muted">{position.ticker ?? position.isin}</small></> : null}</td>
                   <td data-label="Type">{ASSET_LABEL[position.assetClass] ?? "Autre"}</td>
                   {cto ? (
@@ -677,7 +866,10 @@ function PositionsTab({ config, model }: { config: EnvelopeConfig; model: Accoun
                   )}
                   <td data-label="Quantité" className="num">{qty.format(position.quantity)}</td>
                   <td data-label={cto ? "PRU" : "Prix de revient"} className="num">{position.averageCost === null ? "—" : euro.format(position.averageCost)}</td>
-                  <td data-label="Cours" className="num">{position.lastPrice === null ? "Indispo." : euro.format(position.lastPrice)}</td>
+                  <td data-label="Cours" className="num">
+                    {position.lastPrice === null ? "Indispo." : euro.format(position.lastPrice)}
+                    {age && <><br /><small className="inv-muted">{age}</small></>}
+                  </td>
                   {cto && <td data-label="Devise">{position.currency}</td>}
                   <td data-label="Valeur" className="num">{position.currentValueEur === null ? "—" : euro.format(position.currentValueEur)}</td>
                   {cto ? (
@@ -685,21 +877,104 @@ function PositionsTab({ config, model }: { config: EnvelopeConfig; model: Accoun
                   ) : null}
                   <td data-label="Poids" className="num">{position.currentValueEur === null ? "—" : `${position.weightPct.toFixed(1)} %`}</td>
                   {!cto && <td data-label="Perf." className="num">{position.gainPct === null ? "—" : <span className={position.gainPct >= 0 ? "up" : "down"}>{position.gainPct >= 0 ? "+" : ""}{position.gainPct.toFixed(1)} %</span>}</td>}
+                  {canManage && (
+                    <td data-label="Actions">
+                      <div className="inv-row-actions">
+                        <button type="button" className="inv-icon-btn" aria-expanded={openKey === position.key}
+                          onClick={() => setOpenKey(openKey === position.key ? null : position.key)}
+                          title="Voir et modifier les opérations de cette position">
+                          {openKey === position.key ? "▾ Lignes" : "▸ Lignes"}
+                        </button>
+                        <button type="button" className="inv-icon-btn inv-icon-danger" onClick={() => onDeletePosition(position)}
+                          title="Supprimer toutes les opérations de cette position">🗑</button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
-              ))}
+                {lines.length > 0 && (
+                  <tr className="inv-lines-row">
+                    <td colSpan={cto ? 11 : 10}>
+                      <div className="inv-lines">
+                        <p className="inv-lines-head">
+                          {lines.length} opération(s) sur <b>{position.name}</b>. La quantité et le prix de revient en découlent&nbsp;: corrigez une ligne, le portefeuille se recalcule.
+                        </p>
+                        <ul>
+                          {lines.map((op) => (
+                            <li key={op.id}>
+                              <span className="inv-line-date">{dateOf(op.date)}</span>
+                              <span className="inv-line-type">{OP_ICON[op.type]} {OP_LABEL[op.type]}</span>
+                              <span className="inv-line-qty">{op.quantity ? `${qty.format(op.quantity)} × ${op.unitPrice ? euro.format(op.unitPrice) : "—"}` : "—"}</span>
+                              <span className="inv-line-amount">{op.netAmount === null || op.netAmount === undefined ? "—" : euro.format(Math.abs(op.netAmount))}</span>
+                              <span className="inv-line-actions">
+                                <button type="button" className="inv-icon-btn" onClick={() => onEditOperation(op)} title="Modifier cette opération">✏️ Modifier</button>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
-      {model.unpricedPositions > 0 && <p className="btc-chart-source">{model.unpricedPositions} position(s) sans cours à jour : leur valeur n’est pas comptée dans le total. Renseignez le cours dans Administration › Comptes & positions.</p>}
+      {model.unpricedPositions > 0 && (
+        <p className="btc-chart-source">
+          {model.unpricedPositions} position(s) sans cours&nbsp;: leur valeur n’est pas comptée dans le total.
+          {canManage ? " Utilisez « Actualiser les cours » pour les relire auprès d’un fournisseur de marché, ou saisissez le cours dans Administration › Comptes & positions." : ""}
+        </p>
+      )}
     </section>
+  );
+}
+
+// Compte rendu du rafraîchissement : chaque position a une ligne, y compris les échecs. Rien
+// n'est masqué — une position sans cours doit se voir, pas disparaître du total en silence.
+function PriceRefreshPanel({ report, onDismiss }: { report: PriceRefreshReport; onDismiss: () => void }) {
+  const failures = report.results.filter((row) => row.status !== "updated" && row.status !== "unchanged");
+  return (
+    <div className={`inv-price-report${report.error || failures.length > 0 ? " warn" : ""}`} role="status">
+      <button type="button" className="inv-price-report-close" onClick={onDismiss} aria-label="Fermer">×</button>
+      {report.error ? (
+        <strong>{report.error}</strong>
+      ) : (
+        <>
+          <strong>{report.refreshed} cours mis à jour{failures.length > 0 ? `, ${failures.length} non résolu(s)` : ""}.</strong>
+          {report.results.some((row) => row.provider) && (
+            <small> Source&nbsp;: {[...new Set(report.results.map((row) => row.provider).filter(Boolean))].join(", ")}.</small>
+          )}
+          {failures.length > 0 && (
+            <>
+              <ul className="inv-price-report-list">
+                {failures.map((row) => (
+                  <li key={row.key}><b>{row.name}</b>{row.isin ? ` (${row.isin})` : ""} — {row.message ?? "Cours indisponible."}</li>
+                ))}
+              </ul>
+              {failures.some((row) => row.status === "currency_mismatch") && (
+                <small>
+                  Une position libellée dans la mauvaise devise vient généralement d’un import&nbsp;: si le fichier n’avait pas de colonne «&nbsp;devise&nbsp;», celle du compte a été reprise.
+                  Corrigez la devise sur les opérations concernées (onglet Historique&nbsp;› ✏️) pour que le cours puisse s’appliquer.
+                </small>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
 // ==========================================================================================
 // HISTORIQUE
 // ==========================================================================================
-function HistoriqueTab({ config, operations, accountNameById, canManage, onImport }: { config: EnvelopeConfig; operations: InvestmentOperation[]; accountNameById: Map<string, string>; canManage: boolean; onImport?: () => void }) {
+function HistoriqueTab({ config, operations, accountNameById, canManage, onImport, onEdit, onDelete, onPurge }: {
+  config: EnvelopeConfig; operations: InvestmentOperation[]; accountNameById: Map<string, string>; canManage: boolean;
+  onImport?: () => void; onEdit: (op: InvestmentOperation) => void; onDelete: (op: InvestmentOperation) => void; onPurge?: () => void;
+}) {
   const cto = config.positionsVariant === "cto";
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [accountFilter, setAccountFilter] = useState<string>("all");
@@ -713,7 +988,15 @@ function HistoriqueTab({ config, operations, accountNameById, canManage, onImpor
     <section className="panel table-panel btc-table-card">
       <div className="inv-positions-head">
         <h3 className="btc-panel-kicker">HISTORIQUE DES OPÉRATIONS</h3>
-        {canManage && onImport && <button type="button" className="secondary-button inv-import-btn" onClick={onImport}>⬆ Importer un fichier</button>}
+        {canManage && (
+          <div className="inv-actions">
+            {onImport && <button type="button" className="secondary-button inv-import-btn" onClick={onImport}>⬆ Importer un fichier</button>}
+            {onPurge && operations.length > 0 && (
+              <button type="button" className="danger-button inv-import-btn" onClick={onPurge}
+                title="Supprimer toutes les opérations de ce compte">🗑 Vider le portefeuille</button>
+            )}
+          </div>
+        )}
         {operations.length > 0 && (
           <div className="inv-filters">
             <label><span className="sr-only">Filtrer par type</span>
@@ -739,7 +1022,7 @@ function HistoriqueTab({ config, operations, accountNameById, canManage, onImpor
         <div className="responsive-table">
           <table className="btc-table">
             <thead>
-              <tr><th>Date</th><th>Type</th><th>Actif</th><th>Quantité</th><th>Prix</th><th>Frais</th><th>Montant net</th><th>Devise</th><th>Compte</th></tr>
+              <tr><th>Date</th><th>Type</th><th>Actif</th><th>Quantité</th><th>Prix</th><th>Frais</th><th>Montant net</th><th>Devise</th><th>Compte</th>{canManage && <th>Actions</th>}</tr>
             </thead>
             <tbody>
               {sorted.map((op) => (
@@ -753,6 +1036,14 @@ function HistoriqueTab({ config, operations, accountNameById, canManage, onImpor
                   <td data-label="Montant net" className="num">{op.netAmount === null || op.netAmount === undefined ? "—" : <span className={OP_INFLOW[op.type] ? "up" : "down"}>{OP_INFLOW[op.type] ? "+" : "−"}{euro.format(Math.abs(op.netAmount))}</span>}</td>
                   <td data-label="Devise">{op.currency}</td>
                   <td data-label="Compte">{op.accountName ?? accountNameById.get(op.accountId) ?? "—"}</td>
+                  {canManage && (
+                    <td data-label="Actions">
+                      <div className="inv-row-actions">
+                        <button type="button" className="inv-icon-btn" onClick={() => onEdit(op)} title="Modifier cette opération">✏️</button>
+                        <button type="button" className="inv-icon-btn inv-icon-danger" onClick={() => onDelete(op)} title="Supprimer cette opération">🗑</button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -1000,28 +1291,35 @@ export function InvestmentSkeleton() {
 // ==========================================================================================
 // MODALE D'OPÉRATION (admin) — générique PEA / CTO
 // ==========================================================================================
-function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultType, restrictToAchat = false, onClose, onSubmit, onSaved }: {
+// `editing` : opération existante à MODIFIER (sinon création). En modification, le compte n'est
+// pas changeable (le serveur l'impose : une opération ne déménage pas d'un compte à l'autre) et
+// tous les types restent proposés — une ligne importée peut être une « correction ».
+const num2 = (value: number | null | undefined) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? "" : String(value));
+
+function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultType, restrictToAchat = false, editing = null, onClose, onSubmit, onSaved }: {
   config: EnvelopeConfig; accounts: InvestmentAccount[]; defaultAccountId: string; defaultType: AccountOperationType; restrictToAchat?: boolean;
+  editing?: InvestmentOperation | null;
   onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>; onSaved: () => void;
 }) {
   const dialogRef = useDialogA11y(true, onClose);
   const [accountId, setAccountId] = useState(defaultAccountId);
   const [type, setType] = useState<AccountOperationType>(defaultType);
-  const [date, setDate] = useState(todayISO());
-  const [assetName, setAssetName] = useState("");
-  const [ticker, setTicker] = useState("");
-  const [isin, setIsin] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [unitPrice, setUnitPrice] = useState("");
-  const [amount, setAmount] = useState("");
-  const [fees, setFees] = useState("");
+  const [date, setDate] = useState(editing?.date ?? todayISO());
+  const [assetName, setAssetName] = useState(editing?.assetName ?? "");
+  const [ticker, setTicker] = useState(editing?.ticker ?? "");
+  const [isin, setIsin] = useState(editing?.isin ?? "");
+  const [quantity, setQuantity] = useState(num2(editing?.quantity));
+  const [unitPrice, setUnitPrice] = useState(num2(editing?.unitPrice));
+  const [amount, setAmount] = useState(num2(editing?.netAmount ?? editing?.grossAmount));
+  const [fees, setFees] = useState(num2(editing?.fees));
   const [taxes, setTaxes] = useState("");
   const account = accounts.find((item) => item.id === accountId) ?? accounts[0];
-  const [currency, setCurrency] = useState(account?.currency ?? "EUR");
+  const [currency, setCurrency] = useState(editing?.currency ?? account?.currency ?? "EUR");
   const [exchangeRate, setExchangeRate] = useState("");
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(editing?.note ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const isEditing = editing !== null;
 
   const isTransfer = type === "transfer_in" || type === "transfer_out";
   const needsAsset = type === "achat" || type === "vente" || type === "dividende" || type === "correction" || isTransfer;
@@ -1029,7 +1327,10 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
   const needsAmount = type === "versement" || type === "retrait" || type === "frais" || type === "dividende";
   const needsQtyOnly = type === "correction";
   const advanced = config.modalAdvanced;
-  const showCurrency = advanced && (needsAsset || needsAmount);
+  // La devise est toujours modifiable en correction, y compris sur un PEA : un import sans
+  // colonne « devise » a repris celle du compte, et c'est précisément ce qu'il faut pouvoir
+  // rectifier pour qu'un cours de marché puisse s'appliquer à la position.
+  const showCurrency = (advanced || isEditing) && (needsAsset || needsAmount);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -1060,11 +1361,16 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
     <div className="modal-backdrop" onMouseDown={(event) => !saving && event.target === event.currentTarget && onClose()}>
       <section className="modal pea-modal" ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Enregistrer une opération ${envLabel}`} tabIndex={-1}>
         <header className="pea-modal-head">
-          <div><span className="soft-pill">{envLabel} · {account?.memberName ?? account?.name}</span><h2>Enregistrer une opération</h2></div>
+          <div><span className="soft-pill">{envLabel} · {account?.memberName ?? account?.name}</span><h2>{isEditing ? "Modifier une opération" : "Enregistrer une opération"}</h2></div>
           <button type="button" className="pea-modal-close" onClick={onClose} aria-label="Fermer">×</button>
         </header>
         <form className="pea-form" onSubmit={handleSubmit}>
-          {accounts.length > 1 && (
+          {isEditing && (
+            <p className="imp-hint pea-field-wide">
+              Le portefeuille est <b>dérivé</b> des opérations&nbsp;: corriger cette ligne recalcule automatiquement la quantité, le prix de revient et la valeur. Le compte porteur n’est pas modifiable.
+            </p>
+          )}
+          {accounts.length > 1 && !isEditing && (
             <label className="pea-field pea-field-wide">
               <span>Compte</span>
               <select value={accountId} onChange={(event) => { setAccountId(event.target.value); const next = accounts.find((item) => item.id === event.target.value); if (next) setCurrency(next.currency); }}>
@@ -1083,6 +1389,8 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
               <select value={type} onChange={(event) => setType(event.target.value as AccountOperationType)}>
                 {config.investCards.map((value) => <option key={value} value={value}>{OP_LABEL[value]}</option>)}
                 {!config.investCards.includes("correction") && <option value="correction">Correction</option>}
+                {/* En modification, le type d'origine reste proposé même s'il n'est pas dans les cartes. */}
+                {isEditing && !config.investCards.includes(type) && type !== "correction" && <option value={type}>{OP_LABEL[type]}</option>}
               </select>
             </label>
           )}
@@ -1122,9 +1430,62 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
           {error && <p className="pea-form-error" role="alert">{error}</p>}
           <div className="pea-form-actions">
             <button type="button" className="secondary-button" onClick={onClose}>Annuler</button>
-            <button type="submit" className="primary-button" disabled={saving}>{saving ? "Enregistrement…" : "Enregistrer"}</button>
+            <button type="submit" className="primary-button" disabled={saving}>{saving ? "Enregistrement…" : isEditing ? "Enregistrer les modifications" : "Enregistrer"}</button>
           </div>
         </form>
+      </section>
+    </div>
+  );
+}
+
+// ==========================================================================================
+// CONFIRMATION D'UNE ACTION DESTRUCTIVE
+// ==========================================================================================
+// `challenge` : pour les actions les plus lourdes (vider un compte), l'utilisateur doit RECOPIER
+// une valeur (le nom du compte). Le serveur exige la même chose : la garde n'est pas seulement
+// visuelle. `onConfirm` renvoie un message d'erreur, ou null en cas de succès.
+function ConfirmDangerDialog({ title, detail, confirmLabel, challenge, onCancel, onConfirm }: {
+  title: string; detail: string; confirmLabel: string;
+  challenge?: { label: string; expected: string };
+  onCancel: () => void;
+  onConfirm: (value: string) => Promise<string | null>;
+}) {
+  const dialogRef = useDialogA11y(true, onCancel);
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ready = !challenge || value.trim() === challenge.expected.trim();
+
+  async function confirm() {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    const message = await onConfirm(value.trim());
+    setBusy(false);
+    if (message) setError(message);
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => !busy && event.target === event.currentTarget && onCancel()}>
+      <section className="modal pea-modal inv-confirm-modal" ref={dialogRef} role="alertdialog" aria-modal="true" aria-label={title} tabIndex={-1}>
+        <header className="pea-modal-head">
+          <div><span className="soft-pill inv-pill-danger">Action irréversible</span><h2>{title}</h2></div>
+          <button type="button" className="pea-modal-close" onClick={onCancel} aria-label="Fermer">×</button>
+        </header>
+        <div className="inv-confirm-body">
+          <p>{detail}</p>
+          {challenge && (
+            <label className="pea-field pea-field-wide">
+              <span>{challenge.label}</span>
+              <input value={value} onChange={(event) => setValue(event.target.value)} placeholder={challenge.expected} autoComplete="off" />
+            </label>
+          )}
+          {error && <p className="pea-form-error" role="alert">{error}</p>}
+          <div className="pea-form-actions">
+            <button type="button" className="secondary-button" onClick={onCancel} disabled={busy}>Annuler</button>
+            <button type="button" className="danger-button" onClick={confirm} disabled={!ready || busy}>{busy ? "Suppression…" : confirmLabel}</button>
+          </div>
+        </div>
       </section>
     </div>
   );

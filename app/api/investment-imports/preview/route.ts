@@ -1,11 +1,12 @@
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
 import {
-  parseCsv, autoMapHeaders, buildPreview, detectDateFormat, IMPORT_FIELDS,
-  type ImportField, type DateFormat,
+  parseCsv, autoMapHeaders, buildPreview, detectDateFormat, detectNumberFormat, numericSamples, IMPORT_FIELDS,
+  type ImportField, type DateFormat, type NumberFormat,
 } from "../../../../lib/investment-import";
 import { parseSpreadsheet, tableToHeaderRows } from "../../../../lib/xlsx-lite";
 import {
   autoMapSnapshotHeaders, buildSnapshotPreview, extractSnapshotDate, isPortfolioSnapshotHeader,
+  snapshotNumericSamples,
 } from "../../../../lib/portfolio-snapshot-import";
 import {
   loadImportAccount, loadImportContext, isOperationAccount, MAX_FILE_BYTES, MAX_ROWS,
@@ -46,6 +47,8 @@ export async function POST(request: Request) {
     const file = form.get("file");
     const accountId = String(form.get("accountId") ?? "").trim();
     const dateFormatRaw = String(form.get("dateFormat") ?? "").trim();
+    const numberFormatRaw = String(form.get("numberFormat") ?? "").trim();
+    const numberFormatOverride: NumberFormat | null = numberFormatRaw === "fr" || numberFormatRaw === "us" ? numberFormatRaw : null;
     const snapshotDateRaw = String(form.get("snapshotDate") ?? "").trim();
     const mappingOverride = parseMapping(form.get("mapping") ? String(form.get("mapping")) : null);
 
@@ -91,12 +94,15 @@ export async function POST(request: Request) {
           columns: header,
         }, { status: 422 });
       }
+      const snapshotMapping = autoMapSnapshotHeaders(header);
+      const snapshotNumberFormat = numberFormatOverride ?? detectNumberFormat(snapshotNumericSamples(rows, snapshotMapping));
       const snapshot = buildSnapshotPreview({
         rows,
-        mapping: autoMapSnapshotHeaders(header),
+        mapping: snapshotMapping,
         asOfDate,
         accountCurrency: account.currency,
         holdings: context.holdings,
+        numberFormat: snapshotNumberFormat,
       });
       return Response.json({
         mode: "snapshot",
@@ -105,6 +111,7 @@ export async function POST(request: Request) {
         columns: header,
         mapping: autoMapHeaders(header),
         dateFormat: "fr",
+        numberFormat: snapshotNumberFormat,
         allowAdvanced: context.allowAdvanced,
         knownHoldings: context.holdings,
         summary: snapshot.summary,
@@ -117,10 +124,12 @@ export async function POST(request: Request) {
       ? dateFormatRaw
       : detectDateFormat(rows.map((r) => (mapping.date >= 0 ? r[mapping.date] ?? "" : "")));
 
+    const numberFormat: NumberFormat = numberFormatOverride ?? detectNumberFormat(numericSamples(rows, mapping));
+
     const { rows: previewRows, summary } = buildPreview({
       rows, mapping, accountId: account.id, accountCurrency: account.currency, accountType: context.kind,
       holdings: context.holdings, existingFingerprints: context.existingFingerprints, existingExternalRefs: context.existingExternalRefs,
-      openingQuantities: context.openingQuantities, dateFormat, allowAdvanced: context.allowAdvanced,
+      openingQuantities: context.openingQuantities, dateFormat, numberFormat, allowAdvanced: context.allowAdvanced,
     });
 
     return Response.json({
@@ -128,6 +137,7 @@ export async function POST(request: Request) {
       columns: header,
       mapping,
       dateFormat,
+      numberFormat,
       allowAdvanced: context.allowAdvanced,
       knownHoldings: context.holdings,
       summary,

@@ -88,14 +88,30 @@ async function detectImportTracking(): Promise<boolean> {
   }
 }
 
-export async function loadImportContext(account: ImportAccount): Promise<ImportContext> {
+export type ImportContextOptions = {
+  /** Opérations à IGNORER dans le contexte (ex. la ligne en cours de modification). */
+  excludeOperationIds?: string[];
+  /**
+   * Ignorer TOUTES les opérations existantes : utilisé par l'import « remplacer le portefeuille »
+   * (elles seront supprimées) et par la modification d'une ligne. Les quantités d'ouverture
+   * repartent alors de zéro et aucun doublon n'est opposé à des lignes vouées à disparaître.
+   */
+  ignoreExistingOperations?: boolean;
+};
+
+export async function loadImportContext(account: ImportAccount, options: ImportContextOptions = {}): Promise<ImportContext> {
   const kind: "PEA" | "CTO" = account.accountType === "pea" ? "PEA" : "CTO";
-  const [holdingRows, operationRows, allowAdvanced, importTracking] = await Promise.all([
+  const [holdingRows, allOperationRows, allowAdvanced, importTracking] = await Promise.all([
     supabaseRest<HoldingRow[]>(`holdings?select=id,account_id,asset_type,name,symbol,isin,quantity,average_cost,last_price,last_price_at,currency&account_id=eq.${encodeURIComponent(account.id)}`),
     fetchExistingOperations(account.id),
     detectAdvanced(),
     detectImportTracking(),
   ]);
+
+  const excluded = new Set(options.excludeOperationIds ?? []);
+  const operationRows = options.ignoreExistingOperations
+    ? []
+    : allOperationRows.filter((op) => !excluded.has(op.id));
 
   const holdings: HoldingRef[] = holdingRows.map((h) => ({ id: h.id, isin: h.isin, symbol: h.symbol, name: h.name }));
 

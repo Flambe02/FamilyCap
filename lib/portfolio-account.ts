@@ -64,6 +64,7 @@ export type PortfolioPosition = {
   averageCost: number | null; // prix de revient unitaire moyen pondéré (CUMP/PMP)
   investedEur: number; // prix de revient de la quantité encore détenue
   lastPrice: number | null;
+  lastPriceAt: string | null; // horodatage du cours (fraîcheur affichée, jamais estimée)
   currentValueEur: number | null; // null si aucun cours disponible
   gainEur: number | null;
   gainPct: number | null;
@@ -299,6 +300,7 @@ export function computeAccountModel(params: {
         averageCost: acc.qty > EPS ? acc.cost / acc.qty : null,
         investedEur: acc.cost,
         lastPrice,
+        lastPriceAt: lastPrice === null ? null : price?.lastPriceAt ?? null,
         currentValueEur,
         gainEur,
         gainPct,

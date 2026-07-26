@@ -15,8 +15,16 @@ import { reconcileOnboardingForMember } from "../../../../lib/onboarding-challen
 //
 // Gardes serveur ajoutées : compte introuvable / de type incompatible / archivé, et — pour un
 // PEA — refus d'une vente supérieure à la quantité détenue (dérivée des opérations existantes).
+//
+// Verbes :
+//   POST   — créer une opération
+//   PATCH  — MODIFIER une opération existante (même validation ; compte et titulaire immuables)
+//   DELETE — supprimer : ?id= (une), ?ids=a,b,c (plusieurs, ex. toute une position),
+//            ou ?accountId=…&scope=all&confirm=<nom du compte> (vider le compte)
 
 export const runtime = "nodejs";
+
+type OperationRow = { id: string; account_id: string; member_id: string };
 
 function setupResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erreur Supabase";
@@ -72,22 +80,130 @@ export async function POST(request: Request) {
   }
 }
 
+// ------------------------------------------------------------------------------------------
+// PATCH — modification d'une opération existante
+// ------------------------------------------------------------------------------------------
+// Le compte porteur et le titulaire NE SONT PAS modifiables (une opération ne « déménage » pas
+// d'un compte à l'autre : on la supprime et on la ressaisit). Tout le reste repasse par la même
+// validation que la création. La garde PEA « vente > détenu » est rejouée en EXCLUANT la ligne
+// en cours de modification, sinon elle se bloquerait elle-même.
+export async function PATCH(request: Request) {
+  try {
+    await requireAdmin(request);
+    const body = (await request.json()) as OperationInput & { id?: string };
+    const id = String(body.id ?? "").trim();
+    if (!id) return Response.json({ error: "Opération manquante." }, { status: 400 });
+
+    const existing = await supabaseRest<OperationRow[]>(
+      `account_operations?select=id,account_id,member_id&id=eq.${encodeURIComponent(id)}&limit=1`,
+    );
+    const current = existing[0];
+    if (!current) return Response.json({ error: "Opération introuvable." }, { status: 404 });
+
+    const account = await loadImportAccount(current.account_id);
+    if (!account) return Response.json({ error: "Compte introuvable." }, { status: 404 });
+    if (!isOperationAccount(account.accountType)) return Response.json({ error: "Ce type de compte n'accepte pas d'opérations (PEA ou compte-titres uniquement)." }, { status: 400 });
+    if (!account.isActive) return Response.json({ error: "Ce compte est archivé : réactivez-le avant de modifier une opération." }, { status: 409 });
+
+    const type = (body.type ?? "").trim();
+    if (account.accountType === "pea" && (type === "vente" || type === "transfer_out")) {
+      const context = await loadImportContext(account, { excludeOperationIds: [id] });
+      const key = instrumentKeyOf({ isin: body.isin ?? null, ticker: body.ticker ?? null, instrumentName: body.assetName ?? null });
+      const held = context.openingQuantities[key] ?? 0;
+      const wanted = Number(body.quantity ?? 0);
+      if (wanted > held + 1e-9) {
+        return Response.json({ error: `Vente impossible : ${wanted} demandé(s) pour ${held} détenu(s) sur ce PEA (hors cette ligne).` }, { status: 422 });
+      }
+    }
+
+    // member_id repris de la ligne existante (jamais du client), source explicitée : une ligne
+    // importée puis corrigée à la main ne doit plus se présenter comme une donnée brute d'import.
+    const built = buildOperationRecord(body, { memberId: current.member_id, source: body.source?.trim() || "saisie manuelle (modifiée)" });
+    if (!built.ok) return Response.json({ error: built.error }, { status: 400 });
+
+    // account_id / member_id retirés du patch : immuables par construction.
+    const { member_id: _member, ...changes } = built.record as Record<string, unknown> & { member_id?: unknown };
+    void _member;
+    // L'empreinte d'import ne décrit plus le contenu après correction : on la neutralise pour ne
+    // pas faire échouer (ni faussement réussir) un dédoublonnage ultérieur.
+    await patchOperation(id, { ...changes, import_fingerprint: null });
+
+    try { await reconcileMemberForActive(current.member_id); } catch { /* best-effort */ }
+    try { await reconcileOnboardingForMember(current.member_id); } catch { /* best-effort */ }
+    return Response.json({ updated: true, id });
+  } catch (error) {
+    return setupResponse(error);
+  }
+}
+
+/** PATCH tolérant : réessaie sans les colonnes d'import si la migration 20260726 n'est pas jouée. */
+async function patchOperation(id: string, changes: Record<string, unknown>) {
+  const path = `account_operations?id=eq.${encodeURIComponent(id)}`;
+  try {
+    await supabaseRest(path, { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify(changes) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!/import_fingerprint|external_reference|42703|PGRST204/.test(message)) throw error;
+    const { import_fingerprint: _fp, external_reference: _ref, ...rest } = changes;
+    void _fp; void _ref;
+    await supabaseRest(path, { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify(rest) });
+  }
+}
+
+// ------------------------------------------------------------------------------------------
+// DELETE — une opération, un lot d'opérations (position entière), ou tout un compte
+// ------------------------------------------------------------------------------------------
 export async function DELETE(request: Request) {
   try {
     await requireAdmin(request);
-    const id = new URL(request.url).searchParams.get("id");
-    if (!id) return Response.json({ error: "Opération manquante." }, { status: 400 });
-    // Membre porteur (avant suppression) pour recalculer sa progression de défi ensuite.
-    const owner = await supabaseRest<Array<{ member_id: string }>>(`account_operations?select=member_id&id=eq.${encodeURIComponent(id)}&limit=1`).catch(() => [] as Array<{ member_id: string }>);
-    await supabaseRest(`account_operations?id=eq.${encodeURIComponent(id)}`, {
+    const params = new URL(request.url).searchParams;
+    const id = params.get("id");
+    const idsRaw = params.get("ids");
+    const accountId = params.get("accountId");
+    const scope = params.get("scope");
+
+    // ---- Vidage complet d'un compte (destructif : confirmation explicite exigée) ----
+    if (scope === "all") {
+      if (!accountId) return Response.json({ error: "Le compte est obligatoire." }, { status: 400 });
+      const account = await loadImportAccount(accountId);
+      if (!account) return Response.json({ error: "Compte introuvable." }, { status: 404 });
+      // Garde-fou anti-clic accidentel : le nom exact du compte doit être renvoyé par l'appelant.
+      const confirm = (params.get("confirm") ?? "").trim();
+      if (confirm !== account.name.trim()) {
+        return Response.json({ error: `Confirmation requise : saisissez le nom exact du compte (« ${account.name} »).` }, { status: 428 });
+      }
+      const rows = await supabaseRest<Array<{ id: string }>>(
+        `account_operations?account_id=eq.${encodeURIComponent(account.id)}`,
+        { method: "DELETE", headers: { prefer: "return=representation" } },
+      );
+      const removed = rows?.length ?? 0;
+      try { await reconcileMemberForActive(account.memberId); } catch { /* best-effort */ }
+      try { await reconcileOnboardingForMember(account.memberId); } catch { /* best-effort */ }
+      return Response.json({ deleted: true, removed });
+    }
+
+    // ---- Suppression ciblée (une ou plusieurs lignes, ex. toutes celles d'une position) ----
+    const ids = [...new Set([...(id ? [id] : []), ...(idsRaw ? idsRaw.split(",") : [])].map((value) => value.trim()).filter(Boolean))];
+    if (ids.length === 0) return Response.json({ error: "Opération manquante." }, { status: 400 });
+    if (ids.length > 500) return Response.json({ error: "Trop d'opérations en une fois (max 500)." }, { status: 413 });
+
+    const list = ids.map((value) => encodeURIComponent(value)).join(",");
+    // Membres porteurs (avant suppression) pour recalculer leur progression de défi ensuite.
+    const owners = await supabaseRest<Array<{ member_id: string }>>(
+      `account_operations?select=member_id&id=in.(${list})`,
+    ).catch(() => [] as Array<{ member_id: string }>);
+
+    const removedRows = await supabaseRest<Array<{ id: string }>>(`account_operations?id=in.(${list})`, {
       method: "DELETE",
-      headers: { prefer: "return=minimal" },
+      headers: { prefer: "return=representation" },
     });
+
     // La suppression retire le lien (cascade) : on recalcule la progression et, si elle repasse
     // sous l'objectif, une écriture négative de compensation est créée (best-effort).
-    const ownerId = owner[0]?.member_id;
-    if (ownerId) { try { await reconcileMemberForActive(ownerId); } catch { /* best-effort */ } }
-    return Response.json({ deleted: true });
+    for (const memberId of new Set((owners ?? []).map((owner) => owner.member_id))) {
+      try { await reconcileMemberForActive(memberId); } catch { /* best-effort */ }
+    }
+    return Response.json({ deleted: true, removed: removedRows?.length ?? ids.length });
   } catch (error) {
     return setupResponse(error);
   }

@@ -60,7 +60,8 @@ The app navigates entirely via React state, **not URL routes**:
 | Blockstream Esplora | Bitcoin balance/TX verification | No |
 | CoinGecko → Kraken fallback | BTC/EUR price | No |
 | Resend | Email alerts on transfer requests | Yes |
-| Alpha Vantage | Stock/ETF symbol search & prices | Yes |
+| Yahoo Finance → Stooq fallback | Stock/ETF quotes (`lib/market-quotes.ts`) — **free, no API key** | No |
+| Alpha Vantage | Legacy symbol search in `/api/admin/market` only | Yes |
 
 ## Critical Constraints
 
@@ -109,7 +110,10 @@ All routes under `app/api/`:
 - `/api/investment-access` — sharing preferences
 - `/api/portfolio` — read accounts + holdings + operations for the viewer (filtered by `viewableMemberIds`)
 - `/api/pea/operations` — **generic** operation write for PEA **and** compte-titres (admin write). Name is historical; do not rename without updating callers. Server guards: account exists / type is `pea`\|`securities` / not archived / (PEA) no sell beyond held quantity. `member_id` is derived from the account, never trusted from the client.
+  - `POST` create · `PATCH` **edit an existing operation** (account and `member_id` are immutable; the PEA sell guard is replayed *excluding* the edited row; `import_fingerprint` is nulled since it no longer describes the content) · `DELETE` with `?id=`, `?ids=a,b,c` (a whole position), or `?accountId=…&scope=all&confirm=<exact account name>` (empty the account — the confirmation string is enforced **server-side**, not just in the UI).
 - `/api/investment-imports` (GET list) · `/preview` (POST, dry-run) · `/commit` (POST, write) · `/[id]` (DELETE cancel) — CSV import of operations (admin only). Preview writes nothing; commit re-validates everything server-side and inserts atomically; cancel deletes only that batch's operations (never manual ones).
+  - `/commit` accepts `replaceExisting` + `replaceConfirm` (exact account name) to **replace the whole portfolio**. Write order is deliberately *insert new, then delete the previously-captured ids*: a failure leaves recoverable duplicates, never data loss.
+- `/api/admin/market/refresh` — POST `{accountId}` (admin). Re-reads each **derived** position's price from a free provider and writes only `last_price` / `last_price_at` / `market_provider` (never a quantity or cost basis). Creates the missing `holdings` reference row for a held position that has none — that is what unblocks "Cours indispo.". Reports `not_found` / `currency_mismatch` per instrument instead of writing a doubtful price.
 - `/api/admin/users` — member management
 - `/api/admin/accounts` / `/api/admin/holdings` — multi-asset portfolio (admin); accounts support archive (`isActive`), `openedAt`, `monthlyTarget`; delete of an account holding operations requires `?force=true`
 - `/api/admin/market` — Alpha Vantage symbol search
@@ -120,6 +124,8 @@ All routes under `app/api/`:
 - **Single source of truth for the portfolio** is `lib/portfolio-account.ts` (`computeAccountModel`). Quantities, average cost (PMP), invested amount, income and performance are always **derived from `account_operations`** — never stored as editable totals. PEA and CTO are two `EnvelopeConfig` on one shared shell (`app/investment-account.tsx`).
 - **Single source of truth for operation validation** is `lib/account-operation.ts` (`validateOperation` / `buildOperationRecord`), reused by the manual write route AND the import commit — never reimplement the per-type rules elsewhere.
 - **Import engine** `lib/investment-import.ts` is pure and format-agnostic (input is always `string[][]`): CSV parsing (delimiter/quote/BOM), FR/EN header auto-mapping, comma/point decimals, FR/US/ISO dates, ISIN Luhn check, instrument matching against `holdings`, FNV-1a fingerprint dedup, and CSV-formula-injection sanitization. XLSX and the AI scan plug into the same `buildPreview` pipeline. Server context (existing fingerprints, opening quantities, advanced-migration detection) lives in `lib/investment-import-server.ts`.
+- **Decimal separator is a property of the FILE, never of a cell.** `81,023` means 81.023 in an FR file and 81023 in a US one. Resolving that per-cell is what once multiplied every 3-decimal price by 1000 (a €58k position displayed as €58M). `detectNumberFormat()` decides per file from *unambiguous* evidence only, `parseDecimal(value, format)` takes the decision as a parameter, and the wizard always shows the choice for correction before anything is written. Two arithmetic cross-checks back it up: `amountCoherenceWarning()` (amount ≈ quantity × price) and, for a positions statement, `derivedPrice` = valuation ÷ quantity — a contradicted price is flagged and the recomputed one offered, never applied silently. Regression tests: `tests/investment-import.test.mjs`, `tests/portfolio-snapshot-import.test.mjs`.
+- **Quotes are not file data.** A price coming from an imported statement is stale by construction. `lib/market-quotes.ts` re-reads it from a free, keyless provider (Yahoo Finance, Stooq fallback), resolving ISIN → symbol. Two hard rules: a quote whose **currency differs from the position's** is reported, never written (there is no FX engine — `fxImpactEur` is still null); and a cross-listing found by probing venues is accepted only if `sameInstrument()` passes **both** a name-overlap and a price-ratio check — probing `AMZN` on European venues otherwise returns "LS 1x Amazon Tracker ETP" at €6.27 instead of Amazon at $232.
 - **Création d'un compte depuis l'écran PEA/CTO** : `app/investment-account-setup.tsx` est l'assistant ouvert par « Configurer un PEA / un compte-titres » (état vide + en-tête). Il écrit via `/api/admin/accounts` (`requireAdmin`) — pas de route parallèle — puis enchaîne sur la première opération ou l'assistant d'import. N° de compte et IBAN sont **tronqués aux 4 derniers caractères dans le navigateur** : la saisie complète n'est jamais transmise ni stockée.
 - **Import batches** (`investment_import_batches`, migration 20260726) make every import traceable and **cancellable**: cancelling deletes only the operations carrying that `import_batch_id` (manual operations have it null) and marks the batch `cancelled`, then the engine recomputes positions.
 
@@ -129,7 +135,8 @@ All routes under `app/api/`:
 
 ### Roles for accounts & operations (this version)
 
-- **Admin**: create / edit / archive accounts; add / edit / delete / import operations; cancel an import. Enforced in UI **and** in every write route (`requireAdmin`).
+- **Admin**: create / edit / archive accounts; add / edit / delete / import operations; cancel an import; empty a portfolio; refresh quotes. Enforced in UI **and** in every write route (`requireAdmin`).
+  - A **position is never edited directly** — it is derived. "Modify a position" means editing its operations (Positions tab › *Lignes*, or Historique › ✏️); "delete a position" deletes the operations that produced it. Destructive actions (delete a position, empty an account, replace a portfolio) require a confirmation the server re-checks.
 - **Non-admin member**: read-only on the accounts they may see. Cannot create an account, record an operation, import a file, or cancel an import — enforced in the UI, the API routes, the server validations, and (as a safety net) the RLS policies. Accounts are **not** member-editable in this version.
 
 ## Known Dead Code
