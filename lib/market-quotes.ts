@@ -146,6 +146,148 @@ export async function yahooQuote(symbol: string): Promise<Quote | null> {
 }
 
 // ==========================================================================================
+// FICHE INSTRUMENT (lecture seule — alimente l'écran de détail d'une position)
+// ==========================================================================================
+// Même fournisseur, même contrat de confiance que `fetchQuote`, mais on retient tout ce que
+// l'endpoint renvoie DÉJÀ (bornes du jour, bornes 52 semaines, volume, place, historique).
+// Rien n'est écrit en base : cette fiche est un point de vue externe sur l'instrument, à côté
+// de la position réellement détenue. Aucun champ n'est estimé : absent chez le fournisseur =
+// null côté application, affiché « — ».
+
+export type InstrumentSnapshot = {
+  symbol: string;
+  name: string | null;
+  exchange: string | null;
+  instrumentType: string | null;
+  currency: string;
+  price: number;
+  previousClose: number | null;
+  dayChange: number | null;
+  dayChangePct: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+  fiftyTwoWeekHigh: number | null;
+  fiftyTwoWeekLow: number | null;
+  volume: number | null;
+  asOf: string | null;
+  provider: string;
+  /** Clôtures quotidiennes du dernier mois (courbe de tendance). Vide si indisponible. */
+  history: Array<{ date: string; close: number }>;
+};
+
+export type InstrumentOutcome =
+  | { ok: true; instrument: InstrumentSnapshot; currencyMismatch: boolean }
+  | { ok: false; reason: "not_found" | "provider_error"; message: string };
+
+function metaNumber(meta: Record<string, unknown>, key: string, divisor = 1): number | null {
+  const value = Number(meta[key]);
+  return Number.isFinite(value) && value !== 0 ? value / divisor : null;
+}
+
+/**
+ * Clôture de la séance PRÉCÉDENTE — celle qui donne « variation / veille ».
+ *
+ * ATTENTION, piège vérifié sur l'API : le champ `chartPreviousClose` de Yahoo n'est PAS la
+ * clôture de la veille, mais celle qui précède le DÉBUT DE LA PLAGE demandée. Avec range=1mo,
+ * TTE.PA renvoyait 69,51 € contre 75,90 € de cours — soit « +9,19 % sur la veille » au lieu
+ * de −0,37 %. Un tel chiffre est faux sans en avoir l'air : il n'est donc jamais utilisé.
+ *
+ * On retient, dans l'ordre : `previousClose` s'il est fourni (rare) ; sinon l'avant-dernière
+ * clôture quotidienne quand le dernier point de l'historique est la séance en cours ; sinon
+ * la dernière clôture (marché fermé, le cours EST cette clôture). À défaut, null → « — ».
+ */
+export function resolvePreviousClose(closes: number[], price: number, explicit: number | null): number | null {
+  if (explicit !== null) return explicit;
+  if (closes.length === 0) return null;
+  const last = closes[closes.length - 1];
+  const lastIsCurrentSession = Math.abs(last - price) <= Math.max(Math.abs(price) * 0.0005, 0.0001);
+  if (lastIsCurrentSession) return closes.length >= 2 ? closes[closes.length - 2] : null;
+  return last;
+}
+
+/** Fiche complète d'un symbole Yahoo (cours + bornes + historique 1 mois). null si indisponible. */
+export async function yahooInstrument(symbol: string): Promise<InstrumentSnapshot | null> {
+  try {
+    const response = await fetchWithTimeout(`${YAHOO_CHART}/${encodeURIComponent(symbol)}?range=1mo&interval=1d`);
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      chart?: { result?: Array<{ meta?: Record<string, unknown>; timestamp?: number[]; indicators?: { quote?: Array<{ close?: Array<number | null> }> } }> };
+    };
+    const result = data.chart?.result?.[0];
+    const meta = result?.meta;
+    if (!meta) return null;
+    const rawPrice = Number(meta.regularMarketPrice);
+    const rawCurrency = String(meta.currency ?? "");
+    if (!Number.isFinite(rawPrice) || rawPrice <= 0 || !rawCurrency) return null;
+    // Londres cote en pence : ramené en livres, comme dans yahooQuote (cohérence d'affichage).
+    const isPence = rawCurrency === "GBp" || rawCurrency.toUpperCase() === "GBX";
+    const scale = isPence ? 100 : 1;
+    const price = rawPrice / scale;
+    const stamp = Number(meta.regularMarketTime);
+
+    // Historique : uniquement les points RÉELLEMENT cotés (Yahoo renvoie null les jours fériés).
+    const timestamps = result.timestamp ?? [];
+    const closes = result.indicators?.quote?.[0]?.close ?? [];
+    const history: Array<{ date: string; close: number }> = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const close = closes[i];
+      if (close === null || close === undefined || !Number.isFinite(Number(close))) continue;
+      history.push({ date: new Date(timestamps[i] * 1000).toISOString().slice(0, 10), close: Number(close) / scale });
+    }
+    const previousClose = resolvePreviousClose(history.map((point) => point.close), price, metaNumber(meta, "previousClose", scale));
+
+    return {
+      symbol: String(meta.symbol ?? symbol),
+      name: (meta.longName as string) ?? (meta.shortName as string) ?? null,
+      exchange: (meta.fullExchangeName as string) ?? (meta.exchangeName as string) ?? null,
+      instrumentType: (meta.instrumentType as string) ?? null,
+      currency: isPence ? "GBP" : rawCurrency.toUpperCase(),
+      price,
+      previousClose,
+      dayChange: previousClose === null ? null : Math.round((price - previousClose) * 1e6) / 1e6,
+      dayChangePct: previousClose === null || previousClose === 0 ? null : Math.round(((price - previousClose) / previousClose) * 10000) / 100,
+      dayHigh: metaNumber(meta, "regularMarketDayHigh", scale),
+      dayLow: metaNumber(meta, "regularMarketDayLow", scale),
+      fiftyTwoWeekHigh: metaNumber(meta, "fiftyTwoWeekHigh", scale),
+      fiftyTwoWeekLow: metaNumber(meta, "fiftyTwoWeekLow", scale),
+      volume: metaNumber(meta, "regularMarketVolume"),
+      asOf: Number.isFinite(stamp) && stamp > 0 ? new Date(stamp * 1000).toISOString() : null,
+      provider: "Yahoo Finance",
+      history,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fiche d'un instrument à partir de ses identifiants. Privilégie la cotation dans la devise de
+ * la position (un même ETF est coté sur plusieurs places) ; à défaut, renvoie la meilleure
+ * trouvée en SIGNALANT la discordance de devise — l'écran l'affiche alors comme telle, ce qui
+ * vaut mieux qu'un cours muet dans une devise que l'utilisateur ne soupçonne pas.
+ */
+export async function fetchInstrument(target: QuoteTarget): Promise<InstrumentOutcome> {
+  const expected = String(target.currency ?? "").trim().toUpperCase() || null;
+  const candidates: string[] = [];
+  const preset = String(target.marketSymbol ?? "").trim();
+  if (preset) candidates.push(preset);
+  for (const symbol of await resolveSymbols(target)) if (!candidates.includes(symbol)) candidates.push(symbol);
+  if (candidates.length === 0) {
+    return { ok: false, reason: "not_found", message: "Aucun symbole de marché trouvé pour cet instrument (ISIN, ticker ou nom)." };
+  }
+
+  let fallback: InstrumentSnapshot | null = null;
+  for (const symbol of candidates.slice(0, 4)) {
+    const instrument = await yahooInstrument(symbol);
+    if (!instrument) continue;
+    if (!expected || instrument.currency === expected) return { ok: true, instrument, currencyMismatch: false };
+    if (!fallback) fallback = instrument;
+  }
+  if (fallback) return { ok: true, instrument: fallback, currencyMismatch: true };
+  return { ok: false, reason: "provider_error", message: "Le fournisseur de données de marché n'a pas répondu pour cet instrument." };
+}
+
+// ==========================================================================================
 // STOOQ (repli, CSV sans clé — cours de clôture)
 // ==========================================================================================
 export async function stooqQuote(yahooSymbol: string): Promise<Quote | null> {

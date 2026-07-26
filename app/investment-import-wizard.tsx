@@ -1,14 +1,16 @@
 "use client";
 
-// Assistant d'IMPORT d'opérations (CSV — XLSX/scan IA se branchent sur le même parcours).
+// Assistant d'IMPORT d'opérations (CSV, XLSX et scan IA sur le même parcours).
 // ADMIN uniquement (le composant n'est rendu que si canManage). Parcours en 6 étapes :
-//   1) compte (pré-sélectionné)  2) téléversement  3) correspondance des colonnes
-//   4) prévisualisation + correction  5) confirmation  6) résultat.
+//   fichier : 1) compte  2) téléversement  3) colonnes  4) vérification  5) confirmation  6) résultat
+//   scan IA : 1) compte  2) document    3) ANALYSE  4) résultats    5) validation    6) terminé
+// L'étape 3 du scan est un écran d'analyse à part entière : le document reste visible, les phases
+// de traitement défilent, et une erreur s'y corrige sans repartir du début.
 // AUCUNE opération n'est écrite avant l'étape 5 : la prévisualisation appelle /preview (lecture
 // seule), la confirmation appelle /commit (revalidation serveur complète). Le fichier n'est jamais
 // conservé : il est renvoyé à chaque prévisualisation et oublié côté serveur.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { authenticatedFetch, OP_LABEL } from "./investment-account";
 import {
@@ -23,11 +25,23 @@ type KnownHolding = { id: string; isin: string | null; symbol: string | null; na
 
 type NumberFormatChoice = "fr" | "us";
 
+// Contre-vérification arithmétique renvoyée par le scan : somme des lignes retranscrites vs
+// totaux imprimés sur le relevé. C'est la garantie qu'aucune ligne n'a été oubliée.
+type TotalCheck = { expected: number; actual: number; ok: boolean } | null;
+type TotalsCheck = { valuation: TotalCheck; gain: TotalCheck };
+
+type ScanDocument = {
+  institution: string | null; accountType: string | null; currency: string | null;
+  holder: string | null; period: string | null;
+  asOfDate?: string | null; totalValuation?: number | null; totalGain?: number | null; cashBalance?: number | null;
+};
+
 type PreviewResponse = {
   account: TargetAccount;
   mode?: "operations" | "snapshot";
   snapshot?: { asOfDate: string; positions: SnapshotPosition[] };
-  document?: { institution: string | null; accountType: string | null; currency: string | null; holder: string | null; period: string | null };
+  document?: ScanDocument;
+  totals?: TotalsCheck;
   provider?: string;
   columns: string[];
   mapping: Record<ImportField, number>;
@@ -49,6 +63,18 @@ const FIELD_LABEL: Record<ImportField, string> = {
   quantity: "Quantité", unitPrice: "Prix unitaire", amount: "Montant", fees: "Frais", taxes: "Taxes",
   currency: "Devise", exchangeRate: "Taux de change", externalReference: "Référence externe", note: "Note",
 };
+
+// Phases affichées pendant l'analyse. Elles DÉCRIVENT le traitement réel côté serveur (lecture,
+// identification du type de relevé, retranscription, contrôles déterministes) ; leur défilement
+// est indicatif — l'appel réseau est unique et sa durée n'est pas connue à l'avance.
+const SCAN_PHASES = [
+  { icon: "📤", label: "Transmission du document", detail: "Le fichier est envoyé au moteur d’analyse, puis oublié — il n’est jamais conservé." },
+  { icon: "🔍", label: "Identification du relevé", detail: "Positions détenues ou opérations datées : le type de document est reconnu." },
+  { icon: "✍️", label: "Retranscription des lignes", detail: "Chaque valeur est recopiée telle qu’imprimée. Rien n’est calculé, rien n’est deviné." },
+  { icon: "🧮", label: "Contrôles de cohérence", detail: "Cours × quantité, totaux du relevé, clé de contrôle ISIN : vérifiés par le code." },
+];
+
+const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 2 });
 
 const STATUS_META: Record<RowStatus, { label: string; cls: string }> = {
   valid: { label: "Valide", cls: "imp-ok" },
@@ -88,7 +114,21 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | "anomalies">("all");
   const [result, setResult] = useState<{ imported: number; duplicates: number; newInstruments: number; replaced?: number; tracking?: "complete" | "limited" } | null>(null);
+  // Aperçu du document scanné (image) : il reste sous les yeux pendant l'analyse et la
+  // vérification, pour comparer ligne à ligne sans rouvrir le fichier.
+  const [scanPhase, setScanPhase] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const filePreview = useMemo(() => (file && file.type.startsWith("image/") ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => { if (filePreview) URL.revokeObjectURL(filePreview); }, [filePreview]);
+
+  // Défilement des phases pendant l'analyse. On s'arrête sur la dernière et on y reste : mieux
+  // vaut une progression qui patiente qu'une barre qui prétend être terminée avant la réponse.
+  useEffect(() => {
+    if (!busy || mode !== "ai" || step !== 3) return;
+    const timer = setInterval(() => setScanPhase((current) => Math.min(current + 1, SCAN_PHASES.length - 1)), 1700);
+    return () => clearInterval(timer);
+  }, [busy, mode, step]);
 
   async function runPreview(nextMapping?: Record<ImportField, number>, nextDateFormat?: "iso" | "fr" | "us", nextNumberFormat?: NumberFormatChoice) {
     if (!file) return;
@@ -122,28 +162,48 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
 
   async function runScan() {
     if (!file) return;
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setScanPhase(0);
+    setStep(3); // écran d'analyse : le document reste affiché pendant tout le traitement
     try {
       const form = new FormData();
       form.append("file", file);
       form.append("accountId", account.id);
+      if (snapshotDate) form.append("snapshotDate", snapshotDate);
       const response = await authenticatedFetch("/api/investment-imports/scan", { method: "POST", body: form });
       const data = (await response.json().catch(() => ({}))) as (PreviewResponse & { error?: string; code?: string });
       if (!response.ok) {
         const documentHint = data.document?.institution ? ` Document reconnu : ${data.document.institution}${data.document.period ? ` · période ${data.document.period}` : ""}.` : "";
         setError(`${data.error ?? "Analyse IA impossible."}${documentHint}`);
-        setBusy(false); return;
+        setBusy(false); return; // on reste sur l'écran d'analyse : réessai ou changement de fichier
       }
       setPreview(data);
+      if (data.snapshot?.asOfDate) setSnapshotDate(data.snapshot.asOfDate);
       setRows(data.rows.map((row) => {
         const editable = row as EditableRow;
-        return { ...editable, include: editable.aiBand !== "low" && row.status !== "error" && row.status !== "duplicate_certain", createInstrument: false };
+        return {
+          ...editable,
+          // Une ligne à faible confiance reste décochée : c'est un choix explicite de l'admin.
+          include: editable.aiBand !== "low" && row.status !== "error" && row.status !== "duplicate_certain",
+          // Un relevé de positions décrit un portefeuille : les instruments inconnus doivent être
+          // créés, sinon la position importée n'aurait aucun référentiel où s'accrocher.
+          createInstrument: data.mode === "snapshot" && !row.instrumentHoldingId,
+        };
       }));
       setStep(4); // le scan IA saute l'étape de mapping (colonnes déjà structurées)
     } catch {
       setError("Réseau indisponible.");
     }
     setBusy(false);
+  }
+
+  /** Date d'arrêté d'un relevé de positions scanné : modifiable sans relancer l'analyse. */
+  function updateSnapshotDate(next: string) {
+    setSnapshotDate(next);
+    if (!next) return;
+    setPreview((current) => (current?.snapshot ? { ...current, snapshot: { ...current.snapshot, asOfDate: next } } : current));
+    setRows((current) => current.map((row) => (
+      row.snapshot ? { ...row, op: { ...row.op, date: next }, snapshot: { ...row.snapshot, asOfDate: next } } : row
+    )));
   }
 
   // Une ligne corrigée à la main doit voir son statut recalculé IMMÉDIATEMENT, sinon une erreur
@@ -265,7 +325,15 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
   }
 
   const summary = preview?.summary;
-  const stepLabels = ["Compte", "Fichier", "Colonnes", "Vérification", "Confirmation", "Résultat"];
+  const isSnapshot = preview?.mode === "snapshot";
+  const stepLabels = mode === "ai"
+    ? ["Compte", "Document", "Analyse", "Résultats", "Validation", "Terminé"]
+    : ["Compte", "Fichier", "Colonnes", "Vérification", "Confirmation", "Résultat"];
+
+  // Totaux des lignes affichées — c'est ce que l'administrateur s'apprête réellement à importer,
+  // et non ce que l'IA a annoncé. Recalculés à chaque correction.
+  const includedValuation = included.reduce((total, row) => total + (row.snapshot?.currentValue ?? 0), 0);
+  const includedGain = included.reduce((total, row) => total + (row.snapshot?.gainEur ?? 0), 0);
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => !busy && event.target === event.currentTarget && onClose()}>
@@ -285,7 +353,8 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
         </ol>
 
         <div className="imp-body">
-          {error && <p className="pea-form-error" role="alert">{error}</p>}
+          {/* L'écran d'analyse présente lui-même ses erreurs, en contexte : pas de doublon ici. */}
+          {error && !(step === 3 && mode === "ai") && <p className="pea-form-error" role="alert">{error}</p>}
 
           {/* Étape 1 — compte */}
           {step === 1 && (
@@ -331,10 +400,23 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
           <input ref={inputRef} type="file"
                   accept={mode === "ai" ? ".pdf,image/png,image/jpeg,image/webp,application/pdf" : ".csv,.txt,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
                   hidden onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-                <span className="imp-drop-icon" aria-hidden="true">{mode === "ai" ? "🧾" : "📄"}</span>
+                {filePreview
+                  // eslint-disable-next-line @next/next/no-img-element -- aperçu local (blob:), jamais téléversé ni optimisable
+                  ? <img className="imp-thumb" src={filePreview} alt={`Aperçu de ${file?.name ?? "votre document"}`} />
+                  : <span className="imp-drop-icon" aria-hidden="true">{mode === "ai" ? "🧾" : "📄"}</span>}
                 <strong>{file ? file.name : mode === "ai" ? "Glissez un PDF ou une image de relevé, ou cliquez" : "Glissez un fichier CSV ou Excel ici, ou cliquez pour choisir"}</strong>
                 <small>{mode === "ai" ? "PDF, PNG, JPG ou WEBP. Relevés numériques nets de préférence." : "Formats acceptés : CSV, XLS ou XLSX. Taille max 2 Mo."}</small>
               </div>
+              {mode === "ai" && (
+                <div className="imp-scan-kinds">
+                  <span><b>Deux types de relevés</b> sont reconnus, sans réglage&nbsp;:</span>
+                  <span>🧾 <b>Vos positions</b> — le tableau «&nbsp;Valeur / Quantité / PRU / Cours / Montant&nbsp;». Il décrit le portefeuille à une date&nbsp;: les positions sont enregistrées comme solde initial.</span>
+                  <span>📈 <b>Vos mouvements</b> — une ligne par opération datée (achat, vente, versement, dividende). Elles s’ajoutent à l’historique.</span>
+                  <label className="imp-inline">Date du relevé (si absente du document)
+                    <input type="date" value={snapshotDate} onChange={(event) => setSnapshotDate(event.target.value)} />
+                  </label>
+                </div>
+              )}
               {mode === "file" ? (
                 <div className="imp-templates">
                   <button type="button" className="btc-link" onClick={() => download(`modele-import-${account.kind.toLowerCase()}.csv`, buildTemplateCsv())}>⬇ Télécharger le modèle CSV</button>
@@ -348,13 +430,66 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
               )}
               <div className="pea-form-actions">
                 <button type="button" className="secondary-button" onClick={() => setStep(1)}>Retour</button>
-                <button type="button" className="primary-button" disabled={!file || busy} onClick={() => (mode === "ai" ? runScan() : runPreview())}>{busy ? (mode === "ai" ? "Analyse IA…" : "Analyse…") : mode === "ai" ? "Analyser avec l'IA" : "Analyser le fichier"}</button>
+                <button type="button" className="primary-button" disabled={!file || busy} onClick={() => (mode === "ai" ? runScan() : runPreview())}>{busy ? "Analyse…" : mode === "ai" ? "Analyser le relevé" : "Analyser le fichier"}</button>
               </div>
             </div>
           )}
 
-          {/* Étape 3 — correspondance des colonnes */}
-          {step === 3 && preview && mapping && (
+          {/* Étape 3 (scan IA) — écran d'analyse */}
+          {step === 3 && mode === "ai" && (
+            <div className="imp-panel imp-scan">
+              <div className="imp-scan-stage">
+                <figure className={`imp-scan-doc${busy ? " is-scanning" : ""}`}>
+                  {filePreview
+                    // eslint-disable-next-line @next/next/no-img-element -- aperçu local (blob:), jamais téléversé
+                    ? <img src={filePreview} alt={`Document analysé : ${file?.name ?? ""}`} />
+                    : <span className="imp-scan-doc-icon" aria-hidden="true">📄</span>}
+                  {busy && <span className="imp-scan-beam" aria-hidden="true" />}
+                  <figcaption>{file?.name}</figcaption>
+                </figure>
+
+                <ol className="imp-scan-phases" aria-live="polite">
+                  {SCAN_PHASES.map((phase, index) => {
+                    const state = error ? (index < scanPhase ? "done" : index === scanPhase ? "failed" : "todo")
+                      : !busy ? "done"
+                        : index < scanPhase ? "done" : index === scanPhase ? "active" : "todo";
+                    return (
+                      <li key={phase.label} className={`imp-scan-phase is-${state}`}>
+                        <span className="imp-scan-phase-icon" aria-hidden="true">{state === "done" ? "✓" : state === "failed" ? "!" : phase.icon}</span>
+                        <span className="imp-scan-phase-copy">
+                          <strong>{phase.label}</strong>
+                          <small>{phase.detail}</small>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+
+              {busy && (
+                <>
+                  <div className="imp-scan-bar" role="progressbar" aria-label="Analyse du relevé en cours"><span /></div>
+                  <p className="imp-hint">L’analyse d’un relevé prend généralement de 10 à 40 secondes. Rien n’est enregistré : vous vérifierez chaque ligne à l’étape suivante.</p>
+                </>
+              )}
+
+              {!busy && error && (
+                <div className="imp-danger-box">
+                  <strong>⚠ L’analyse n’a rien pu retranscrire</strong>
+                  <p>{error}</p>
+                  <p>Ce qui aide le plus&nbsp;: une capture <b>nette</b> et <b>entière</b> du tableau (colonnes et en-têtes visibles), sans recadrage partiel. Un export CSV du même relevé reste la voie la plus fiable.</p>
+                </div>
+              )}
+
+              <div className="pea-form-actions">
+                <button type="button" className="secondary-button" disabled={busy} onClick={() => { setError(""); setStep(2); }}>Changer de document</button>
+                {!busy && error && <button type="button" className="primary-button" onClick={() => void runScan()}>Relancer l’analyse</button>}
+              </div>
+            </div>
+          )}
+
+          {/* Étape 3 (fichier) — correspondance des colonnes */}
+          {step === 3 && mode !== "ai" && preview && mapping && (
             <div className="imp-panel">
               <p className="imp-hint">Vérifiez la correspondance entre les colonnes de votre fichier et les champs attendus. Les colonnes ont été détectées automatiquement ; corrigez si nécessaire.</p>
               <label className="imp-inline">Format de date&nbsp;
@@ -392,9 +527,54 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
           {/* Étape 4 — prévisualisation + correction */}
           {step === 4 && preview && summary && (
             <div className="imp-panel">
-              {mode === "ai" && <p className="imp-ai-banner" role="note">✨ Lecture et retranscription terminées{preview.provider ? ` avec ${preview.provider}` : ""}. Vérifiez les données avant de confirmer. Les lignes à faible confiance sont décochées par défaut.</p>}
-              {preview.mode === "snapshot" && <p className="imp-ai-banner" role="note">📊 Relevé de portefeuille détecté — date du relevé : {preview.snapshot?.asOfDate ?? "—"}. Les positions seront enregistrées comme solde initial, puis valorisées avec le cours fourni. Le flux est identique pour le PEA et le compte-titres.</p>}
-              {mode === "ai" && preview.document && <p className="imp-hint">Document reconnu : {preview.document.institution ?? "établissement non identifié"}{preview.document.holder ? ` · ${preview.document.holder}` : ""}{preview.document.period ? ` · ${preview.document.period}` : ""}.</p>}
+              {mode === "ai" && (
+                <>
+                  <p className="imp-ai-banner" role="note">
+                    ✨ {isSnapshot ? "Relevé de POSITIONS retranscrit" : "Relevé de MOUVEMENTS retranscrit"}{preview.provider ? ` (${preview.provider})` : ""} — {summary.total} ligne(s).
+                    Rien n’est encore enregistré : corrigez ce qui doit l’être, décochez le reste.
+                  </p>
+
+                  {/* Carte d'identité du document : ce que le relevé dit de lui-même. */}
+                  {preview.document && (
+                    <dl className="imp-doc-card">
+                      <div><dt>Établissement</dt><dd>{preview.document.institution ?? "—"}</dd></div>
+                      <div><dt>Titulaire</dt><dd>{preview.document.holder ?? "—"}</dd></div>
+                      <div><dt>Type</dt><dd>{preview.document.accountType === "pea" ? "PEA" : preview.document.accountType === "securities" ? "Compte-titres" : "—"}</dd></div>
+                      <div><dt>Devise</dt><dd>{preview.document.currency ?? preview.account.currency}</dd></div>
+                      <div><dt>{isSnapshot ? "Espèces au relevé" : "Période"}</dt><dd>{isSnapshot ? (preview.document.cashBalance != null ? euro.format(preview.document.cashBalance) : "—") : (preview.document.period ?? "—")}</dd></div>
+                      {isSnapshot && (
+                        <div>
+                          <dt>Date du relevé</dt>
+                          <dd>
+                            <input type="date" className="imp-cell" value={snapshotDate} max={new Date().toISOString().slice(0, 10)}
+                              aria-label="Date d’arrêté du relevé" onChange={(event) => updateSnapshotDate(event.target.value)} />
+                            {!preview.document.asOfDate && <small className="imp-msg imp-warn">Non lue sur le document : vérifiez-la.</small>}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                  )}
+
+                  {/* Contre-vérification : somme des lignes retranscrites vs totaux imprimés. */}
+                  {preview.totals?.valuation && (
+                    <p className={`imp-ai-banner ${preview.totals.valuation.ok ? "imp-check-ok" : "imp-check-ko"}`} role="note">
+                      {preview.totals.valuation.ok
+                        ? `✓ Contrôle arithmétique : la somme des ${summary.total} lignes retranscrites (${euro.format(preview.totals.valuation.actual)}) correspond au total imprimé sur le relevé (${euro.format(preview.totals.valuation.expected)}). Aucune ligne ne manque.`
+                        : `⚠ La somme des lignes retranscrites (${euro.format(preview.totals.valuation.actual)}) ne correspond PAS au total imprimé sur le relevé (${euro.format(preview.totals.valuation.expected)}) : écart de ${euro.format(preview.totals.valuation.actual - preview.totals.valuation.expected)}. Une ligne est probablement manquante ou mal lue — vérifiez avant de valider.`}
+                    </p>
+                  )}
+
+                  {isSnapshot && (
+                    <div className="imp-kpis">
+                      <div><span>Positions retenues</span><strong>{included.length}<small> / {summary.total}</small></strong></div>
+                      <div><span>Valorisation importée</span><strong>{euro.format(includedValuation)}</strong></div>
+                      <div><span>+/- values latentes</span><strong className={includedGain >= 0 ? "imp-ok" : "imp-err"}>{includedGain >= 0 ? "+" : ""}{euro.format(includedGain)}</strong></div>
+                      <div><span>Confiance basse</span><strong>{rows.filter((row) => row.aiBand === "low").length}</strong></div>
+                    </div>
+                  )}
+                </>
+              )}
+              {preview.mode === "snapshot" && <p className="imp-ai-banner" role="note">📊 Relevé de portefeuille — arrêté au {preview.snapshot?.asOfDate ?? "—"}. Les positions seront enregistrées comme solde initial, puis valorisées avec le cours du relevé. Le flux est identique pour le PEA et le compte-titres.</p>}
               <div className="imp-summary">
                 <span><b>{summary.total}</b> lignes</span>
                 <span className="imp-ok"><b>{included.filter((r) => r.errors.length === 0).length}</b> à importer</span>
@@ -444,8 +624,11 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                           </td>
                           <td>
                             <span className="imp-instrument">{row.op.instrumentName ?? row.op.ticker ?? row.op.isin ?? "—"}</span>
+                            {row.op.isin && <small className="imp-msg imp-isin">{row.op.isin}</small>}
                             {row.instrumentHoldingId ? <small className="imp-msg imp-ok">reconnu ({row.matchedBy})</small>
-                              : unknownInstrument ? <label className="imp-msg"><input type="checkbox" checked={row.createInstrument} onChange={(event) => toggleCreate(row.index, event.target.checked)} /> créer l’instrument</label> : null}
+                              // Une position de relevé porte le type « correction » : elle a besoin du même
+                              // choix « créer l'instrument » qu'un achat, sinon elle n'a aucun référentiel.
+                              : (unknownInstrument || row.snapshot) ? <label className="imp-msg"><input type="checkbox" checked={row.createInstrument} onChange={(event) => toggleCreate(row.index, event.target.checked)} /> créer l’instrument</label> : null}
                           </td>
                           <td className="num">
                             <input className="imp-cell num" type="number" step="any" value={row.op.quantity ?? ""}
@@ -490,6 +673,13 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
                   </tbody>
                 </table>
               </div>
+              {mode === "ai" && filePreview && (
+                <details className="imp-doc-compare">
+                  <summary>Comparer avec le document d’origine</summary>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- aperçu local (blob:), jamais téléversé */}
+                  <img src={filePreview} alt={`Document d’origine : ${file?.name ?? ""}`} />
+                </details>
+              )}
               {blocking.length > 0 && <p className="pea-form-error">{blocking.length} ligne(s) cochée(s) restent en erreur : corrigez-les ou décochez-les avant de continuer.</p>}
               <div className="pea-form-actions">
                 <button type="button" className="secondary-button" onClick={() => setStep(mode === "ai" ? 2 : 3)}>Retour</button>
@@ -502,10 +692,11 @@ export function InvestmentImportWizard({ account, onClose, onDone }: { account: 
           {step === 5 && summary && (
             <div className="imp-panel">
               <div className="imp-confirm">
-                <p><b>{included.length}</b> opération(s) seront importées.</p>
+                <p><b>{included.length}</b> {isSnapshot ? "position(s)" : "opération(s)"} seront importées{isSnapshot ? ` pour une valorisation de ${euro.format(includedValuation)}` : ""}.</p>
                 <p>{rows.length - included.length} ligne(s) seront ignorées.</p>
                 <p>{summary.duplicatesCertain} doublon(s) certain(s) exclus.</p>
-                <p>{included.filter((r) => r.createInstrument && !r.instrumentHoldingId).length} nouvel(s) instrument(s) seront créés sans cours de marché.</p>
+                <p>{included.filter((r) => r.createInstrument && !r.instrumentHoldingId).length} nouvel(s) instrument(s) seront créés{isSnapshot ? " avec le cours du relevé" : " sans cours de marché"}.</p>
+                {isSnapshot && <p>Les positions sont enregistrées comme <b>solde initial au {snapshotDate || preview?.snapshot?.asOfDate}</b>, pas comme des achats : la performance ne sera calculée qu’à partir de cette date.</p>}
               </div>
               {replaceExisting && (
                 <div className="imp-danger-box" role="group" aria-labelledby="imp-replace-title">

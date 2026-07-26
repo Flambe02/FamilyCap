@@ -5,6 +5,12 @@
 
 import { EXTRACTION_JSON_INSTRUCTION, normalizeRawExtraction, type RawExtraction, DEFAULT_THRESHOLDS, type ExtractionThresholds } from "./extract.ts";
 
+// Consigne utilisateur, commune aux fournisseurs. Elle nomme EXPLICITEMENT les deux familles de
+// relevés : un tableau de positions (« Mes positions ») n'a aucune opération datée, et une
+// consigne qui ne parlait que d'« opérations » le faisait retranscrire à vide.
+const EXTRACTION_USER_PROMPT =
+  "Retranscris ce relevé : d'abord l'en-tête du compte, puis SOIT le tableau des positions détenues (relevé de portefeuille), SOIT les opérations datées (relevé de mouvements), selon ce que contient réellement le document. Retranscris toutes les lignes, sans en résumer ni en omettre. Si une ligne est lisible mais incertaine, inclus-la avec une confiance basse et un avertissement.";
+
 export type ExtractInput = { base64: string; mediaType: string; filename: string };
 export type DocumentProvider = { name: string; extract(input: ExtractInput): Promise<RawExtraction> };
 
@@ -73,17 +79,23 @@ function anthropicProvider(config: DocumentAiConfig): DocumentProvider {
           signal: controller.signal,
           body: JSON.stringify({
             model: config.model,
-            max_tokens: 4096,
+            // Le schéma est verbeux (≈ 300 jetons par ligne : chaque champ porte value/confidence/
+            // page). À 4096 jetons, un relevé de plus d'une douzaine de lignes était TRONQUÉ, donc
+            // illisible en JSON — l'import échouait alors sans que la cause soit visible.
+            max_tokens: 16384,
             system: EXTRACTION_JSON_INSTRUCTION,
-            messages: [{ role: "user", content: [contentBlock, { type: "text", text: `Extrais le compte et toutes les opérations de ce relevé (${input.filename}). Maximum ${config.maxPages} pages. Réponds en JSON strict conforme au schéma.` }] }],
+            messages: [{ role: "user", content: [contentBlock, { type: "text", text: `${EXTRACTION_USER_PROMPT} Document : ${input.filename}. Maximum ${config.maxPages} pages. Réponds en JSON strict conforme au schéma.` }] }],
           }),
         });
         if (!response.ok) {
           const detail = await response.text().catch(() => "");
           throw new Error(`Fournisseur IA: ${response.status} ${detail.slice(0, 200)}`);
         }
-        const data = (await response.json()) as { content?: Array<{ type: string; text?: string }> };
+        const data = (await response.json()) as { content?: Array<{ type: string; text?: string }>; stop_reason?: string };
         const text = (data.content ?? []).filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
+        if (data.stop_reason === "max_tokens") {
+          throw new Error("la retranscription a été tronquée (relevé trop long). Scannez une page à la fois, ou utilisez le CSV.");
+        }
         return parseJsonBlock(text);
       } finally {
         clearTimeout(timer);
@@ -120,7 +132,7 @@ function openaiProvider(config: DocumentAiConfig): DocumentProvider {
               input: [{
                 role: "user",
                 content: [
-                  { type: "input_text", text: `${EXTRACTION_JSON_INSTRUCTION}\n\nExtrais le compte et toutes les opérations de ce relevé (${input.filename}). Maximum ${config.maxPages} pages.` },
+                  { type: "input_text", text: `${EXTRACTION_JSON_INSTRUCTION}\n\n${EXTRACTION_USER_PROMPT} Document : ${input.filename}. Maximum ${config.maxPages} pages.` },
                   { type: "input_file", filename: input.filename, file_data: `data:${input.mediaType};base64,${input.base64}` },
                 ],
               }],
@@ -132,7 +144,7 @@ function openaiProvider(config: DocumentAiConfig): DocumentProvider {
               messages: [
                 { role: "system", content: EXTRACTION_JSON_INSTRUCTION },
                 { role: "user", content: [
-                  { type: "text", text: `Extrais le compte et toutes les opérations de ce relevé (${input.filename}). Si une ligne est lisible mais incertaine, inclus-la avec une confiance basse et un avertissement.` },
+                  { type: "text", text: `${EXTRACTION_USER_PROMPT} Document : ${input.filename}.` },
                   { type: "image_url", image_url: { url: `data:${input.mediaType};base64,${input.base64}`, detail: "high" } },
                 ] },
               ],

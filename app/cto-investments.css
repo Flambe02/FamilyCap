@@ -7,13 +7,18 @@
 
 /* ============ RESPONSIVE (mobile-only, ne modifie pas le desktop) ============ */
 @media (max-width: 780px) {
-  /* Filtres positions/historique : rangée défilable horizontalement, aucun débordement de page. */
+  /* Filtres positions/historique.
+     Ancienne version : une rangée défilant horizontalement (`flex-wrap:nowrap` +
+     `overflow-x:auto`). Deux défauts mesurés sur un écran de 390px :
+       — la page débordait à 405px (le conteneur de défilement réservait sa gouttière) ;
+       — surtout, deux filtres sur quatre étaient hors champ, donc invisibles au doigt.
+     Nouvelle version : les filtres REVIENNENT À LA LIGNE. La recherche prend toute la largeur,
+     les listes se partagent la suivante. Aucun conteneur de défilement, donc aucun débordement
+     possible, et tous les filtres sont atteignables sans geste latéral. */
   .cto-page .inv-positions-head { align-items: stretch; }
-  .cto-page .inv-filters {
-    width: 100%; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
-    padding-bottom: 4px; scrollbar-width: none;
-  }
-  .cto-page .inv-filters::-webkit-scrollbar { display: none; }
-  .cto-page .inv-filters label { flex: 0 0 auto; }
-  .cto-page .inv-filters input, .cto-page .inv-filters select { max-width: none; }
+  .cto-page .inv-positions-head > * { min-width: 0; max-width: 100%; }
+  .cto-page .inv-filters { width: 100%; min-width: 0; flex-wrap: wrap; gap: 8px; }
+  .cto-page .inv-filters label { flex: 1 1 130px; min-width: 0; }
+  .cto-page .inv-filters label:first-child { flex: 1 1 100%; }
+  .cto-page .inv-filters input, .cto-page .inv-filters select { width: 100%; max-width: none; }
 }

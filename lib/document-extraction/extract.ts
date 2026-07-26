@@ -17,7 +17,36 @@ export type RawExtraction = {
     currency?: ExtractedField<string>;
     period?: ExtractedField<string>;
     holder?: ExtractedField<string>;
+    // Relevé de POSITIONS : date d'arrêté + totaux imprimés sur le document. Les totaux ne sont
+    // jamais importés — ils servent uniquement de contre-vérification arithmétique de la somme
+    // des lignes retranscrites (cf. `crossCheckTotals`).
+    as_of_date?: ExtractedField<string>;
+    total_valuation?: ExtractedField<number>;
+    total_gain?: ExtractedField<number>;
+    cash_balance?: ExtractedField<number>;
   };
+  // Un relevé de POSITIONS (« Mes positions », « Portefeuille », « Gestion libre ») ne contient
+  // aucune opération datée : il décrit un état à une date. Il alimente `positions`, pas
+  // `operations`. C'est le cas qui échouait auparavant : le schéma ne connaissait que les
+  // opérations, l'IA renvoyait donc [] et l'import s'arrêtait sur « aucune ligne exploitable ».
+  positions?: Array<{
+    isin?: ExtractedField<string>;
+    ticker?: ExtractedField<string>;
+    instrument_name?: ExtractedField<string>;
+    quantity?: ExtractedField<number>;
+    average_cost?: ExtractedField<number>;
+    last_price?: ExtractedField<number>;
+    current_value?: ExtractedField<number>;
+    day_change_pct?: ExtractedField<number>;
+    gain_amount?: ExtractedField<number>;
+    gain_pct?: ExtractedField<number>;
+    weight_pct?: ExtractedField<number>;
+    currency?: ExtractedField<string>;
+    last_movement_date?: ExtractedField<string>;
+    source_text?: string;
+    page?: number | null;
+    warnings?: string[];
+  }>;
   operations?: Array<{
     date?: ExtractedField<string>;
     type?: ExtractedField<string>;
@@ -54,15 +83,49 @@ export type ExtractionThresholds = { high: number; low: number };
 export const DEFAULT_THRESHOLDS: ExtractionThresholds = { high: 0.85, low: 0.6 };
 
 // Schéma (description) fourni au fournisseur IA. Aligné sur account_operations / holdings.
-export const EXTRACTION_JSON_INSTRUCTION = `Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, de la forme :
+export const EXTRACTION_JSON_INSTRUCTION = `Tu retranscris un relevé de compte-titres ou de PEA. Deux familles de documents existent, et tu dois d'abord décider laquelle tu as sous les yeux :
+
+A) RELEVÉ DE POSITIONS (« Mes positions », « Portefeuille », « Gestion libre », « Évaluation », « Titres en portefeuille ») : un tableau d'INSTRUMENTS DÉTENUS à une date donnée, avec des colonnes du genre Valeur/Libellé, Quantité, Px. Revient (PRU), Cours, Montant/Valorisation, +/- Values latentes, Dernier Mvt. Il n'y a PAS d'achats ni de ventes datés.
+   → remplis "positions", laisse "operations" VIDE.
+
+B) RELEVÉ D'OPÉRATIONS (« Mouvements », « Ordres », « Historique », « Relevé de compte ») : une ligne par transaction datée (achat, vente, versement, dividende…).
+   → remplis "operations", laisse "positions" VIDE.
+
+Si le document contient les deux tableaux, remplis les deux. Ne devine JAMAIS un achat à partir d'une position : une position n'est pas une opération.
+
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, de la forme :
 {
   "document": {
     "institution": {"value": string|null, "confidence": number, "page": number},
     "account_type": {"value": "pea"|"securities"|null, "confidence": number, "page": number},
     "currency": {"value": string|null, "confidence": number, "page": number},
     "holder": {"value": string|null, "confidence": number, "page": number},
-    "period": {"value": string|null, "confidence": number, "page": number}
+    "period": {"value": string|null, "confidence": number, "page": number},
+    "as_of_date": {"value": "YYYY-MM-DD"|null, "confidence": number, "page": number},
+    "total_valuation": {"value": number|null, "confidence": number, "page": number},
+    "total_gain": {"value": number|null, "confidence": number, "page": number},
+    "cash_balance": {"value": number|null, "confidence": number, "page": number}
   },
+  "positions": [
+    {
+      "instrument_name": {"value": string|null, "confidence": number, "page": number},
+      "isin": {"value": string|null, "confidence": number, "page": number},
+      "ticker": {"value": string|null, "confidence": number, "page": number},
+      "quantity": {"value": number|null, "confidence": number, "page": number},
+      "average_cost": {"value": number|null, "confidence": number, "page": number},
+      "last_price": {"value": number|null, "confidence": number, "page": number},
+      "current_value": {"value": number|null, "confidence": number, "page": number},
+      "day_change_pct": {"value": number|null, "confidence": number, "page": number},
+      "gain_amount": {"value": number|null, "confidence": number, "page": number},
+      "gain_pct": {"value": number|null, "confidence": number, "page": number},
+      "weight_pct": {"value": number|null, "confidence": number, "page": number},
+      "currency": {"value": string|null, "confidence": number, "page": number},
+      "last_movement_date": {"value": "YYYY-MM-DD"|null, "confidence": number, "page": number},
+      "source_text": string,
+      "page": number,
+      "warnings": [string]
+    }
+  ],
   "operations": [
     {
       "date": {"value": "YYYY-MM-DD"|null, "confidence": number, "page": number},
@@ -85,7 +148,14 @@ export const EXTRACTION_JSON_INSTRUCTION = `Réponds UNIQUEMENT avec un objet JS
     }
   ]
 }
-Règles STRICTES : confidence est un nombre entre 0 et 1. N'invente AUCUNE valeur : si une information est absente, mets value=null et confidence basse. Ne calcule ni total de portefeuille, ni prix moyen, ni performance. Recopie le texte source de chaque opération dans source_text.`;
+Règles STRICTES :
+- confidence est un nombre entre 0 et 1.
+- N'invente AUCUNE valeur : si une information est absente, mets value=null et confidence basse.
+- Les nombres sont des NOMBRES JSON, avec un POINT décimal et sans séparateur de milliers ni symbole : « 76 634,75 € » → 76634.75. Une perte ou un gain négatif est négatif : « -4 129,09 € » → -4129.09.
+- Ne calcule RIEN : ni total de portefeuille, ni prix moyen, ni performance. Recopie uniquement ce qui est imprimé. Si une colonne est absente du document, mets null — ne la déduis pas des autres.
+- Recopie le texte source de chaque ligne dans source_text (utile à la vérification humaine).
+- Retranscris TOUTES les lignes du tableau, y compris celles qui sont partiellement lisibles (avec une confiance basse), jamais un échantillon.
+- Attention aux caractères ambigus d'un ISIN (O/0, I/1, S/5) : en cas de doute, baisse la confiance de l'ISIN.`;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -142,6 +212,14 @@ export function normalizeRawExtraction(input: unknown): RawExtraction {
       : Array.isArray(root.entries) ? root.entries
         : isRecord(root.data) && Array.isArray(root.data.operations) ? root.data.operations : [];
 
+  const rawPositions = Array.isArray(root.positions)
+    ? root.positions
+    : Array.isArray(root.holdings) ? root.holdings
+      : Array.isArray(root.portfolio) ? root.portfolio
+        : isRecord(root.data) && Array.isArray(root.data.positions) ? root.data.positions : [];
+
+  const positions = rawPositions.filter(isRecord).map(normalizePositionEntry);
+
   const operations = rawOperations.filter(isRecord).map((entry) => {
     const rawType = firstDefined(entry, ["type", "operation_type", "operationType", "action"]);
     const normalizedType = normalizeType(String(fieldValue<unknown>(rawType) ?? ""));
@@ -168,22 +246,77 @@ export function normalizeRawExtraction(input: unknown): RawExtraction {
     };
   });
 
-  return { document, operations } as RawExtraction;
+  // Repêchage d'un mode de défaillance connu : le modèle range parfois les LIGNES DE POSITION
+  // dans "operations". Elles s'y reconnaissent à coup sûr — ni type d'opération, ni date, mais
+  // une quantité et un prix. Plutôt que de les présenter comme des opérations invalides (ce qui
+  // vidait l'import), on les reclasse en positions. Purement déterministe, jamais une invention.
+  const misfiled: RawExtraction["positions"] = [];
+  const keptOperations = operations.filter((entry) => {
+    const hasType = Boolean(normalizeType(String(fieldValue<unknown>(entry.type) ?? "")));
+    const hasDate = Boolean(str(fieldValue(entry.date)));
+    const hasQuantity = num(fieldValue(entry.quantity)) !== null;
+    const hasPrice = num(fieldValue(entry.unit_price)) !== null;
+    if (!hasType && !hasDate && hasQuantity && hasPrice) {
+      misfiled.push(normalizePositionEntry(entry as unknown as Record<string, unknown>));
+      return false;
+    }
+    return true;
+  });
+
+  return { document, operations: keptOperations, positions: [...positions, ...misfiled] } as RawExtraction;
 }
 
-export function validateExtraction(raw: RawExtraction, options: { accountCurrency: string; thresholds?: ExtractionThresholds }): {
-  document: { institution: string | null; accountType: string | null; currency: string | null; holder: string | null; period: string | null };
-  operations: ExtractedOperation[];
-} {
-  const thresholds = options.thresholds ?? DEFAULT_THRESHOLDS;
+/** Normalise une ligne de POSITION (tolère les variantes de nommage des modèles). */
+function normalizePositionEntry(entry: Record<string, unknown>) {
+  return {
+    isin: firstDefined(entry, ["isin", "ISIN", "code_isin"]),
+    ticker: firstDefined(entry, ["ticker", "symbol", "symbole", "mnemo"]),
+    instrument_name: firstDefined(entry, ["instrument_name", "instrumentName", "name", "label", "libelle", "valeur", "security", "asset_name", "designation"]),
+    quantity: firstDefined(entry, ["quantity", "qty", "quantite", "shares", "units", "parts"]),
+    average_cost: firstDefined(entry, ["average_cost", "averageCost", "pru", "cost_basis", "unit_cost", "prix_de_revient", "purchase_price"]),
+    last_price: firstDefined(entry, ["last_price", "lastPrice", "price", "cours", "current_price", "market_price", "unit_price", "unitPrice"]),
+    current_value: firstDefined(entry, ["current_value", "currentValue", "market_value", "marketValue", "valorisation", "montant", "amount", "value", "total"]),
+    day_change_pct: firstDefined(entry, ["day_change_pct", "dayChangePct", "variation", "var_veille", "daily_change"]),
+    gain_amount: firstDefined(entry, ["gain_amount", "gainAmount", "gain", "unrealized_gain", "plus_value", "pnl", "latent_gain"]),
+    gain_pct: firstDefined(entry, ["gain_pct", "gainPct", "gain_percent", "performance", "plus_value_pct"]),
+    weight_pct: firstDefined(entry, ["weight_pct", "weightPct", "weight", "poids"]),
+    currency: firstDefined(entry, ["currency", "devise", "ccy"]),
+    last_movement_date: firstDefined(entry, ["last_movement_date", "lastMovementDate", "dernier_mvt", "last_trade_date", "date"]),
+    source_text: String(fieldValue<unknown>(firstDefined(entry, ["source_text", "sourceText", "raw_text", "rawText"])) ?? "") || undefined,
+    page: num(firstDefined(entry, ["page", "page_number", "pageNumber"])),
+    warnings: Array.isArray(entry.warnings) ? entry.warnings.filter((warning): warning is string => typeof warning === "string") : [],
+  } as NonNullable<RawExtraction["positions"]>[number];
+}
+
+export type ExtractedDocument = {
+  institution: string | null; accountType: string | null; currency: string | null;
+  holder: string | null; period: string | null;
+  asOfDate: string | null; totalValuation: number | null; totalGain: number | null; cashBalance: number | null;
+};
+
+/** En-tête et métadonnées du document, communs aux deux familles de relevés. */
+export function extractDocument(raw: RawExtraction): ExtractedDocument {
   const doc = raw.document ?? {};
-  const document = {
+  const rawAsOf = str(fieldValue(doc.as_of_date));
+  return {
     institution: str(fieldValue(doc.institution)),
     accountType: str(fieldValue(doc.account_type)),
     currency: str(fieldValue(doc.currency)),
     holder: str(fieldValue(doc.holder)),
     period: str(fieldValue(doc.period)),
+    asOfDate: parseDate(rawAsOf, "iso") ?? parseDate(rawAsOf, "fr") ?? parseDate(rawAsOf, "us"),
+    totalValuation: num(fieldValue(doc.total_valuation)),
+    totalGain: num(fieldValue(doc.total_gain)),
+    cashBalance: num(fieldValue(doc.cash_balance)),
   };
+}
+
+export function validateExtraction(raw: RawExtraction, options: { accountCurrency: string; thresholds?: ExtractionThresholds }): {
+  document: ExtractedDocument;
+  operations: ExtractedOperation[];
+} {
+  const thresholds = options.thresholds ?? DEFAULT_THRESHOLDS;
+  const document = extractDocument(raw);
 
   const operations: ExtractedOperation[] = (Array.isArray(raw.operations) ? raw.operations : []).map((entry) => {
     const type = normalizeType(str(fieldValue(entry.type)));
@@ -261,4 +394,129 @@ export function validateExtraction(raw: RawExtraction, options: { accountCurrenc
   });
 
   return { document, operations };
+}
+
+// ==========================================================================================
+// RELEVÉ DE POSITIONS → tableau canonique
+// ==========================================================================================
+// Un relevé de positions retranscrit par l'IA est reversé dans le MÊME pipeline que le CSV
+// (`buildSnapshotPreview`) plutôt que dans un second moteur : on fabrique ici le tableau
+// `string[][]` et son en-tête, avec des libellés que `autoMapSnapshotHeaders` reconnaît déjà.
+// Bénéfice direct : toutes les contre-vérifications déterministes existantes (cours recalculé
+// = valorisation ÷ quantité, prix de revient vs +/- value, rapprochement d'instrument) portent
+// aussi sur le scan IA, sans être réécrites.
+
+/** En-tête canonique — les libellés sont ceux que reconnaît `autoMapSnapshotHeaders`. */
+export const SNAPSHOT_TABLE_HEADER = [
+  "Libellé", "ISIN", "Ticker", "Quantité", "PRU", "Cours", "Devise",
+  "Valorisation", "Var/veille", "+/- values", "+/- values (%)", "Poids",
+] as const;
+
+export type ExtractedPositionMeta = {
+  confidence: number;
+  band: ConfidenceBand;
+  page: number | null;
+  sourceText: string | null;
+  warnings: string[];
+  lastMovementDate: string | null;
+};
+
+/**
+ * Nombre → cellule texte NON AMBIGUË (point décimal, aucun séparateur de milliers).
+ * Le JSON de l'IA porte de vrais nombres : contrairement à un CSV, il n'y a donc aucune
+ * ambiguïté « 81,023 » à trancher. On la supprime à la source plutôt que de la redétecter.
+ */
+function numCell(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "";
+  if (value !== 0 && Math.abs(value) < 1e-4) return value.toFixed(10); // jamais de notation exponentielle
+  return String(value);
+}
+
+export function validateExtractedPositions(raw: RawExtraction, options: { accountCurrency: string; thresholds?: ExtractionThresholds }): {
+  header: string[];
+  rows: string[][];
+  meta: ExtractedPositionMeta[];
+} {
+  const thresholds = options.thresholds ?? DEFAULT_THRESHOLDS;
+  const entries = Array.isArray(raw.positions) ? raw.positions : [];
+  const rows: string[][] = [];
+  const meta: ExtractedPositionMeta[] = [];
+
+  for (const entry of entries) {
+    const name = str(fieldValue(entry.instrument_name));
+    const isin = (str(fieldValue(entry.isin)) ?? "").toUpperCase() || null;
+    const ticker = (str(fieldValue(entry.ticker)) ?? "").toUpperCase() || null;
+    const quantity = num(fieldValue(entry.quantity));
+    const averageCost = num(fieldValue(entry.average_cost));
+    const lastPrice = num(fieldValue(entry.last_price));
+    const currentValue = num(fieldValue(entry.current_value));
+    const currency = (str(fieldValue(entry.currency)) || options.accountCurrency || "EUR").toUpperCase().slice(0, 3);
+
+    // Ligne entièrement vide : l'IA a parfois retranscrit un séparateur de tableau.
+    if (!name && !isin && !ticker && quantity === null) continue;
+
+    rows.push([
+      name ?? "",
+      isin ?? "",
+      ticker ?? "",
+      numCell(quantity),
+      numCell(averageCost),
+      numCell(lastPrice),
+      currency,
+      numCell(currentValue),
+      numCell(num(fieldValue(entry.day_change_pct))),
+      numCell(num(fieldValue(entry.gain_amount))),
+      numCell(num(fieldValue(entry.gain_pct))),
+      numCell(num(fieldValue(entry.weight_pct))),
+    ]);
+
+    // Confiance de ligne = min des champs qui DÉCIDENT de la position (identité + quantité + prix).
+    const confidence = Math.min(
+      fieldConf(entry.instrument_name),
+      fieldConf(entry.quantity),
+      Math.max(fieldConf(entry.average_cost), fieldConf(entry.last_price)),
+    );
+    const band: ConfidenceBand = confidence >= thresholds.high ? "high" : confidence >= thresholds.low ? "medium" : "low";
+
+    // ---- CONTRÔLES DÉTERMINISTES propres au scan (les contrôles arithmétiques de cohérence
+    // cours/valorisation sont ajoutés ensuite par buildSnapshotPreview, non dupliqués ici). ----
+    const warnings: string[] = [];
+    if (isin && !isValidIsin(isin)) warnings.push("ISIN invalide (clé de contrôle) : vérifiez les caractères ambigus (O/0, I/1, S/5).");
+    if (!isin && !ticker) warnings.push("Aucun code ISIN ni ticker lu : le rapprochement se fera sur le nom.");
+    if (quantity !== null && quantity <= 0) warnings.push("Quantité nulle ou négative.");
+    if (!CURRENCY_RE.test(currency)) warnings.push("Devise non standard.");
+    for (const w of entry.warnings ?? []) if (typeof w === "string" && w.trim()) warnings.push(w.trim());
+
+    const rawMovement = str(fieldValue(entry.last_movement_date));
+    meta.push({
+      confidence, band,
+      page: entry.page ?? null,
+      sourceText: entry.source_text ?? null,
+      warnings,
+      lastMovementDate: parseDate(rawMovement, "iso") ?? parseDate(rawMovement, "fr") ?? parseDate(rawMovement, "us"),
+    });
+  }
+
+  return { header: [...SNAPSHOT_TABLE_HEADER], rows, meta };
+}
+
+/**
+ * Contre-vérification : la SOMME des lignes retranscrites doit redonner le total imprimé sur le
+ * relevé. C'est le contrôle le plus utile d'un scan — il détecte une ligne oubliée ou mal lue,
+ * ce qu'aucune confiance déclarée par le modèle ne peut garantir. Aucun total n'est importé.
+ */
+export function crossCheckTotals(params: { sumValuation: number | null; sumGain: number | null; document: ExtractedDocument }): {
+  valuation: { expected: number; actual: number; ok: boolean } | null;
+  gain: { expected: number; actual: number; ok: boolean } | null;
+} {
+  const close = (a: number, b: number) => Math.abs(a - b) <= Math.max(Math.abs(b) * 0.005, 0.5);
+  const { document, sumValuation, sumGain } = params;
+  return {
+    valuation: document.totalValuation !== null && sumValuation !== null
+      ? { expected: document.totalValuation, actual: sumValuation, ok: close(sumValuation, document.totalValuation) }
+      : null,
+    gain: document.totalGain !== null && sumGain !== null
+      ? { expected: document.totalGain, actual: sumGain, ok: close(sumGain, document.totalGain) }
+      : null,
+  };
 }

@@ -167,6 +167,11 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
             setMessage({ text: "Compte mis à jour.", tone: "success" });
             try { await load(); } catch { /* la liste reste inchangée si le rechargement échoue */ }
           }}
+          onPurged={async (removed) => {
+            setDetail(null);
+            setMessage({ text: `Portefeuille vidé : ${removed} opération(s) supprimée(s). Le compte est conservé.`, tone: "success" });
+            try { await load(); } catch { /* la liste reste inchangée si le rechargement échoue */ }
+          }}
         />
       )}
     </SettingsSection>
@@ -177,9 +182,9 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
 // édition (nom, établissement, date d'ouverture, objectif mensuel, solde de départ, note).
 // L'écriture passe par /api/admin/accounts (PATCH, requireAdmin). Les identifiants (n° de compte,
 // IBAN) restent en lecture seule : seuls leurs 4 derniers caractères ont été enregistrés.
-function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved }: {
+function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved, onPurged }: {
   account: PortfolioAccount; valueEur: number | null; canEdit: boolean;
-  onClose: () => void; onSaved: (updated: PortfolioAccount) => void;
+  onClose: () => void; onSaved: (updated: PortfolioAccount) => void; onPurged: (removed: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(account.name ?? "");
@@ -190,11 +195,35 @@ function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved }: {
   const [notes, setNotes] = useState(account.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // Vidage du compte : seuls le PEA et le compte-titres portent des opérations, et l'action
+  // exige de recopier le nom exact du compte — la même exigence est REJOUÉE côté serveur.
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState("");
+  const [purging, setPurging] = useState(false);
 
   const ccy = (account.currency || "EUR").toUpperCase();
   const typeLabel = TYPE_LABELS[account.accountType] ?? account.accountType;
   const ro = !editing;
   const todayISO = new Date().toISOString().slice(0, 10);
+  const canPurge = canEdit && (account.accountType === "pea" || account.accountType === "securities");
+  const accountName = (account.name ?? "").trim();
+
+  async function purge() {
+    setError("");
+    setPurging(true);
+    try {
+      const headers = await authHeaders();
+      const query = `accountId=${encodeURIComponent(account.id)}&scope=all&confirm=${encodeURIComponent(purgeConfirm.trim())}`;
+      const response = await fetch(`/api/pea/operations?${query}`, { method: "DELETE", headers });
+      const body = (await response.json().catch(() => ({}))) as { removed?: number; error?: string };
+      setPurging(false);
+      if (!response.ok) { setError(body.error ?? "Suppression impossible."); return; }
+      onPurged(body.removed ?? 0);
+    } catch {
+      setPurging(false);
+      setError("Réseau indisponible.");
+    }
+  }
 
   function cancelEdit() {
     setName(account.name ?? "");
@@ -292,6 +321,37 @@ function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved }: {
         </label>
       </div>
       <p className="set-hint">Le solde de départ est une information de contexte (montant déjà présent au début du suivi). La valeur et la performance restent calculées à partir des opérations enregistrées. Le n° de compte et l’IBAN ne sont conservés qu’en 4 derniers caractères et ne sont pas modifiables ici.</p>
+
+      {/* Zone destructive — PEA et compte-titres uniquement (seuls porteurs d'opérations). */}
+      {canPurge && !editing && (
+        <div className="set-danger">
+          <div>
+            <h3>Tout effacer</h3>
+            <p>
+              Supprime <b>toutes les opérations</b> de ce {typeLabel} — versements, achats, ventes, dividendes, frais — ainsi que les positions et la performance qui en sont dérivées.
+              Le compte lui-même, ses informations et ses instruments sont conservés&nbsp;: vous repartez d’un portefeuille vide, prêt pour un nouvel import.
+              <span className="set-subtle"> Action irréversible : aucune sauvegarde n’est conservée.</span>
+            </p>
+          </div>
+          {!purgeOpen
+            ? <button type="button" className="set-btn-danger" onClick={() => { setPurgeOpen(true); setPurgeConfirm(""); setError(""); }}>Tout effacer</button>
+            : (
+              <div className="set-fields" style={{ gridColumn: "1 / -1", gridTemplateColumns: "1fr" }}>
+                <label className="set-field">
+                  <span>Saisissez «&nbsp;{accountName}&nbsp;» pour confirmer</span>
+                  <input value={purgeConfirm} onChange={(event) => setPurgeConfirm(event.target.value)} placeholder={accountName} autoComplete="off" />
+                </label>
+                <div className="set-modal-actions">
+                  <button type="button" className="set-btn" onClick={() => { setPurgeOpen(false); setPurgeConfirm(""); }} disabled={purging}>Annuler</button>
+                  <button type="button" className="set-btn-danger" disabled={purging || purgeConfirm.trim() !== accountName} onClick={() => void purge()}>
+                    {purging ? "Suppression…" : "Effacer définitivement"}
+                  </button>
+                </div>
+              </div>
+            )}
+        </div>
+      )}
+
       {error && <p className="set-message error" role="status">{error}</p>}
       <footer className="set-modal-actions">
         {canEdit && !editing && <button type="button" className="set-btn-primary" onClick={() => setEditing(true)}>Modifier</button>}

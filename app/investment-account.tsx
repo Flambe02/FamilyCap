@@ -23,6 +23,9 @@ import {
   type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice, type PortfolioPosition,
 } from "../lib/portfolio-account";
 import { computeMonthlyPlanProgress, type MonthlyPlanProgress } from "../lib/investment-plan";
+// Type SEUL (effacé à la compilation) : `lib/market-quotes` est un module serveur, jamais
+// embarqué dans le bundle client — seule sa forme de données est partagée avec la fiche d'actif.
+import type { InstrumentSnapshot } from "../lib/market-quotes";
 import "./pea-investments.css";
 
 // ---- Types d'entrée (formes renvoyées par /api/portfolio) --------------------------------
@@ -135,6 +138,8 @@ export function InvestmentAccountShell({
   const [editingOp, setEditingOp] = useState<InvestmentOperation | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ title: string; detail: string; ids: string[] } | null>(null);
   const [purgeAccount, setPurgeAccount] = useState<InvestmentAccount | null>(null);
+  // Position dont on ouvre la FICHE (identité, ma position, données de marché externes).
+  const [detailPosition, setDetailPosition] = useState<PortfolioPosition | null>(null);
   const [pricesBusy, setPricesBusy] = useState(false);
   const [priceReport, setPriceReport] = useState<PriceRefreshReport | null>(null);
   // Assistant de création de compte, ouvert EN PLACE (plus de détour par Administration).
@@ -439,7 +444,8 @@ export function InvestmentAccountShell({
                   ids,
                 });
               }}
-              onAddOperation={canManage ? () => setModal({ open: true, type: "achat", mode: "admin" }) : undefined} />
+              onAddOperation={canManage ? () => setModal({ open: true, type: "achat", mode: "admin" }) : undefined}
+              onOpenPosition={setDetailPosition} />
           )}
           {tab === "historique" && (
             <HistoriqueTab config={config} operations={scopeOps} accountNameById={accountNameById} canManage={canManage}
@@ -503,6 +509,16 @@ export function InvestmentAccountShell({
             return null;
           }} />
       )}
+      {detailPosition && (
+        <PositionDetailModal
+          key={detailPosition.key}
+          position={detailPosition}
+          envLabel={config.kind === "CTO" ? "Compte-titres" : "PEA"}
+          operations={operationsOfPosition(detailPosition.key)}
+          onClose={() => setDetailPosition(null)}
+        />
+      )}
+
       {purgeAccount && canManage && (
         <ConfirmDangerDialog title={`Vider le portefeuille « ${purgeAccount.name} » ?`}
           detail="TOUTES les opérations de ce compte (versements, achats, ventes, dividendes, frais) seront définitivement supprimées. Le compte lui-même, ses informations et le référentiel des cours sont conservés. Cette action est irréversible."
@@ -759,7 +775,7 @@ function priceAge(lastPriceAt: string | null): string | null {
 
 function PositionsTab({
   config, model, canManage, canRefreshPrices, pricesBusy, onRefreshPrices, priceReport, onDismissPriceReport,
-  operationsOfPosition, onEditOperation, onDeletePosition, onAddOperation,
+  operationsOfPosition, onEditOperation, onDeletePosition, onAddOperation, onOpenPosition,
 }: {
   config: EnvelopeConfig; model: AccountModel; canManage: boolean;
   canRefreshPrices: boolean; pricesBusy: boolean; onRefreshPrices: () => void;
@@ -768,6 +784,7 @@ function PositionsTab({
   onEditOperation: (op: InvestmentOperation) => void;
   onDeletePosition: (position: PortfolioPosition) => void;
   onAddOperation?: () => void;
+  onOpenPosition: (position: PortfolioPosition) => void;
 }) {
   const cto = config.positionsVariant === "cto";
   const [search, setSearch] = useState("");
@@ -842,12 +859,16 @@ function PositionsTab({
         <EmptyState title="Aucun résultat" description="Aucune position ne correspond à ces filtres." />
       ) : (
         <div className="responsive-table">
-          <table className="btc-table">
+          {/* Tableau volontairement RESSERRÉ : le nom, le ticker, l'ISIN et le type vivent dans
+              une seule cellule « Actif », et la colonne « Compte » a disparu (l'onglet ne montre
+              qu'un périmètre, et le détail d'une position rappelle ses comptes). Résultat : 8
+              colonnes au lieu de 11, plus de débordement horizontal ni de ligne coupée. */}
+          <table className="btc-table inv-table">
             <thead>
               {cto ? (
-                <tr><th>Actif</th><th>Type</th><th>Compte</th><th>Quantité</th><th>PRU</th><th>Cours</th><th>Devise</th><th>Valeur</th><th>Gain</th><th>Poids</th>{canManage && <th>Actions</th>}</tr>
+                <tr><th>Actif</th><th className="num">Quantité</th><th className="num">PRU</th><th className="num">Cours</th><th className="num">Valeur</th><th className="num">Gain</th><th className="num">Poids</th>{canManage && <th>Actions</th>}</tr>
               ) : (
-                <tr><th>Actif</th><th>Type</th><th>Ticker / ISIN</th><th>Quantité</th><th>Prix de revient</th><th>Cours</th><th>Valeur</th><th>Poids</th><th>Perf.</th>{canManage && <th>Actions</th>}</tr>
+                <tr><th>Actif</th><th className="num">Quantité</th><th className="num">Prix de revient</th><th className="num">Cours</th><th className="num">Valeur</th><th className="num">Poids</th><th className="num">Perf.</th>{canManage && <th>Actions</th>}</tr>
               )}
             </thead>
             <tbody>
@@ -857,23 +878,28 @@ function PositionsTab({
                 return (
                 <Fragment key={position.key}>
                 <tr>
-                  <td data-label="Actif"><strong>{position.name}</strong>{cto && (position.ticker || position.isin) ? <><br /><small className="inv-muted">{position.ticker ?? position.isin}</small></> : null}</td>
-                  <td data-label="Type">{ASSET_LABEL[position.assetClass] ?? "Autre"}</td>
-                  {cto ? (
-                    <td data-label="Compte">{position.accounts.length === 0 ? "—" : position.accounts.length === 1 ? position.accounts[0] : `${position.accounts.length} comptes`}</td>
-                  ) : (
-                    <td data-label="Ticker / ISIN">{position.ticker ?? position.isin ?? "—"}</td>
-                  )}
+                  <td data-label="Actif" className="inv-asset-cell">
+                    {/* Le nom entier ouvre la fiche de l'actif : identité, ma position, marché. */}
+                    <button type="button" className="inv-asset-btn" onClick={() => onOpenPosition(position)}
+                      title={`Voir la fiche de ${position.name}`}>
+                      <span className="inv-asset-name">{position.name}</span>
+                      <span className="inv-asset-meta">
+                        {position.ticker && <span className="inv-tag inv-tag-ticker">{position.ticker}</span>}
+                        {position.isin && <span className="inv-tag inv-tag-isin">{position.isin}</span>}
+                        <span className="inv-tag inv-tag-class">{ASSET_LABEL[position.assetClass] ?? "Autre"}</span>
+                        {position.currency !== "EUR" && <span className="inv-tag inv-tag-ccy">{position.currency}</span>}
+                      </span>
+                    </button>
+                  </td>
                   <td data-label="Quantité" className="num">{qty.format(position.quantity)}</td>
-                  <td data-label={cto ? "PRU" : "Prix de revient"} className="num">{position.averageCost === null ? "—" : euro.format(position.averageCost)}</td>
+                  <td data-label={cto ? "PRU" : "Prix de revient"} className="num">{position.averageCost === null ? "—" : money(position.averageCost, position.currency)}</td>
                   <td data-label="Cours" className="num">
-                    {position.lastPrice === null ? "Indispo." : euro.format(position.lastPrice)}
+                    {position.lastPrice === null ? <span className="inv-muted">Indispo.</span> : money(position.lastPrice, position.currency)}
                     {age && <><br /><small className="inv-muted">{age}</small></>}
                   </td>
-                  {cto && <td data-label="Devise">{position.currency}</td>}
-                  <td data-label="Valeur" className="num">{position.currentValueEur === null ? "—" : euro.format(position.currentValueEur)}</td>
+                  <td data-label="Valeur" className="num">{position.currentValueEur === null ? "—" : money(position.currentValueEur, position.currency)}</td>
                   {cto ? (
-                    <td data-label="Gain" className="num">{position.gainEur === null ? "—" : <span className={position.gainEur >= 0 ? "up" : "down"}>{position.gainEur >= 0 ? "+" : "−"}{euro.format(Math.abs(position.gainEur))}{position.gainPct === null ? "" : ` (${position.gainPct >= 0 ? "+" : ""}${position.gainPct.toFixed(1)} %)`}</span>}</td>
+                    <td data-label="Gain" className="num">{position.gainEur === null ? "—" : <span className={position.gainEur >= 0 ? "up" : "down"}>{position.gainEur >= 0 ? "+" : "−"}{money(Math.abs(position.gainEur), position.currency)}{position.gainPct === null ? "" : <><br /><small>{position.gainPct >= 0 ? "+" : ""}{position.gainPct.toFixed(1)} %</small></>}</span>}</td>
                   ) : null}
                   <td data-label="Poids" className="num">{position.currentValueEur === null ? "—" : `${position.weightPct.toFixed(1)} %`}</td>
                   {!cto && <td data-label="Perf." className="num">{position.gainPct === null ? "—" : <span className={position.gainPct >= 0 ? "up" : "down"}>{position.gainPct >= 0 ? "+" : ""}{position.gainPct.toFixed(1)} %</span>}</td>}
@@ -893,7 +919,7 @@ function PositionsTab({
                 </tr>
                 {lines.length > 0 && (
                   <tr className="inv-lines-row">
-                    <td colSpan={cto ? 11 : 10}>
+                    <td colSpan={7 + (canManage ? 1 : 0)}>
                       <div className="inv-lines">
                         <p className="inv-lines-head">
                           {lines.length} opération(s) sur <b>{position.name}</b>. La quantité et le prix de revient en découlent&nbsp;: corrigez une ligne, le portefeuille se recalcule.
@@ -964,6 +990,182 @@ function PriceRefreshPanel({ report, onDismiss }: { report: PriceRefreshReport; 
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ==========================================================================================
+// FICHE D'UN ACTIF
+// ==========================================================================================
+// Trois blocs, dans cet ordre : ce qu'EST l'instrument, ce que J'EN DÉTIENS, ce qu'en dit le
+// MARCHÉ. Les deux premiers viennent des opérations enregistrées (source de vérité interne) ;
+// le troisième d'un fournisseur externe gratuit, chargé à l'ouverture et clairement attribué.
+// Aucune valeur externe n'est écrite en base : la fiche informe, elle ne modifie rien.
+
+/** Courbe de tendance (1 mois). Uniquement des points réellement cotés — jamais interpolés. */
+function Sparkline({ points }: { points: number[] }) {
+  if (points.length < 2) return null;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const width = 100;
+  const height = 30;
+  const path = points.map((value, index) => `${(index / (points.length - 1)) * width},${height - ((value - min) / span) * height}`).join(" ");
+  const rising = points[points.length - 1] >= points[0];
+  return (
+    <svg className="inv-spark" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={rising ? "Tendance à la hausse sur un mois" : "Tendance à la baisse sur un mois"}>
+      <polyline points={path} fill="none" strokeWidth="1.6" vectorEffect="non-scaling-stroke"
+        stroke={rising ? "var(--btc-up, #1d7a5f)" : "var(--btc-down, #d9544d)"} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// `dateOf` attend une date SEULE (« 2026-07-24 ») : elle concatène « T00:00:00Z ». Lui passer un
+// horodatage complet (`holdings.last_price_at`, `asOf` du fournisseur) produit une date invalide
+// et fait planter le rendu. On tronque donc systématiquement à la partie calendaire.
+const dayOf = (iso: string) => dateOf(String(iso).slice(0, 10));
+
+function DetailRow({ label, value, tone }: { label: string; value: React.ReactNode; tone?: "up" | "down" }) {
+  return (
+    <div className="inv-detail-row">
+      <dt>{label}</dt>
+      <dd className={tone ? tone : undefined}>{value}</dd>
+    </div>
+  );
+}
+
+type MarketState =
+  | { status: "loading" }
+  | { status: "ok"; instrument: InstrumentSnapshot; currencyMismatch: boolean }
+  | { status: "error"; message: string };
+
+function PositionDetailModal({ position, envLabel, operations, onClose }: {
+  position: PortfolioPosition; envLabel: string; operations: InvestmentOperation[]; onClose: () => void;
+}) {
+  const dialogRef = useDialogA11y(true, onClose);
+  const [market, setMarket] = useState<MarketState>({ status: "loading" });
+  const { isin, ticker, name, currency } = position;
+
+  // Pas de remise à « loading » ici : la modale est montée avec `key={position.key}`, donc
+  // changer d'actif remonte le composant et l'état initial est déjà le bon.
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (isin) params.set("isin", isin);
+    if (ticker) params.set("ticker", ticker);
+    if (name) params.set("name", name);
+    if (currency) params.set("currency", currency);
+    void (async () => {
+      try {
+        const response = await authenticatedFetch(`/api/market/instrument?${params.toString()}`);
+        const data = (await response.json().catch(() => ({}))) as { instrument?: InstrumentSnapshot; currencyMismatch?: boolean; error?: string };
+        if (cancelled) return;
+        if (!response.ok || !data.instrument) {
+          setMarket({ status: "error", message: data.error ?? "Fiche de marché indisponible pour cet instrument." });
+          return;
+        }
+        setMarket({ status: "ok", instrument: data.instrument, currencyMismatch: data.currencyMismatch === true });
+      } catch {
+        if (!cancelled) setMarket({ status: "error", message: "Fournisseur de marché injoignable. Réessayez plus tard." });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isin, ticker, name, currency]);
+
+  const buys = operations.filter((op) => op.type === "achat").length;
+  const sells = operations.filter((op) => op.type === "vente").length;
+  const dividends = operations.filter((op) => op.type === "dividende")
+    .reduce((total, op) => total + Math.abs(Number(op.netAmount ?? 0)), 0);
+  const firstDate = operations.length > 0 ? operations.map((op) => op.date).sort()[0] : null;
+  const pct = (value: number | null) => (value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(2)} %`);
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal pea-modal inv-detail-modal" ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Fiche de ${position.name}`} tabIndex={-1}>
+        <header className="pea-modal-head">
+          <div className="inv-detail-title">
+            <span className="soft-pill">{envLabel} · {ASSET_LABEL[position.assetClass] ?? "Autre"}</span>
+            <h2>{position.name}</h2>
+            <p className="inv-detail-codes">
+              {position.ticker && <span className="inv-tag inv-tag-ticker">{position.ticker}</span>}
+              {position.isin && <span className="inv-tag inv-tag-isin">{position.isin}</span>}
+              <span className="inv-tag inv-tag-ccy">{position.currency}</span>
+            </p>
+          </div>
+          <button type="button" className="pea-modal-close" onClick={onClose} aria-label="Fermer">×</button>
+        </header>
+
+        <div className="inv-detail-body">
+          <section className="inv-detail-block">
+            <h3 className="btc-panel-kicker">MA POSITION</h3>
+            <dl className="inv-detail-grid">
+              <DetailRow label="Quantité détenue" value={qty.format(position.quantity)} />
+              <DetailRow label="Prix de revient (PMP)" value={position.averageCost === null ? "—" : money(position.averageCost, position.currency)} />
+              <DetailRow label="Montant investi" value={money(position.investedEur, position.currency)} />
+              <DetailRow label="Valeur actuelle" value={position.currentValueEur === null ? "Aucun cours" : money(position.currentValueEur, position.currency)} />
+              <DetailRow label="+/- value latente"
+                tone={position.gainEur === null ? undefined : position.gainEur >= 0 ? "up" : "down"}
+                value={position.gainEur === null ? "—" : `${position.gainEur >= 0 ? "+" : "−"}${money(Math.abs(position.gainEur), position.currency)}${position.gainPct === null ? "" : ` (${position.gainPct >= 0 ? "+" : ""}${position.gainPct.toFixed(1)} %)`}`} />
+              <DetailRow label="Poids du portefeuille" value={`${position.weightPct.toFixed(1)} %`} />
+              <DetailRow label="Compte(s)" value={position.accounts.length === 0 ? "—" : position.accounts.join(", ")} />
+              <DetailRow label="Cours enregistré" value={position.lastPrice === null ? "Aucun" : `${money(position.lastPrice, position.currency)}${position.lastPriceAt ? ` · ${priceAge(position.lastPriceAt) ?? dayOf(position.lastPriceAt)}` : ""}`} />
+            </dl>
+            <p className="inv-detail-note">
+              {operations.length} opération(s) enregistrée(s){buys > 0 ? ` · ${buys} achat(s)` : ""}{sells > 0 ? ` · ${sells} vente(s)` : ""}
+              {dividends > 0 ? ` · ${money(dividends, position.currency)} de dividendes` : ""}
+              {firstDate ? ` · depuis le ${dateOf(firstDate)}` : ""}.
+              La quantité et le prix de revient sont <b>dérivés de ces opérations</b>, jamais saisis directement.
+            </p>
+          </section>
+
+          <section className="inv-detail-block">
+            <h3 className="btc-panel-kicker">DONNÉES DE MARCHÉ</h3>
+            {market.status === "loading" && <p className="inv-detail-loading">Interrogation du fournisseur de marché…</p>}
+            {market.status === "error" && (
+              <p className="inv-detail-empty">
+                {market.message} Les informations ci-dessus restent celles de vos opérations : elles ne dépendent d’aucun fournisseur externe.
+              </p>
+            )}
+            {market.status === "ok" && (
+              <>
+                {market.currencyMismatch && (
+                  <p className="inv-detail-warn">
+                    ⚠ La seule cotation trouvée est en <b>{market.instrument.currency}</b>, alors que votre position est libellée en <b>{position.currency}</b>.
+                    Les chiffres ci-dessous sont donc dans une autre devise et ne sont pas comparables tels quels à votre valorisation.
+                  </p>
+                )}
+                {market.instrument.history.length > 1 && (
+                  <div className="inv-detail-spark">
+                    <Sparkline points={market.instrument.history.map((point) => point.close)} />
+                    <small>1 mois · {market.instrument.history.length} séances</small>
+                  </div>
+                )}
+                <dl className="inv-detail-grid">
+                  <DetailRow label="Cours de marché" value={money(market.instrument.price, market.instrument.currency)} />
+                  <DetailRow label="Variation / veille"
+                    tone={market.instrument.dayChangePct === null ? undefined : market.instrument.dayChangePct >= 0 ? "up" : "down"}
+                    value={pct(market.instrument.dayChangePct)} />
+                  <DetailRow label="Clôture précédente" value={market.instrument.previousClose === null ? "—" : money(market.instrument.previousClose, market.instrument.currency)} />
+                  <DetailRow label="Séance (bas – haut)" value={market.instrument.dayLow === null || market.instrument.dayHigh === null ? "—" : `${money(market.instrument.dayLow, market.instrument.currency)} – ${money(market.instrument.dayHigh, market.instrument.currency)}`} />
+                  <DetailRow label="52 semaines (bas – haut)" value={market.instrument.fiftyTwoWeekLow === null || market.instrument.fiftyTwoWeekHigh === null ? "—" : `${money(market.instrument.fiftyTwoWeekLow, market.instrument.currency)} – ${money(market.instrument.fiftyTwoWeekHigh, market.instrument.currency)}`} />
+                  <DetailRow label="Volume du jour" value={market.instrument.volume === null ? "—" : qty.format(market.instrument.volume)} />
+                  <DetailRow label="Place de cotation" value={market.instrument.exchange ?? "—"} />
+                  <DetailRow label="Symbole" value={market.instrument.symbol} />
+                </dl>
+                <p className="inv-detail-source">
+                  Source&nbsp;: {market.instrument.provider}{market.instrument.asOf ? ` · relevé le ${dayOf(market.instrument.asOf)}` : ""}
+                  {market.instrument.name && market.instrument.name !== position.name ? ` · libellé fournisseur : ${market.instrument.name}` : ""}.
+                  Données indicatives, non contractuelles. Elles ne sont pas enregistrées&nbsp;: pour mettre à jour le cours du portefeuille, utilisez «&nbsp;Actualiser les cours&nbsp;».
+                </p>
+              </>
+            )}
+          </section>
+        </div>
+
+        <div className="pea-form-actions">
+          <button type="button" className="primary-button" onClick={onClose}>Fermer</button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1201,12 +1403,40 @@ function PerformanceTab({ model, onGoto }: { model: AccountModel; onGoto: (tab: 
 // ==========================================================================================
 // COMPRENDRE
 // ==========================================================================================
+// Onglet « Comprendre » — huit réponses affichées d'un bloc, c'était un mur de texte que
+// personne ne lit. Reprise en ACCORDÉON : une question par ligne, la première ouverte pour
+// amorcer la lecture, et un bouton « tout déplier » pour ceux qui préfèrent parcourir ou
+// imprimer. `<details>` fait le travail nativement : accessible au clavier, cherchable par
+// Ctrl+F dans les navigateurs récents, et fonctionnel même si le JS n'a pas encore chargé.
 function ComprendreTab({ config }: { config: EnvelopeConfig }) {
+  const [allOpen, setAllOpen] = useState(false);
+  const kind = config.kind === "CTO" ? "compte-titres" : "PEA";
   return (
-    <section className="panel">
+    <section className="panel pea-faq-panel">
+      <header className="pea-faq-head">
+        <div>
+          <h3 className="btc-panel-kicker">COMPRENDRE VOTRE {kind.toUpperCase()}</h3>
+          <p className="pea-faq-lead">
+            Les {config.faq.length} questions que l’on se pose vraiment sur ce type de compte — en langage clair,
+            sans jargon. Rien ici n’est un conseil d’investissement.
+          </p>
+        </div>
+        <button type="button" className="secondary-button" onClick={() => setAllOpen((current) => !current)}>
+          {allOpen ? "Tout replier" : "Tout déplier"}
+        </button>
+      </header>
       <div className="pea-faq">
-        {config.faq.map((item) => (
-          <div key={item.q} className="pea-faq-item"><strong>{item.q}</strong><p>{item.a}</p></div>
+        {config.faq.map((item, index) => (
+          // `key` inclut l'état global : re-monter l'élément est ce qui permet à « tout déplier »
+          // de reprendre la main sur les ouvertures/fermetures faites à la main juste avant.
+          <details key={`${item.q}-${allOpen}`} className="pea-faq-item" open={allOpen || index === 0}>
+            <summary>
+              <span className="pea-faq-num" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+              <span className="pea-faq-q">{item.q}</span>
+              <span className="pea-faq-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <p>{item.a}</p>
+          </details>
         ))}
       </div>
     </section>

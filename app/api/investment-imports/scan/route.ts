@@ -1,14 +1,21 @@
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
-import { buildPreviewFromOps } from "../../../../lib/investment-import";
+import { buildPreviewFromOps, parseDate } from "../../../../lib/investment-import";
 import { loadImportAccount, loadImportContext, isOperationAccount } from "../../../../lib/investment-import-server";
 import { getDocumentAiConfig, getDocumentProvider } from "../../../../lib/document-extraction/provider";
-import { validateExtraction } from "../../../../lib/document-extraction/extract";
+import { validateExtraction, validateExtractedPositions, crossCheckTotals } from "../../../../lib/document-extraction/extract";
+import { autoMapSnapshotHeaders, buildSnapshotPreview } from "../../../../lib/portfolio-snapshot-import";
 
 // SCAN IA d'un relevé (PDF / image) — étape d'import, PAS un second moteur financier. Admin
 // uniquement. Le fichier est traité de façon TRANSITOIRE (jamais stocké) : on l'encode, on
 // appelle le fournisseur IA côté serveur, on VALIDE la sortie par schéma + contrôles
 // déterministes, puis on renvoie la MÊME prévisualisation que l'import CSV (rien n'est écrit).
 // L'IA n'extrait que des champs bruts ; tous les calculs restent dans computeAccountModel.
+//
+// DEUX FAMILLES DE RELEVÉS, un seul parcours :
+//   • mouvements  → opérations datées      → buildPreviewFromOps    (mode "operations")
+//   • positions   → portefeuille à une date → buildSnapshotPreview  (mode "snapshot")
+// Le second cas est celui d'une capture « Mes positions » : il ne contient aucune opération, et
+// c'est exactement ce que l'ancienne version rejetait avec « aucune ligne d'opération exploitable ».
 
 export const runtime = "nodejs";
 
@@ -53,17 +60,72 @@ export async function POST(request: Request) {
     }
 
     const { document, operations } = validateExtraction(raw, { accountCurrency: account.currency, thresholds: config.thresholds });
-    if (operations.length === 0) {
+    const positions = validateExtractedPositions(raw, { accountCurrency: account.currency, thresholds: config.thresholds });
+
+    if (operations.length === 0 && positions.rows.length === 0) {
       return Response.json({
-        error: "Le document a été transmis à l'IA, mais aucune ligne d'opération exploitable n'a été retranscrite. Vérifiez que le relevé est net et non protégé, puis réessayez ou utilisez le CSV.",
-        code: "no_operations_detected",
+        error: "Le document a été transmis à l'IA, mais aucune ligne exploitable n'a été retranscrite — ni opération, ni position. Vérifiez que le relevé est net, entier et non protégé, puis réessayez ou utilisez le CSV.",
+        code: "no_rows_detected",
         provider: provider.name,
         document,
-        extraction: { documentDetected: Boolean(document.institution || document.accountType || document.period || document.holder), operationsDetected: 0 },
+        extraction: { documentDetected: Boolean(document.institution || document.accountType || document.period || document.holder), operationsDetected: 0, positionsDetected: 0 },
       }, { status: 422 });
     }
 
     const context = await loadImportContext(account);
+
+    // ---- RELEVÉ DE POSITIONS ------------------------------------------------------------
+    // Priorité aux opérations quand le document en contient : elles portent l'historique réel.
+    if (operations.length === 0) {
+      // Date d'arrêté : celle lue sur le relevé, sinon celle saisie par l'administrateur, sinon
+      // le jour même. Elle reste modifiable dans l'assistant avant tout enregistrement.
+      const submitted = parseDate(String(form.get("snapshotDate") ?? "").trim(), "iso");
+      const asOfDate = document.asOfDate ?? submitted ?? new Date().toISOString().slice(0, 10);
+      const mapping = autoMapSnapshotHeaders(positions.header);
+      const snapshot = buildSnapshotPreview({
+        rows: positions.rows,
+        mapping,
+        asOfDate,
+        accountCurrency: account.currency,
+        holdings: context.holdings,
+        // Le JSON de l'IA porte de vrais nombres : le tableau canonique est écrit en point
+        // décimal sans séparateur de milliers. Aucune détection à faire, aucune ambiguïté ×1000.
+        numberFormat: "us",
+      });
+
+      const mergedRows = snapshot.rows.map((row) => {
+        const meta = positions.meta[row.index - 1];
+        return meta
+          ? { ...row, warnings: [...new Set([...row.warnings, ...meta.warnings])], aiConfidence: meta.confidence, aiBand: meta.band, aiPage: meta.page, aiSourceText: meta.sourceText, lastMovementDate: meta.lastMovementDate }
+          : row;
+      });
+
+      // Contre-vérification : somme des lignes retranscrites vs totaux imprimés sur le relevé.
+      const sum = (pick: (position: (typeof snapshot.positions)[number]) => number | null) =>
+        snapshot.positions.some((position) => pick(position) !== null)
+          ? Math.round(snapshot.positions.reduce((total, position) => total + (pick(position) ?? 0), 0) * 100) / 100
+          : null;
+      const totals = crossCheckTotals({
+        sumValuation: sum((position) => position.currentValue),
+        sumGain: sum((position) => position.gainEur),
+        document,
+      });
+
+      return Response.json({
+        account: { id: account.id, name: account.name, kind: context.kind, currency: account.currency, memberName: account.memberName },
+        source: "ai_scan",
+        mode: "snapshot",
+        provider: provider.name,
+        document,
+        totals,
+        snapshot: { asOfDate, positions: snapshot.positions },
+        allowAdvanced: context.allowAdvanced,
+        knownHoldings: context.holdings,
+        summary: snapshot.summary,
+        rows: mergedRows,
+      });
+    }
+
     const { rows, summary } = buildPreviewFromOps(operations.map((o) => o.op), {
       accountId: account.id, accountCurrency: account.currency, accountType: context.kind,
       holdings: context.holdings, existingFingerprints: context.existingFingerprints, existingExternalRefs: context.existingExternalRefs,
@@ -81,6 +143,7 @@ export async function POST(request: Request) {
     return Response.json({
       account: { id: account.id, name: account.name, kind: context.kind, currency: account.currency, memberName: account.memberName },
       source: "ai_scan",
+      mode: "operations",
       provider: provider.name,
       document,
       allowAdvanced: context.allowAdvanced,
