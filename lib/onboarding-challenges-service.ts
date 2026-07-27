@@ -133,7 +133,7 @@ const EMPTY_RESULTS = { onboarding_account_setup: false, onboarding_existing_por
  * toujours), et renvoie la progression fraîche + la liste des missions VENANT d'être complétées
  * (pour un message de réussite ciblé côté client).
  */
-export async function reconcileOnboardingForMember(memberId: string): Promise<OnboardingReconcileResult> {
+export async function reconcileOnboardingForMember(memberId: string, options: { reconcile?: boolean } = {}): Promise<OnboardingReconcileResult> {
   const missionRows = await getOnboardingMissionRows();
   if (missionRows.size === 0) {
     return { available: false, progress: buildOnboardingProgress(EMPTY_RESULTS), justCompleted: [] };
@@ -162,7 +162,7 @@ export async function reconcileOnboardingForMember(memberId: string): Promise<On
 
   const justCompleted: OnboardingMissionSlug[] = [];
   for (const slug of ONBOARDING_MISSION_SLUGS) {
-    if (!results[slug]) continue;
+    if (!results[slug] || options.reconcile === false) continue;
     const mission = missionRows.get(slug);
     if (!mission || alreadyAwarded.has(mission.id)) continue; // pas seedée, ou déjà attribuée pour toujours
     await applyOnboardingPoints({ memberId, challengeId: mission.id, points: mission.points, slug });
@@ -176,8 +176,8 @@ export async function reconcileOnboardingForMember(memberId: string): Promise<On
 }
 
 /** Lecture + réconciliation en un appel, pour l'écran Défis (filet de sécurité au chargement). */
-export async function getOnboardingProgressForMember(memberId: string): Promise<OnboardingReconcileResult> {
-  return reconcileOnboardingForMember(memberId);
+export async function getOnboardingProgressForMember(memberId: string, options: { reconcile?: boolean } = {}): Promise<OnboardingReconcileResult> {
+  return reconcileOnboardingForMember(memberId, options);
 }
 
 // ---- Administration (lecture seule) --------------------------------------------------------

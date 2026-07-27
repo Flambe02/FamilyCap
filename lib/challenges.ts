@@ -148,18 +148,13 @@ export type LeaderboardEntry = {
   memberId: string;
   points: number;
   defisCompleted: number;
-  lastPointsAt: string | null; // ISO ; départage régularité
+  lastPointsAt: string | null; // conservé pour l'historique, jamais utilisé pour le rang
 };
 
-// Départage : points décroissants ; puis défis terminés décroissants ; puis derniers points les
-// plus TÔT (régularité) ; sinon ex æquo. JAMAIS le montant investi.
+// Le rang dépend UNIQUEMENT des points de la période. Les critères secondaires (défis terminés,
+// date ou rapidité) ne doivent jamais transformer une égalité en avantage de classement.
 export function compareLeaderboard(a: LeaderboardEntry, b: LeaderboardEntry): number {
-  if (b.points !== a.points) return b.points - a.points;
-  if (b.defisCompleted !== a.defisCompleted) return b.defisCompleted - a.defisCompleted;
-  const at = a.lastPointsAt ?? "";
-  const bt = b.lastPointsAt ?? "";
-  if (at !== bt) return at < bt ? -1 : 1;
-  return 0;
+  return b.points - a.points;
 }
 
 export function rankLeaderboard<T extends LeaderboardEntry>(rows: T[]): (T & { rank: number })[] {
@@ -179,13 +174,80 @@ export type LeaderboardBuildRow = { memberId: string; name: string; photoUrl: st
 export type LeaderboardPublicEntry = { rank: number; memberId: string; name: string; photoUrl: string | null; points: number; challengesCompleted: number };
 
 export function buildLeaderboard(rows: LeaderboardBuildRow[]): LeaderboardPublicEntry[] {
-  const included = rows.filter((row) => row.optIn !== false);
+  // L'ordre alphabétique ne sert qu'à rendre l'affichage stable entre ex æquo. Il est appliqué
+  // AVANT le calcul du rang, dont le comparateur ne connaît que les points.
+  const included = rows.filter((row) => row.optIn !== false).sort((a, b) => a.name.localeCompare(b.name, "fr"));
   const identity = new Map(included.map((row) => [row.memberId, row]));
   const ranked = rankLeaderboard(included.map((row) => ({ memberId: row.memberId, points: row.points, defisCompleted: row.defisCompleted, lastPointsAt: row.lastPointsAt })));
   return ranked.map((entry) => {
     const row = identity.get(entry.memberId);
     return { rank: entry.rank, memberId: entry.memberId, name: row?.name ?? "", photoUrl: row?.photoUrl ?? null, points: entry.points, challengesCompleted: entry.defisCompleted };
   });
+}
+
+// ---- Niveaux permanents -------------------------------------------------------------------
+export type ChallengeLevel = {
+  level: string;
+  nextLevel: string | null;
+  nextLevelAt: number | null;
+  levelProgressPct: number;
+};
+
+const LEVELS = [
+  { name: "Découverte", from: 0, nextAt: 100 },
+  { name: "Premiers pas", from: 100, nextAt: 400 },
+  { name: "Investisseur régulier", from: 400, nextAt: 900 },
+  { name: "Bâtisseur", from: 900, nextAt: 1600 },
+  { name: "Stratège", from: 1600, nextAt: null },
+] as const;
+
+/** Niveau dérivé du seul total net de points : aucune colonne de total ou de niveau n'est stockée. */
+export function deriveChallengeLevel(totalPoints: number): ChallengeLevel {
+  const safeTotal = Math.max(0, Math.floor(Number.isFinite(totalPoints) ? totalPoints : 0));
+  const index = LEVELS.findLastIndex((item) => safeTotal >= item.from);
+  const current = LEVELS[Math.max(0, index)];
+  if (current.nextAt === null) return { level: current.name, nextLevel: null, nextLevelAt: null, levelProgressPct: 100 };
+  const next = LEVELS[Math.max(0, index) + 1];
+  const span = current.nextAt - current.from;
+  return {
+    level: current.name,
+    nextLevel: next?.name ?? null,
+    nextLevelAt: current.nextAt,
+    levelProgressPct: Math.max(0, Math.min(100, Math.round(((safeTotal - current.from) / span) * 100))),
+  };
+}
+
+// ---- Régularité mensuelle -----------------------------------------------------------------
+export type MonthlyStreakLedgerEntry = { challengeId: string | null; points: number };
+export type MonthlyStreakChallenge = { id: string; challengeType: string; startsOn: string | null; endsOn: string | null };
+
+function previousMonth(key: string): string {
+  const [year, month] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 2, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Nombre de mois consécutifs réellement terminés. Seuls les défis mensuels à période exploitable
+ * comptent ; les écritures de compensation font tomber le solde net à zéro et cassent la série.
+ */
+export function calculateMonthlyStreak(entries: MonthlyStreakLedgerEntry[], challenges: MonthlyStreakChallenge[]): number {
+  const eligible = new Map(challenges
+    .filter((challenge) => challenge.challengeType === "monthly_investment" && challenge.startsOn && challenge.endsOn && challenge.startsOn.slice(0, 7) === challenge.endsOn.slice(0, 7))
+    .map((challenge) => [challenge.id, challenge.startsOn!.slice(0, 7)]));
+  const netByChallenge = new Map<string, number>();
+  for (const entry of entries) {
+    if (!entry.challengeId || !eligible.has(entry.challengeId)) continue;
+    netByChallenge.set(entry.challengeId, (netByChallenge.get(entry.challengeId) ?? 0) + entry.points);
+  }
+  const completedMonths = new Set<string>();
+  for (const [challengeId, points] of netByChallenge) if (points > 0) completedMonths.add(eligible.get(challengeId)!);
+  const latest = [...completedMonths].sort().at(-1);
+  if (!latest) return 0;
+  let streak = 0;
+  let cursor = latest;
+  while (completedMonths.has(cursor)) { streak += 1; cursor = previousMonth(cursor); }
+  return streak;
 }
 
 // ---- Validation d'un défi (création / édition admin), PURE -------------------------------

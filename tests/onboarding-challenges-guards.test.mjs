@@ -14,6 +14,7 @@ const migration = read("supabase/migrations/20260805_onboarding_missions.sql");
 const service = read("lib/onboarding-challenges-service.ts");
 const route = read("app/api/challenges/onboarding/route.ts");
 const challengesService = read("lib/challenges-service.ts");
+const rewardsV2Migration = read("supabase/migrations/20260809_challenges_rewards_v2.sql");
 
 // ---- Migration additive : seed idempotent des 4 missions ---------------------------------
 test("les 4 missions sont seedées via une clé métier stable (slug), pas le titre", () => {
@@ -72,7 +73,7 @@ test("la route onboarding identifie le membre via la session (requireFamilyMembe
   assert.match(route, /requireFamilyMember/);
   // resolveTargetId ne retombe sur un autre id que via ?asMember=, réservé à l'admin (aperçu
   // lecture seule) — jamais un membre normal, jamais via le corps de la requête (GET, sans corps).
-  assert.match(route, /reconcileOnboardingForMember\(resolveTargetId\(request, viewer\)\)/);
+  assert.match(route, /reconcileOnboardingForMember\(resolveTargetId\(request, viewer\)/);
   assert.match(route, /viewer\.role\s*===\s*["'`]admin["'`]/);
   assert.equal(route.includes("request.json"), false); // GET : aucun corps, aucun memberId injectable
 });
@@ -110,4 +111,19 @@ test("getActiveChallenge / listVisibleChallenges / listChallengesForAdmin filtre
 
 test("l'admin ne peut pas éditer une mission onboarding depuis updateChallenge (garde explicite)", () => {
   assert.match(challengesService, /challenge_type !== "monthly_investment"/);
+});
+
+test("la migration v2 revalorise les quatre missions sans modifier les anciennes écritures", () => {
+  for (const [slug, points] of [["onboarding_account_setup", 100], ["onboarding_existing_portfolio", 200], ["onboarding_monthly_plan", 100], ["onboarding_first_purchase", 250]]) {
+    assert.match(rewardsV2Migration, new RegExp(`\\('${slug}', ${points}\\)`));
+  }
+  assert.match(rewardsV2Migration, /onboarding_reward_adjustment_v2:/);
+  assert.match(rewardsV2Migration, /public\.apply_challenge_points/);
+  assert.equal(/insert into public\.points_ledger/i.test(rewardsV2Migration), false);
+  assert.equal(/update public\.points_ledger/i.test(rewardsV2Migration), false);
+});
+
+test("l'aperçu admin reste en lecture seule : la réconciliation est explicitement désactivée", () => {
+  assert.match(route, /isAdminPreview/);
+  assert.match(route, /reconcile:\s*!isAdminPreview/);
 });

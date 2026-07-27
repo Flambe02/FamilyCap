@@ -51,6 +51,8 @@ test("target_amount_snapshot n'est écrit qu'à l'inscription (jamais via un PAT
 // ---- Routes membre : identité de session, jamais du client -------------------------------
 const joinRoute = read("app/api/challenges/current/join/route.ts");
 const leaderboardRoute = read("app/api/challenges/leaderboard/route.ts");
+const summaryRoute = read("app/api/challenges/summary/route.ts");
+const currentRoute = read("app/api/challenges/current/route.ts");
 
 test("route join : identité serveur (viewer.id), aucune lecture de champ client sensible", () => {
   assert.match(joinRoute, /requireFamilyMember/);
@@ -90,11 +92,25 @@ test("route join : n'honore JAMAIS ?asMember= (un aperçu admin ne peut jamais r
   assert.equal(joinRoute.includes("asMember"), false);
 });
 
+test("aperçu admin du défi courant : lecture seule, sans réconciliation mutante", () => {
+  assert.match(currentRoute, /isAdminPreview/);
+  assert.match(currentRoute, /reconcile:\s*!isAdminPreview/);
+  assert.match(service, /readParticipantProgress/);
+});
+
 // ---- Classement : aucune donnée privée dans la route ni son DTO --------------------------
 test("route classement : aucun champ montant/objectif/compte", () => {
   assert.match(leaderboardRoute, /requireFamilyMember/);
   for (const forbidden of ["invested", "targetAmount", "target_amount", "monthly_target", "monthlyTarget", "eligible_amount", "account"]) {
     assert.equal(leaderboardRoute.includes(forbidden), false, `la route classement ne doit pas mentionner ${forbidden}`);
+  }
+});
+
+test("route de synthèse : session requise et aucun champ financier public dans le classement", () => {
+  assert.match(summaryRoute, /requireFamilyMember/);
+  assert.match(summaryRoute, /isCurrentMember/);
+  for (const forbidden of ["monthly_target", "target_amount", "eligible_amount", "account_id", "portfolio"]) {
+    assert.equal(summaryRoute.includes(forbidden), false, `la synthèse publique ne doit pas exposer ${forbidden}`);
   }
 });
 

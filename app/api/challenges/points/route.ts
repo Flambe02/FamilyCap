@@ -18,7 +18,11 @@ export async function GET(request: Request) {
     const points = await getMemberPoints(resolveTargetId(request, viewer));
     return Response.json({ available: true, ...points });
   } catch (error) {
-    if (isMissingChallengeTable(error)) return Response.json({ available: false, totalPoints: 0, yearPoints: 0, challengesCompleted: 0, rank: null });
+    if (isMissingChallengeTable(error)) return Response.json({
+      available: false, monthPoints: 0, totalPoints: 0, yearPoints: 0, challengesCompleted: 0,
+      rank: null, participantCount: 0, level: "Découverte", nextLevel: "Premiers pas",
+      nextLevelAt: 100, levelProgressPct: 0, monthlyStreak: 0,
+    });
     return authErrorResponse(error);
   }
 }

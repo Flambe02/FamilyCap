@@ -24,8 +24,8 @@ type Task = { key: string; label: string; done: boolean; view: View; track: bool
 // Carte compacte de progression sur le tableau de bord. Adapte les tâches aux modules choisis,
 // n'invente jamais d'action indisponible, se masque quand tout est fait, et peut être masquée
 // puis rouverte depuis Paramètres. Le report affiche un rappel « Reprendre ».
-export function OnboardingChecklist({ viewer, navigate, onResume }: {
-  viewer: Viewer; navigate: (view: View) => void; onResume: () => void;
+export function OnboardingChecklist({ viewer, navigate, onResume, compact = false }: {
+  viewer: Viewer; navigate: (view: View) => void; onResume: () => void; compact?: boolean;
 }) {
   const [state, setState] = useState<OnboardingState | null>(null);
   const [context, setContext] = useState<OnboardingContext | null>(null);
@@ -92,6 +92,18 @@ export function OnboardingChecklist({ viewer, navigate, onResume }: {
   function dismiss() {
     try { window.localStorage.setItem(dismissKey(viewer.id), "1"); } catch { /* ignore */ }
     setDismissed(true);
+  }
+
+  // Le parcours général reste disponible après les Défis, sans créer une seconde grande
+  // carte « Bien démarrer » ni mélanger les missions d'investissement avec la découverte.
+  if (compact) {
+    return (
+      <section className="panel home-card ob-checklist ob-checklist-compact" aria-label={c.title}>
+        <div><h3 className="home-card-kicker">Parcours de découverte</h3><p>{c.progress(doneCount, tasks.length)}</p></div>
+        {!completed && <button type="button" className="ob-checklist-compact-cta" onClick={onResume}>{c.resumeCta} →</button>}
+        <button type="button" className="ob-checklist-dismiss" onClick={dismiss}>{onboardingCopy.checklist.dismiss}</button>
+      </section>
+    );
   }
 
   return (

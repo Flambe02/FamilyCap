@@ -8,9 +8,10 @@
 
 import { supabaseRest } from "./supabase-rest.ts";
 import { instrumentKey, priceKeyOf } from "./portfolio-account.ts";
+import { getOnboardingProgressForMember, type OnboardingReconcileResult } from "./onboarding-challenges-service.ts";
 import {
   isPurchaseEligible, computeChallengeProgress, completionKey, reversalKey, resolvePointsAction, buildLeaderboard, memberChallengeState,
-  validateChallengeInput, canTransition, CHALLENGE_STATUSES, effectiveWindowStart,
+  validateChallengeInput, canTransition, CHALLENGE_STATUSES, effectiveWindowStart, deriveChallengeLevel, calculateMonthlyStreak,
   type ParticipantStatus, type MemberChallengeState, type ChallengeStatus, type ChallengeInput, type LeaderboardBuildRow,
 } from "./challenges.ts";
 
@@ -256,6 +257,22 @@ export async function reconcileParticipant(participant: ParticipantRow, challeng
   return { invested: progress.invested, targetAmount, pct: progress.pct, completed: status === "completed", status, linkedOperations: links.length, lastEligibleDate, skippedUnknownInstrument };
 }
 
+/** Lecture stricte des liens existants pour l'aperçu admin : aucune mutation ni attribution. */
+async function readParticipantProgress(participant: ParticipantRow): Promise<ReconcileResult> {
+  const links = await supabaseRest<LinkRow[]>(`challenge_operation_links?select=operation_id,eligible_amount&participant_id=eq.${encodeURIComponent(participant.id)}`);
+  const progress = computeChallengeProgress(links.map((link) => num(link.eligible_amount)), num(participant.target_amount_snapshot));
+  return {
+    invested: progress.invested,
+    targetAmount: num(participant.target_amount_snapshot),
+    pct: progress.pct,
+    completed: participant.status === "completed",
+    status: participant.status,
+    linkedOperations: links.length,
+    lastEligibleDate: null,
+    skippedUnknownInstrument: 0,
+  };
+}
+
 async function setParticipantStatus(participantId: string, status: ParticipantStatus, completed: boolean) {
   await supabaseRest(`challenge_participants?id=eq.${encodeURIComponent(participantId)}`, {
     method: "PATCH",
@@ -302,7 +319,7 @@ export type CurrentForMember = {
   state: MemberChallengeState;
 };
 
-export async function getCurrentForMember(memberId: string): Promise<CurrentForMember> {
+export async function getCurrentForMember(memberId: string, options: { reconcile?: boolean } = {}): Promise<CurrentForMember> {
   const [active, planRows] = await Promise.all([
     getActiveChallenge(),
     supabaseRest<PlanRow[]>(`user_investment_plan?select=monthly_target,target_account_id,leaderboard_opt_in&member_id=eq.${encodeURIComponent(memberId)}&limit=1`),
@@ -319,7 +336,7 @@ export async function getCurrentForMember(memberId: string): Promise<CurrentForM
   let progress: ReconcileResult | null = null;
   if (participant) {
     // Réconciliation à l'ouverture : reconnaît les achats importés/antérieurs et met à jour points.
-    progress = await reconcileParticipant(participant, active);
+    progress = options.reconcile === false ? await readParticipantProgress(participant) : await reconcileParticipant(participant, active);
   }
   const state = memberChallengeState({
     hasPlan, hasTargetAccount, isParticipant: Boolean(participant),
@@ -356,23 +373,72 @@ export async function getMemberChallengeHistory(memberId: string): Promise<Membe
 }
 
 // ---- Points du membre ---------------------------------------------------------------------
-export type MemberPoints = { totalPoints: number; yearPoints: number; challengesCompleted: number; rank: number | null };
+export type MemberPoints = {
+  monthPoints: number; yearPoints: number; totalPoints: number; challengesCompleted: number;
+  rank: number | null; participantCount: number; level: string; nextLevel: string | null;
+  nextLevelAt: number | null; levelProgressPct: number; monthlyStreak: number;
+};
 
-export async function getMemberPoints(memberId: string): Promise<MemberPoints> {
+export async function getMemberPoints(memberId: string, leaderboard?: LeaderboardPublicRow[]): Promise<MemberPoints> {
   const rows = await supabaseRest<LedgerRow[]>(`points_ledger?select=challenge_id,points,reason,created_at&member_id=eq.${encodeURIComponent(memberId)}`);
   const year = new Date().getUTCFullYear();
+  const monthRange = periodRange({ type: "month" });
   let totalPoints = 0;
   let yearPoints = 0;
+  let monthPoints = 0;
   const netByChallenge = new Map<string, number>();
   for (const row of rows) {
     totalPoints += row.points;
     if (row.created_at.slice(0, 4) === String(year)) yearPoints += row.points;
+    if (row.created_at >= monthRange.from && row.created_at < monthRange.to) monthPoints += row.points;
     if (row.challenge_id) netByChallenge.set(row.challenge_id, (netByChallenge.get(row.challenge_id) ?? 0) + (row.reason === "challenge_completion" ? 1 : row.reason === "challenge_reversal" ? -1 : 0));
   }
   const challengesCompleted = [...netByChallenge.values()].filter((net) => net > 0).length;
-  const board = await getLeaderboard({ type: "month" });
+  const board = leaderboard ?? await getLeaderboard({ type: "month" });
   const rank = board.find((entry) => entry.memberId === memberId)?.rank ?? null;
-  return { totalPoints, yearPoints, challengesCompleted, rank };
+  const level = deriveChallengeLevel(totalPoints);
+  const monthlyChallenges = await supabaseRest<Array<{ id: string; challenge_type: string; starts_on: string | null; ends_on: string | null }>>(
+    "challenges?select=id,challenge_type,starts_on,ends_on&challenge_type=eq.monthly_investment&limit=200",
+  );
+  const monthlyStreak = calculateMonthlyStreak(
+    rows.map((row) => ({ challengeId: row.challenge_id, points: row.points })),
+    monthlyChallenges.map((challenge) => ({ id: challenge.id, challengeType: challenge.challenge_type, startsOn: challenge.starts_on, endsOn: challenge.ends_on })),
+  );
+  return {
+    monthPoints, totalPoints, yearPoints, challengesCompleted, rank, participantCount: board.length,
+    level: level.level, nextLevel: level.nextLevel, nextLevelAt: level.nextLevelAt,
+    levelProgressPct: level.levelProgressPct, monthlyStreak,
+  };
+}
+
+export type ChallengeDashboardSummary = {
+  available: boolean;
+  current: CurrentForMember;
+  onboarding: OnboardingReconcileResult;
+  points: MemberPoints;
+  leaderboard: LeaderboardPublicRow[];
+  leaderboardOptIn: boolean;
+};
+
+/** Une synthèse serveur pour le dashboard et sa pastille header : données cohérentes, une requête client. */
+export async function getChallengeDashboardSummary(memberId: string, options: { reconcile?: boolean } = {}): Promise<ChallengeDashboardSummary> {
+  // Réconcilier d'abord, puis calculer le classement : un point tout juste attribué doit être
+  // visible dans le même résumé, sans requête client supplémentaire.
+  const [current, onboarding, plans] = await Promise.all([
+    getCurrentForMember(memberId, options),
+    getOnboardingProgressForMember(memberId, options),
+    supabaseRest<PlanRow[]>(`user_investment_plan?select=monthly_target,target_account_id,leaderboard_opt_in&member_id=eq.${encodeURIComponent(memberId)}&limit=1`),
+  ]);
+  const leaderboard = await getLeaderboard({ type: "month" });
+  const points = await getMemberPoints(memberId, leaderboard);
+  return {
+    available: true,
+    current,
+    onboarding,
+    points,
+    leaderboard,
+    leaderboardOptIn: plans[0]?.leaderboard_opt_in !== false,
+  };
 }
 
 // ---- Classement (sans montants) -----------------------------------------------------------
@@ -395,16 +461,14 @@ function periodRange(period: LeaderboardPeriod): { from: string; to: string } {
 /**
  * Classement familial calculé UNIQUEMENT depuis points_ledger. N'expose aucun montant privé
  * (objectif, montant investi, valeur, performance, compte). Respecte leaderboard_opt_in (un membre
- * opté-out n'apparaît pas). Départage : points, puis défis terminés, puis régularité.
+ * opté-out n'apparaît pas). Les membres actifs opt-in restent visibles même avec zéro point.
  */
 export async function getLeaderboard(period: LeaderboardPeriod): Promise<LeaderboardPublicRow[]> {
   const { from, to } = periodRange(period);
   const periodRows = await supabaseRest<Array<{ member_id: string; points: number; reason: string; created_at: string }>>(
     `points_ledger?select=member_id,points,reason,created_at&created_at=gte.${from}&created_at=lt.${to}`,
   );
-  if (periodRows.length === 0) return [];
-
-  // Agrégats de la période (points + régularité) par membre.
+  // Agrégats de la période par membre. Les zéros sont ajoutés plus bas pour tous les opt-in.
   const byMember = new Map<string, { points: number; lastPointsAt: string | null }>();
   for (const row of periodRows) {
     const current = byMember.get(row.member_id) ?? { points: 0, lastPointsAt: null };
@@ -412,19 +476,29 @@ export async function getLeaderboard(period: LeaderboardPeriod): Promise<Leaderb
     if (!current.lastPointsAt || row.created_at > current.lastPointsAt) current.lastPointsAt = row.created_at;
     byMember.set(row.member_id, current);
   }
-  const memberIds = [...byMember.keys()];
+  let memberRows: Array<{ id: string; name: string; photo_url?: string | null }>;
+  try {
+    memberRows = await supabaseRest<Array<{ id: string; name: string; photo_url: string | null }>>(
+      "family_members?select=id,name,photo_url,is_active&is_active=eq.true&order=name.asc",
+    );
+  } catch {
+    memberRows = await supabaseRest<Array<{ id: string; name: string; photo_url?: string | null }>>(
+      "family_members?select=id,name,photo_url&order=name.asc",
+    ).catch(() => supabaseRest<Array<{ id: string; name: string }>>("family_members?select=id,name&order=name.asc"));
+  }
+  const memberIds = memberRows.map((member) => member.id);
+  if (memberIds.length === 0) return [];
+  const ids = memberIds.map(encodeURIComponent).join(",");
 
-  // Défis terminés (tous temps) + opt-in + identité, pour les membres concernés.
-  const [allLedger, plans, members] = await Promise.all([
-    supabaseRest<Array<{ member_id: string; challenge_id: string | null; reason: string }>>(`points_ledger?select=member_id,challenge_id,reason&member_id=in.(${memberIds.map(encodeURIComponent).join(",")})`),
-    supabaseRest<Array<{ member_id: string; leaderboard_opt_in: boolean }>>(`user_investment_plan?select=member_id,leaderboard_opt_in&member_id=in.(${memberIds.map(encodeURIComponent).join(",")})`),
-    supabaseRest<Array<{ id: string; name: string; photo_url: string | null }>>(`family_members?select=id,name,photo_url&id=in.(${memberIds.map(encodeURIComponent).join(",")})`).catch(() =>
-      supabaseRest<Array<{ id: string; name: string }>>(`family_members?select=id,name&id=in.(${memberIds.map(encodeURIComponent).join(",")})`),
-    ),
+  // Défis terminés (tous temps) + opt-in. Les données financières ne sont jamais lues ici.
+  const [allLedger, plans, visibleMembers] = await Promise.all([
+    supabaseRest<Array<{ member_id: string; challenge_id: string | null; reason: string }>>(`points_ledger?select=member_id,challenge_id,reason&member_id=in.(${ids})`),
+    supabaseRest<Array<{ member_id: string; leaderboard_opt_in: boolean }>>(`user_investment_plan?select=member_id,leaderboard_opt_in&member_id=in.(${ids})`),
+    Promise.resolve(memberRows),
   ]);
 
   const optIn = new Map(plans.map((plan) => [plan.member_id, plan.leaderboard_opt_in !== false]));
-  const identity = new Map((members as Array<{ id: string; name: string; photo_url?: string | null }>).map((member) => [member.id, { name: member.name, photoUrl: member.photo_url ?? null }]));
+  const identity = new Map((visibleMembers as Array<{ id: string; name: string; photo_url?: string | null }>).map((member) => [member.id, { name: member.name, photoUrl: member.photo_url ?? null }]));
   const completedByMember = new Map<string, Map<string, number>>();
   for (const row of allLedger) {
     if (!row.challenge_id) continue;
@@ -439,7 +513,7 @@ export async function getLeaderboard(period: LeaderboardPeriod): Promise<Leaderb
   for (const memberId of memberIds) {
     const ident = identity.get(memberId);
     if (!ident) continue;
-    const agg = byMember.get(memberId)!;
+    const agg = byMember.get(memberId) ?? { points: 0, lastPointsAt: null };
     const challengesCompleted = [...(completedByMember.get(memberId)?.values() ?? [])].filter((net) => net > 0).length;
     rows.push({ memberId, name: ident.name, photoUrl: ident.photoUrl, points: agg.points, defisCompleted: challengesCompleted, lastPointsAt: agg.lastPointsAt, optIn: optIn.get(memberId) !== false });
   }

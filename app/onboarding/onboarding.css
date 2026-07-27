@@ -248,6 +248,11 @@
 .ob-checklist-progress { font-size: 12.5px; color: var(--ob-muted); margin-top: 2px; }
 .ob-checklist-dismiss { flex: none; background: none; border: none; color: var(--ob-muted); font-size: 12.5px; cursor: pointer; text-decoration: underline; padding: 2px; font-family: inherit; }
 .ob-checklist-dismiss:hover { color: var(--ob-ink); }
+.ob-checklist-compact { display: flex; align-items: center; gap: 16px; padding: 16px 20px; }
+.ob-checklist-compact > div { flex: 1; min-width: 0; }
+.ob-checklist-compact p { margin: 3px 0 0; color: var(--ob-muted); font-size: 12.5px; }
+.ob-checklist-compact-cta { min-height: 40px; border: 1px solid var(--ob-teal); border-radius: 10px; padding: 0 14px; background: #fff; color: var(--ob-teal-strong); font: 700 13px/1 var(--font-body, inherit); cursor: pointer; }
+.ob-checklist-compact-cta:hover { background: var(--ob-teal-soft); }
 .ob-checklist-resume { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--ob-teal); border-radius: 12px; background: var(--ob-teal-soft); color: var(--ob-teal-strong); cursor: pointer; font-family: inherit; }
 .ob-checklist-resume strong { display: block; font-size: 14px; }
 .ob-checklist-resume small { font-size: 12px; color: var(--ob-muted); }
@@ -260,6 +265,7 @@
 .ob-checklist-label { flex: 1; }
 .ob-checklist-task.done .ob-checklist-label { text-decoration: line-through; }
 .ob-checklist-chevron { flex: none; color: var(--ob-muted); }
+@media (max-width: 560px) { .ob-checklist-compact { align-items: flex-start; flex-wrap: wrap; } .ob-checklist-compact-cta { flex: 1; min-height: 44px; } }
 
 /* ---- Conseil contextuel (mini-onboarding) ---- */
 .ob-tip { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 16px; padding: 13px 15px; border: 1px solid var(--ob-line); border-radius: 14px; background: linear-gradient(135deg, var(--ob-teal-soft), #fcf9f4); box-shadow: var(--ob-shadow); }

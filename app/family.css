@@ -393,6 +393,9 @@ html,body{background:var(--page)}body{color:var(--ink);font-family:var(--font-sa
   .topbar-bell{position:relative;width:42px;height:42px;border:1px solid var(--color-border);border-radius:50%;background:#fff;color:#3a5566;display:grid;place-items:center;cursor:pointer;box-shadow:0 2px 8px rgba(23,50,77,.05)}
   .topbar-bell .nav-icon-svg{width:19px;height:19px}
   .topbar-bell:hover{background:#fbfaf6}
+  .topbar-points{height:42px;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border:1px solid #ecd9ad;border-radius:999px;background:#fffaf0;color:#94641c;font:750 12.5px/1 var(--font-body,inherit);cursor:pointer;box-shadow:0 2px 8px rgba(23,50,77,.05);font-variant-numeric:tabular-nums}
+  .topbar-points:hover{background:#fff5df}
+  .topbar-points .nav-icon-svg{width:16px;height:16px;color:#d49825}
   .topbar-bell em{position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;padding:0 4px;border-radius:10px;background:#e5533c;color:#fff;font-style:normal;font-size:10px;font-weight:800;display:grid;place-items:center;border:2px solid var(--page)}
   .topbar-user{position:relative}
   .topbar-user-pill{display:inline-flex;align-items:center;gap:9px;height:44px;padding:5px 15px 5px 6px;border:1px solid var(--color-border);border-radius:999px;background:#fff;color:var(--color-text);font-size:13px;font-weight:650;cursor:pointer;box-shadow:0 2px 8px rgba(23,50,77,.05)}

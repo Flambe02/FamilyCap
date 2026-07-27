@@ -20,7 +20,8 @@ function resolveTargetId(request: Request, viewer: { id: string; role: string })
 export async function GET(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
-    const result = await reconcileOnboardingForMember(resolveTargetId(request, viewer));
+    const isAdminPreview = viewer.role === "admin" && Boolean(new URL(request.url).searchParams.get("asMember"));
+    const result = await reconcileOnboardingForMember(resolveTargetId(request, viewer), { reconcile: !isAdminPreview });
     return Response.json({
       available: result.available,
       missions: result.progress.missions,

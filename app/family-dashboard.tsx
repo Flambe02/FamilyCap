@@ -12,7 +12,7 @@ const Settings = dynamic(() => import("./settings").then((module) => module.Sett
 const AdminMemberSettings = dynamic(() => import("./settings-admin-member").then((module) => module.AdminMemberSettings));
 const AdminUsers = dynamic(() => import("./admin-users").then((module) => module.AdminUsers));
 const ChallengesPage = dynamic(() => import("./challenges-page").then((module) => module.ChallengesPage));
-const ChallengesDashboardCard = dynamic(() => import("./challenges-page").then((module) => module.ChallengesDashboardCard));
+const ChallengesDashboardSection = dynamic(() => import("./challenges-page").then((module) => module.ChallengesDashboardSection));
 const AdminChallenges = dynamic(() => import("./admin-challenges").then((module) => module.AdminChallenges));
 const BitcoinInvestmentPage = dynamic(() => import("./bitcoin-investments").then((module) => module.BitcoinInvestmentPage));
 const PeaInvestmentPage = dynamic(() => import("./pea-investments").then((module) => module.PeaInvestmentPage));
@@ -21,9 +21,11 @@ const SouvenirsPage = dynamic(() => import("./souvenirs").then((module) => modul
 const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((module) => module.PeaPortfolioLesson));
 import type { AccountOperation } from "../lib/portfolio-account";
 import type { Viewer } from "../lib/auth-types";
+import type { FxRateRow } from "../lib/fx-rates";
 import { getAccessToken } from "../lib/supabase-session";
 import { OnboardingFlow } from "./onboarding/onboarding-flow";
 import { OnboardingChecklist } from "./onboarding/onboarding-checklist";
+import type { ChallengesDashboardSummary } from "./challenges-page";
 import { ContextualTip } from "./onboarding/contextual-tips";
 import { loadOnboardingState } from "../lib/onboarding/onboarding-client";
 import { onboardingCopy } from "../lib/onboarding/onboarding-copy";
@@ -141,9 +143,13 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   const [portfolioAccounts, setPortfolioAccounts] = useState<PortfolioAccount[]>([]);
   const [portfolioHoldings, setPortfolioHoldings] = useState<PortfolioHolding[]>([]);
   const [portfolioOperations, setPortfolioOperations] = useState<PortfolioOperation[]>([]);
+  // Taux de change BCE couvrant les devises du portefeuille (base EUR, datés). Chargés avec le
+  // portefeuille en une seule requête serveur : les écrans PEA/CTO les réutilisent tels quels.
+  const [portfolioFxRates, setPortfolioFxRates] = useState<FxRateRow[]>([]);
   // Plan d'investissement personnel du membre affiché (objectif mensuel + compte cible). Utilisé
   // par le bloc « Investissement régulier » des écrans PEA/CTO. null pour l'admin hors aperçu.
   const [investmentPlan, setInvestmentPlan] = useState<{ monthlyTarget: number | null; targetAccountId: string | null } | null>(null);
+  const [challengesSummary, setChallengesSummary] = useState<ChallengesDashboardSummary | null>(null);
   const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
   const [familyMarketLoading, setFamilyMarketLoading] = useState(true);
   const [familyMember, setFamilyMember] = useState("Thibault");
@@ -205,6 +211,18 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
         ? { id: previewMemberRecord.id, email: previewMemberRecord.email ?? "", name: previewMemberRecord.name, role: previewMemberRecord.role, birthdayDay: previewMemberRecord.birthday_day, birthdayMonth: previewMemberRecord.birthday_month, birthdayYear: previewMemberRecord.birthday_year, photoUrl: previewMemberRecord.photo_url, walletAddress: previewMemberRecord.wallet_address }
         : { ...viewer, name: previewMember, email: "preview@cap.family", role: "child", photoUrl: null })
     : viewer;
+  useEffect(() => {
+    const isEligible = effectiveViewer.role === "adult" || effectiveViewer.role === "child";
+    if (!isEligible) return;
+    const controller = new AbortController();
+    const asMember = isPreview && viewer.role === "admin" && previewMemberId ? `?asMember=${encodeURIComponent(previewMemberId)}` : "";
+    void authenticatedFetch(`/api/challenges/summary${asMember}`, { signal: controller.signal })
+      .then(async (response) => response.ok ? await response.json() as ChallengesDashboardSummary : null)
+      .then((summary) => { if (!controller.signal.aborted) setChallengesSummary(summary?.available ? summary : null); })
+      .catch(() => { if (!controller.signal.aborted) setChallengesSummary(null); });
+    return () => controller.abort();
+  }, [effectiveViewer.id, effectiveViewer.role, isPreview, previewMemberId, viewer.role]);
+  const memberChallengesSummary = (effectiveViewer.role === "adult" || effectiveViewer.role === "child") ? challengesSummary : null;
   const canManageGifts = viewer.role === "admin" && !isPreview;
   // Un membre non-admin enregistre lui-même ses achats Bitcoin personnels ; l'identité et
   // l'origine sont forcées côté serveur. Un administrateur en aperçu bénéficie du même accès
@@ -273,14 +291,16 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           setBitcoinEur(null);
         }
         if (portfolioResponse.ok) {
-          const portfolioResult = await portfolioResponse.json() as { accounts?: PortfolioAccount[]; holdings?: PortfolioHolding[]; operations?: PortfolioOperation[] };
+          const portfolioResult = await portfolioResponse.json() as { accounts?: PortfolioAccount[]; holdings?: PortfolioHolding[]; operations?: PortfolioOperation[]; fxRates?: FxRateRow[] };
           setPortfolioAccounts(portfolioResult.accounts ?? []);
           setPortfolioHoldings(portfolioResult.holdings ?? []);
           setPortfolioOperations(portfolioResult.operations ?? []);
+          setPortfolioFxRates(portfolioResult.fxRates ?? []);
         } else {
           setPortfolioAccounts([]);
           setPortfolioHoldings([]);
           setPortfolioOperations([]);
+          setPortfolioFxRates([]);
         }
         if (planResponse.ok) {
           const planResult = await planResponse.json() as { plan?: { monthlyTarget: number | null; targetAccountId: string | null } | null };
@@ -556,7 +576,14 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
         </div>
       </aside>
 
-      <section className="workspace" id="main-content" tabIndex={-1}>
+      {/* Les écrans PEA / compte-titres affichent une liste de positions à six zones : ils
+          réclament plus de largeur que les autres vues, et sont les SEULS à l'obtenir (la
+          barre du haut suit, sans quoi le contenu ne serait plus aligné avec elle). */}
+      <section
+        className={`workspace${view === "investissements-pea" || view === "investissements-comptetitres" ? " workspace-wide" : ""}`}
+        id="main-content"
+        tabIndex={-1}
+      >
         <header className="topbar">
           <div className="mobile-brand" aria-hidden="true">
             <span><strong>LaBaJo &amp; Co</strong><small>L’école financière familiale</small></span>
@@ -610,6 +637,11 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
               <NavIcon id="bell" />
               {transferRequests.length > 0 && <em aria-hidden="true">{transferRequests.length}</em>}
             </button>
+            {memberChallengesSummary?.points?.available !== false && memberChallengesSummary?.points && (
+              <button type="button" className="topbar-points" onClick={() => navigate("investissements-suggestions")} aria-label={`${memberChallengesSummary.points.totalPoints} points, ouvrir les défis`}>
+                <NavIcon id="star" /><span>{memberChallengesSummary.points.totalPoints.toLocaleString("fr-FR")} pts</span>
+              </button>
+            )}
             <div className="topbar-user">
               {viewer.role === "admin" ? (
                 <button type="button" className="topbar-user-pill" onClick={() => setQuickSwitchOpen((open) => !open)} aria-haspopup="listbox" aria-expanded={quickSwitchOpen} aria-label="Changer la vue affichée">
@@ -656,7 +688,14 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           </nav>
         )}
 
-        {view === "famille" && <Dashboard name={effectiveViewer.name} navigate={navigate} home={homeData} marketLoading={familyMarketLoading} checklist={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null} challengesCard={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <ChallengesDashboardCard navigate={navigate} asMemberId={isPreview && viewer.role === "admin" ? previewMemberId ?? undefined : undefined} /> : null} />}
+        {view === "famille" && <Dashboard
+          name={effectiveViewer.name}
+          navigate={navigate}
+          home={homeData}
+          marketLoading={familyMarketLoading}
+          challengesSection={memberChallengesSummary ? <ChallengesDashboardSection summary={memberChallengesSummary} navigate={navigate} /> : null}
+          checklist={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingChecklist key={checklistToken} compact={Boolean(memberChallengesSummary)} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null}
+        />}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} onOpenTransactions={openFilteredTransactions} />}
         {view === "bitcoin" && (
@@ -695,6 +734,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             accounts={portfolioAccounts}
             holdings={portfolioHoldings}
             operations={portfolioOperations}
+            fxRates={portfolioFxRates}
             marketLoading={familyMarketLoading}
             viewer={effectiveViewer}
             isPreview={isPreview}
@@ -714,6 +754,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
               accounts={portfolioAccounts}
               holdings={portfolioHoldings}
               operations={portfolioOperations}
+              fxRates={portfolioFxRates}
               marketLoading={familyMarketLoading}
               viewer={effectiveViewer}
               isPreview={isPreview}
@@ -901,7 +942,7 @@ function homeDonutGradient(assets: HomeAsset[]): string {
 // Seul le Bitcoin existe aujourd'hui (cadeaux réels + cours en direct) ; le PEA et le
 // compte-titres n'apparaissent que lorsque des comptes (public.financial_accounts) et des
 // positions (public.holdings) sont réellement saisis dans Supabase. Aucune donnée fictive.
-function Dashboard({ name, navigate, home, marketLoading, checklist, challengesCard }: { name: string; navigate: (view: View) => void; home: HomeData; marketLoading: boolean; checklist?: ReactNode; challengesCard?: ReactNode }) {
+function Dashboard({ name, navigate, home, marketLoading, checklist, challengesSection }: { name: string; navigate: (view: View) => void; home: HomeData; marketLoading: boolean; checklist?: ReactNode; challengesSection?: ReactNode }) {
   const valueLabel = home.valueEur !== null ? euro.format(home.valueEur) : marketLoading ? "Mise à jour…" : "Valeur indisponible";
   const donutLabel = home.repartition.map((asset) => `${asset.key} ${asset.pct.toFixed(0)} %`).join(", ");
   const showGain = home.gainEur !== null && home.gainPct !== null;
@@ -956,8 +997,8 @@ function Dashboard({ name, navigate, home, marketLoading, checklist, challengesC
         <button type="button" className="home-birthday-cta" onClick={() => navigate("cadeaux-amatxi")}>Voir mes cadeaux →</button>
       </div>
 
+      {challengesSection && <div className="home-row">{challengesSection}</div>}
       {checklist && <div className="home-row">{checklist}</div>}
-      {challengesCard && <div className="home-row">{challengesCard}</div>}
 
       <div className="home-row home-row-split">
         <section className="panel home-card home-repartition">

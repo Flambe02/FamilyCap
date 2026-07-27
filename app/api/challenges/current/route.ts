@@ -26,7 +26,8 @@ function resolveTargetId(request: Request, viewer: { id: string; role: string })
 export async function GET(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
-    const ctx = await getCurrentForMember(resolveTargetId(request, viewer));
+    const isAdminPreview = viewer.role === "admin" && Boolean(new URL(request.url).searchParams.get("asMember"));
+    const ctx = await getCurrentForMember(resolveTargetId(request, viewer), { reconcile: !isAdminPreview });
     return Response.json({
       available: true,
       state: ctx.state,

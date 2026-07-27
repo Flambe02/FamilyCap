@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import {
   isPurchaseEligible, computeChallengeProgress, completionKey, reversalKey, resolvePointsAction, buildLeaderboard,
   validateChallengeInput, canTransition, rankLeaderboard, compareLeaderboard, memberChallengeState,
-  effectiveWindowStart,
+  effectiveWindowStart, deriveChallengeLevel, calculateMonthlyStreak,
 } from "../lib/challenges.ts";
 
 const WINDOW = { startsOn: "2026-07-01", endsOn: "2026-07-31", eligibleInstrumentTypes: ["etf", "stock"] };
@@ -253,12 +253,12 @@ test("départage : défis terminés puis régularité (derniers points les plus 
   assert.equal(compareLeaderboard(
     { memberId: "a", points: 100, defisCompleted: 2, lastPointsAt: "2026-07-20" },
     { memberId: "b", points: 100, defisCompleted: 1, lastPointsAt: "2026-07-01" },
-  ) < 0, true);
+  ), 0);
   // Points + défis égaux : celui qui a fini le plus tôt d'abord.
   assert.equal(compareLeaderboard(
     { memberId: "a", points: 100, defisCompleted: 1, lastPointsAt: "2026-07-05" },
     { memberId: "b", points: 100, defisCompleted: 1, lastPointsAt: "2026-07-20" },
-  ) < 0, true);
+  ), 0);
 });
 
 test("égalité parfaite → ex æquo (même rang)", () => {
@@ -287,4 +287,38 @@ test("état membre selon le contexte", () => {
   assert.equal(memberChallengeState({ ...base, hasPlan: true, hasTargetAccount: true, isParticipant: true, participantStatus: "in_progress" }), "in_progress");
   assert.equal(memberChallengeState({ ...base, hasPlan: true, hasTargetAccount: true, isParticipant: true, participantStatus: "completed" }), "completed");
   assert.equal(memberChallengeState({ challengeStatus: "completed", participantStatus: null, hasPlan: true, hasTargetAccount: true, isParticipant: true }), "challenge_ended");
+});
+
+test("levels and progression are derived from cumulative points", () => {
+  assert.deepEqual(deriveChallengeLevel(0), { level: "Découverte", nextLevel: "Premiers pas", nextLevelAt: 100, levelProgressPct: 0 });
+  assert.equal(deriveChallengeLevel(100).level, "Premiers pas");
+  assert.equal(deriveChallengeLevel(899).nextLevel, "Bâtisseur");
+  assert.equal(deriveChallengeLevel(900).level, "Bâtisseur");
+  assert.deepEqual(deriveChallengeLevel(1600), { level: "Stratège", nextLevel: null, nextLevelAt: null, levelProgressPct: 100 });
+});
+
+test("monthly streak only counts consecutive completed monthly challenges", () => {
+  const challenges = [
+    { id: "jul", challengeType: "monthly_investment", startsOn: "2026-07-01", endsOn: "2026-07-31" },
+    { id: "jun", challengeType: "monthly_investment", startsOn: "2026-06-01", endsOn: "2026-06-30" },
+    { id: "onboarding", challengeType: "onboarding_mission", startsOn: null, endsOn: null },
+  ];
+  assert.equal(calculateMonthlyStreak([{ challengeId: "jul", points: 300 }, { challengeId: "jun", points: 300 }, { challengeId: "onboarding", points: 250 }], challenges), 2);
+});
+
+test("monthly streak ignores a month cancelled by challenge reversal", () => {
+  const challenges = [
+    { id: "jul", challengeType: "monthly_investment", startsOn: "2026-07-01", endsOn: "2026-07-31" },
+    { id: "jun", challengeType: "monthly_investment", startsOn: "2026-06-01", endsOn: "2026-06-30" },
+  ];
+  assert.equal(calculateMonthlyStreak([{ challengeId: "jul", points: 300 }, { challengeId: "jun", points: 300 }, { challengeId: "jun", points: -300 }], challenges), 1);
+});
+
+test("opt-in zero member remains ranked and opt-out is excluded", () => {
+  const board = buildLeaderboard([
+    { memberId: "a", name: "Alice", photoUrl: null, points: 20, defisCompleted: 1, lastPointsAt: null, optIn: true },
+    { memberId: "b", name: "Bruno", photoUrl: null, points: 0, defisCompleted: 0, lastPointsAt: null, optIn: true },
+    { memberId: "c", name: "Claire", photoUrl: null, points: 50, defisCompleted: 1, lastPointsAt: null, optIn: false },
+  ]);
+  assert.deepEqual(board.map((row) => [row.memberId, row.rank]), [["a", 1], ["b", 2]]);
 });

@@ -163,24 +163,24 @@ test("la clé d'idempotence dépend du membre : deux membres ne partagent jamais
   assert.notEqual(onboardingCompletionKey("onboarding_account_setup", "m1"), onboardingCompletionKey("onboarding_account_setup", "m2"));
 });
 
-// ---- Total du parcours = 400 points ---------------------------------------------------------
-test("le parcours totalise exactement 400 points (50 + 100 + 100 + 150)", () => {
-  assert.equal(ONBOARDING_TOTAL_POINTS, 400);
-  assert.equal(ONBOARDING_MISSIONS.reduce((sum, mission) => sum + mission.points, 0), 400);
+// ---- Total du parcours = 650 points ---------------------------------------------------------
+test("le parcours totalise exactement 650 points (100 + 200 + 100 + 250)", () => {
+  assert.equal(ONBOARDING_TOTAL_POINTS, 650);
+  assert.equal(ONBOARDING_MISSIONS.reduce((sum, mission) => sum + mission.points, 0), 650);
 });
 
-test("buildOnboardingProgress : parcours vierge (0/4), parcours complet (4/4 = 400 pts)", () => {
+test("buildOnboardingProgress : parcours vierge (0/4), parcours complet (4/4 = 650 pts)", () => {
   const empty = { onboarding_account_setup: false, onboarding_existing_portfolio: false, onboarding_monthly_plan: false, onboarding_first_purchase: false };
   const emptyProgress = buildOnboardingProgress(empty);
   assert.equal(emptyProgress.completedCount, 0);
   assert.equal(emptyProgress.earnedPoints, 0);
-  assert.equal(emptyProgress.totalPoints, 400);
+  assert.equal(emptyProgress.totalPoints, 650);
   assert.equal(emptyProgress.missions.every((mission) => mission.status === "todo"), true);
 
   const full = { onboarding_account_setup: true, onboarding_existing_portfolio: true, onboarding_monthly_plan: true, onboarding_first_purchase: true };
   const fullProgress = buildOnboardingProgress(full);
   assert.equal(fullProgress.completedCount, 4);
-  assert.equal(fullProgress.earnedPoints, 400);
+  assert.equal(fullProgress.earnedPoints, 650);
   assert.equal(fullProgress.missions.every((mission) => mission.status === "done"), true);
 });
 
@@ -188,7 +188,7 @@ test("buildOnboardingProgress : progression partielle (mélange terminé / à fa
   const partial = { onboarding_account_setup: true, onboarding_existing_portfolio: false, onboarding_monthly_plan: true, onboarding_first_purchase: false };
   const progress = buildOnboardingProgress(partial);
   assert.equal(progress.completedCount, 2);
-  assert.equal(progress.earnedPoints, 150); // 50 (compte) + 100 (rythme)
+  assert.equal(progress.earnedPoints, 200); // 100 (compte) + 100 (rythme)
 });
 
 test("les 4 identifiants stables sont uniques et couvrent exactement les 4 missions attendues", () => {

@@ -22,11 +22,25 @@ type CurrentResp = {
   challenge: { id: string; title: string; description: string | null; startsOn: string | null; endsOn: string | null; pointsReward: number; daysRemaining: number | null } | null;
   progress: { invested: number; targetAmount: number; pct: number; completed: boolean; status: string } | null;
 };
-type PointsResp = { available?: boolean; totalPoints: number; yearPoints: number; challengesCompleted: number; rank: number | null };
+type PointsResp = {
+  available?: boolean; monthPoints: number; totalPoints: number; yearPoints: number; challengesCompleted: number;
+  rank: number | null; participantCount: number; level: string; nextLevel: string | null;
+  nextLevelAt: number | null; levelProgressPct: number; monthlyStreak: number;
+};
 type LeaderRow = { rank: number; memberId: string; name: string; photoUrl: string | null; points: number; challengesCompleted: number; isCurrentMember?: boolean };
 type HistoryItem = { id: string; title: string; startsOn: string | null; endsOn: string | null; status: string; pointsReward: number; joined: boolean; participantStatus: string | null; pointsEarned: number };
 type OnboardingMissionDto = { slug: string; title: string; description: string; points: number; cta: string; view: View; status: "todo" | "done"; successMessage: string };
 type OnboardingResp = { available: boolean; missions: OnboardingMissionDto[]; completedCount: number; totalCount: number; earnedPoints: number; totalPoints: number; justCompleted: string[] };
+
+/** Contrat unique pour la section dashboard et la pastille de points du header. */
+export type ChallengesDashboardSummary = {
+  available: boolean;
+  current: CurrentResp | null;
+  onboarding: OnboardingResp | null;
+  points: PointsResp | null;
+  leaderboard: LeaderRow[];
+  leaderboardOptIn: boolean;
+};
 
 const euro0 = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const intFmt = new Intl.NumberFormat("fr-FR");
@@ -671,4 +685,103 @@ export function ChallengesDashboardCard({ navigate, asMemberId }: { navigate: (v
       )}
     </section>
   );
+}
+
+/**
+ * Entrée dashboard unique de la gamification. Cette vue ne réconcilie ni ne calcule : elle
+ * reçoit le contrat agrégé par /api/challenges/summary et ne présente que des données réelles.
+ */
+export function ChallengesDashboardSection({ summary, navigate }: { summary: ChallengesDashboardSummary; navigate: (view: View) => void }) {
+  const challenge = summary.current?.available ? summary.current.challenge : null;
+  const state = summary.current?.state ?? "challenge_ended";
+  const progress = summary.current?.progress ?? null;
+  const onboarding = summary.onboarding?.available ? summary.onboarding : null;
+  const nextMission = onboarding?.missions.find((mission) => mission.status === "todo") ?? null;
+  const points = summary.points?.available === false ? null : summary.points;
+  const currentMember = summary.leaderboard.find((entry) => entry.isCurrentMember) ?? null;
+  const topThree = summary.leaderboard.slice(0, 3);
+  const inTopThree = Boolean(currentMember && topThree.some((entry) => entry.memberId === currentMember.memberId));
+  const cta = challenge ? dashboardCta(state) : null;
+  const onboardingPct = onboarding && onboarding.totalCount > 0 ? Math.round((onboarding.completedCount / onboarding.totalCount) * 100) : 0;
+  const actions = Number(Boolean(challenge)) + Number(Boolean(nextMission));
+
+  if (!summary.available) return null;
+
+  return (
+    <section className="cha-dashboard-section" aria-label="Défis et classement familial">
+      <section className="panel home-card cha-dashboard-missions" aria-labelledby="dashboard-challenges-title">
+        <header className="cha-dashboard-head">
+          <div>
+            <h3 id="dashboard-challenges-title">Mes défis</h3>
+            <p>{actions > 0 ? `${actions} action${actions > 1 ? "s" : ""} prioritaire${actions > 1 ? "s" : ""}` : "Suivi de mes progrès"}</p>
+          </div>
+          <button type="button" className="home-card-link" onClick={() => navigate("investissements-suggestions")}>Voir tous mes défis →</button>
+        </header>
+
+        {challenge && (
+          <article className="cha-dashboard-action">
+            <span className="cha-dashboard-action-icon" aria-hidden="true"><NavIcon id="trending-up" /></span>
+            <div className="cha-dashboard-action-main">
+              <div className="cha-dashboard-action-meta"><span>Défi du mois</span><span className={`cha-badge ${STATE_META[state].badgeCls}`}>{STATE_META[state].badge}</span></div>
+              <strong>{challenge.title}</strong>
+              <small>{formatPeriod(challenge.startsOn, challenge.endsOn)}</small>
+              {progress ? <>
+                <div className="cha-dashboard-progress-label"><span>{euro0.format(progress.invested)} sur {euro0.format(progress.targetAmount)}</span><b>{Math.round(progress.pct)} %</b></div>
+                <div className="cha-bar cha-dashboard-bar"><span style={{ width: `${Math.max(0, Math.min(100, progress.pct))}%` }} /></div>
+              </> : <small className="cha-dashboard-hint">{heroHint(state)}</small>}
+            </div>
+            <div className="cha-dashboard-action-side"><span>+{intFmt.format(challenge.pointsReward)} pts</span>{cta && <button type="button" onClick={() => navigate(cta.view)}>{cta.label}</button>}</div>
+          </article>
+        )}
+
+        {nextMission && onboarding && (
+          <article className="cha-dashboard-action cha-dashboard-onboarding">
+            <span className="cha-dashboard-action-icon" aria-hidden="true"><NavIcon id="users" /></span>
+            <div className="cha-dashboard-action-main">
+              <div className="cha-dashboard-action-meta"><span>Bien démarrer</span><span>{onboarding.completedCount}/{onboarding.totalCount} étapes</span></div>
+              <strong>{nextMission.title}</strong>
+              <div className="cha-dashboard-progress-label"><span>{intFmt.format(onboarding.earnedPoints)} / {intFmt.format(onboarding.totalPoints)} pts</span><b>{onboardingPct} %</b></div>
+              <div className="cha-bar cha-dashboard-bar"><span style={{ width: `${onboardingPct}%` }} /></div>
+            </div>
+            <div className="cha-dashboard-action-side"><span>+{intFmt.format(nextMission.points)} pts</span><button type="button" onClick={() => navigate(nextMission.view)}>{nextMission.cta} →</button></div>
+          </article>
+        )}
+
+        {!challenge && !nextMission && <p className="cha-dashboard-empty">Aucun défi actif pour le moment. Tes prochains défis apparaîtront ici.</p>}
+      </section>
+
+      <section className="panel home-card cha-dashboard-leaderboard" aria-labelledby="dashboard-leaderboard-title">
+        <header className="cha-dashboard-head"><div><h3 id="dashboard-leaderboard-title">Classement familial</h3><p>Ce mois-ci</p></div></header>
+        {!summary.leaderboardOptIn ? (
+          <div className="cha-dashboard-optout">
+            {points && <strong>{intFmt.format(points.monthPoints)} pts ce mois-ci</strong>}
+            <p>Participation au classement désactivée.</p>
+            <button type="button" className="home-card-link" onClick={() => navigate("parametres")}>Régler mon rythme →</button>
+          </div>
+        ) : summary.leaderboard.length === 0 ? (
+          <div className="cha-dashboard-board-empty"><TrophyIcon /><p>Le classement apparaîtra dès que des membres participeront.</p></div>
+        ) : <>
+          <div className="cha-dashboard-personal"><span className="cha-dashboard-rank">{points?.rank ? `${points.rank}e` : "—"}</span><div><strong>{points?.rank ? `${points.rank}e sur ${points.participantCount}` : "Classement en cours"}</strong><small>{intFmt.format(points?.monthPoints ?? 0)} pts gagnés ce mois</small></div></div>
+          {points && <div className="cha-dashboard-level"><span>{points.level}</span>{points.monthlyStreak > 0 && <span>{points.monthlyStreak} mois de régularité</span>}</div>}
+          <ol className="cha-dashboard-board-list">
+            {topThree.map((entry) => <DashboardLeaderboardRow key={entry.memberId} entry={entry} />)}
+            {!inTopThree && currentMember && <><li className="cha-dashboard-board-divider" aria-hidden="true" /><DashboardLeaderboardRow entry={currentMember} /></>}
+          </ol>
+          <button type="button" className="home-card-link cha-dashboard-board-link" onClick={() => navigate("investissements-suggestions")}>Voir le classement →</button>
+        </>}
+      </section>
+    </section>
+  );
+}
+
+function DashboardLeaderboardRow({ entry }: { entry: LeaderRow }) {
+  return <li className={entry.isCurrentMember ? "cha-dashboard-board-row is-me" : "cha-dashboard-board-row"}>
+    <span className="cha-dashboard-board-rank">{entry.rank}</span>
+    {entry.photoUrl
+      // eslint-disable-next-line @next/next/no-img-element -- avatars Supabase Storage, sans remotePatterns Next.
+      ? <img className="cha-avatar" src={entry.photoUrl} alt="" aria-hidden="true" />
+      : <span className="cha-avatar" aria-hidden="true">{initials(entry.name)}</span>}
+    <span className="cha-dashboard-board-name">{entry.name}</span>
+    <strong>{intFmt.format(entry.points)} pts</strong>
+  </li>;
 }
