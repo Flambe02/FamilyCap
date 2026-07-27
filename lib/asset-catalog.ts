@@ -290,3 +290,95 @@ export function validateSelection(input: {
 export function describeListing(candidate: Pick<AssetCandidate, "ticker" | "exchange" | "currency">): string {
   return [candidate.ticker, candidate.exchange, candidate.currency].filter(Boolean).join(" · ");
 }
+
+// ==========================================================================================
+// REVUE ADMINISTRATEUR (§13) — pourquoi un actif mérite un coup d'œil
+// ==========================================================================================
+
+export type ReviewReason =
+  | "needs_review"        // classification non confirmée
+  | "no_listing"          // actif sans aucune cotation : aucun cours ne pourra s'y rattacher
+  | "no_provider_symbol"  // cotation sans symbole fournisseur : synchronisation impossible
+  | "no_isin"             // identité faible : rattaché par nom/ticker seulement
+  | "conflict";           // deux actifs distincts revendiquent le même ticker sur la même place
+
+export const REVIEW_REASON_LABEL: Record<ReviewReason, string> = {
+  needs_review: "Classification à confirmer",
+  no_listing: "Sans cotation",
+  no_provider_symbol: "Sans symbole fournisseur",
+  no_isin: "Sans ISIN",
+  conflict: "En conflit",
+};
+
+/** Explication affichée à l'administrateur : ce qui manque, et ce que ça empêche concrètement. */
+export const REVIEW_REASON_DETAIL: Record<ReviewReason, string> = {
+  needs_review: "Le type de cet actif n’a pas été confirmé. Il reste utilisable, mais il apparaît en « Autre » dans les répartitions.",
+  no_listing: "Aucune place de cotation n’est rattachée : aucun cours ne peut être synchronisé tant qu’il n’y en a pas.",
+  no_provider_symbol: "La cotation n’a ni symbole EODHD ni symbole Yahoo : la synchronisation du cours échouera silencieusement.",
+  no_isin: "L’actif est identifié par son nom et son ticker seulement. Un ISIN le rendrait insensible aux changements de ticker.",
+  conflict: "Plusieurs actifs revendiquent le même ticker sur la même place avec des ISIN différents : l’un d’eux est probablement en double.",
+};
+
+export type ReviewableAsset = {
+  assetId: string;
+  name: string;
+  isin: string | null;
+  assetType: NormalizedAssetType;
+  classificationStatus: ClassificationStatus;
+  listings: Array<{
+    listingId: string; ticker: string | null; exchange: string | null; micCode: string | null;
+    currency: string; eodhdSymbol: string | null; yahooSymbol: string | null; validationStatus: ClassificationStatus;
+  }>;
+  /** Nombre d'opérations rattachées — un actif utilisé mérite d'être corrigé en priorité. */
+  operationCount: number;
+};
+
+/**
+ * Classe les actifs à revoir. PURE et donc testable : c'est la même fonction qui décide de la
+ * liste affichée et de son ordre, pas une requête SQL différente par onglet.
+ *
+ * Un actif `verified` n'est JAMAIS signalé pour sa classification — une correction administrateur
+ * est définitive. Il peut en revanche l'être pour un manque concret (pas de cotation, pas de
+ * symbole), car cela empêche réellement la synchronisation.
+ */
+export function reviewReasons(asset: ReviewableAsset, allAssets: ReviewableAsset[] = []): ReviewReason[] {
+  const reasons: ReviewReason[] = [];
+
+  // Conflit : même ticker + même place, mais deux ISIN différents. C'est la trace d'un doublon.
+  const conflicting = allAssets.some((other) => {
+    if (other.assetId === asset.assetId) return false;
+    const sameIsin = normalizeIsin(other.isin) !== null && normalizeIsin(other.isin) === normalizeIsin(asset.isin);
+    if (sameIsin) return false;
+    return other.listings.some((theirs) => asset.listings.some((ours) =>
+      ours.ticker !== null && theirs.ticker === ours.ticker
+      && (ours.micCode ?? "") === (theirs.micCode ?? "")
+      && ours.currency === theirs.currency));
+  });
+  if (conflicting) reasons.push("conflict");
+
+  if (asset.classificationStatus === "needs_review") reasons.push("needs_review");
+  if (asset.listings.length === 0) reasons.push("no_listing");
+  else if (asset.listings.every((listing) => !listing.eodhdSymbol && !listing.yahooSymbol)) reasons.push("no_provider_symbol");
+  if (!normalizeIsin(asset.isin)) reasons.push("no_isin");
+
+  return reasons;
+}
+
+const REASON_SEVERITY: Record<ReviewReason, number> = {
+  conflict: 0, no_listing: 1, no_provider_symbol: 2, needs_review: 3, no_isin: 4,
+};
+
+/**
+ * Liste de revue, la plus gênante d'abord, puis les actifs les plus utilisés — corriger un actif
+ * porté par 40 opérations vaut mieux que d'en corriger un jamais employé.
+ */
+export function buildReviewList(assets: ReviewableAsset[]): Array<ReviewableAsset & { reasons: ReviewReason[] }> {
+  return assets
+    .map((asset) => ({ ...asset, reasons: reviewReasons(asset, assets) }))
+    .filter((asset) => asset.reasons.length > 0)
+    .sort((a, b) => {
+      const severity = Math.min(...a.reasons.map((reason) => REASON_SEVERITY[reason]))
+        - Math.min(...b.reasons.map((reason) => REASON_SEVERITY[reason]));
+      return severity !== 0 ? severity : (b.operationCount - a.operationCount) || a.name.localeCompare(b.name, "fr");
+    });
+}

@@ -14,6 +14,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ASSET_TYPE_LABEL,
+  REVIEW_REASON_DETAIL,
+  REVIEW_REASON_LABEL,
+  buildReviewList,
+  reviewReasons,
   classifyQuery,
   dedupeCandidates,
   describeListing,
@@ -243,6 +247,82 @@ test("normalisations : ISIN et MIC ne retiennent que des formes valides", () => 
 test("clé d'identité : sans ISIN on retombe sur le symbole fournisseur, jamais sur le seul nom", () => {
   const noIsin = candidate({ name: "Truc", ticker: "TRC", yahooSymbol: "TRC.PA", currency: "EUR" });
   assert.equal(listingIdentityKey(noIsin), "sym:TRC.PA");
+});
+
+// ==========================================================================================
+// REVUE ADMINISTRATEUR (§13) — signaler ce qui bloque, pas vider la table
+// ==========================================================================================
+function reviewable(overrides = {}) {
+  return {
+    assetId: "a1", name: "Actif", isin: null, assetType: "other",
+    classificationStatus: "inferred", listings: [], operationCount: 0, ...overrides,
+  };
+}
+const listing = (overrides = {}) => ({
+  listingId: "l1", ticker: "AI", exchange: "Euronext Paris", micCode: "XPAR", currency: "EUR",
+  eodhdSymbol: "AI.PA", yahooSymbol: "AI.PA", validationStatus: "inferred", ...overrides,
+});
+
+test("un actif complet et confirmé ne remonte PAS dans la revue", () => {
+  const healthy = reviewable({ isin: "FR0000120073", classificationStatus: "verified", listings: [listing()] });
+  assert.deepEqual(reviewReasons(healthy, [healthy]), []);
+  assert.equal(buildReviewList([healthy]).length, 0);
+});
+
+test("un actif sans cotation est signalé : aucun cours ne pourra s'y rattacher", () => {
+  const orphan = reviewable({ isin: "FR0000120073", classificationStatus: "verified", listings: [] });
+  assert.ok(reviewReasons(orphan, [orphan]).includes("no_listing"));
+});
+
+test("une cotation sans symbole fournisseur est signalée", () => {
+  const mute = reviewable({
+    isin: "FR0000120073", classificationStatus: "verified",
+    listings: [listing({ eodhdSymbol: null, yahooSymbol: null })],
+  });
+  const reasons = reviewReasons(mute, [mute]);
+  assert.ok(reasons.includes("no_provider_symbol"));
+  assert.equal(reasons.includes("no_listing"), false, "elle a bien une cotation, c'est le symbole qui manque");
+});
+
+test("un conflit est détecté quand deux actifs revendiquent le même ticker sur la même place", () => {
+  const first = reviewable({ assetId: "a1", isin: "FR0000120073", listings: [listing()] });
+  const second = reviewable({ assetId: "a2", isin: "FR0000120271", listings: [listing({ listingId: "l2" })] });
+  assert.ok(reviewReasons(first, [first, second]).includes("conflict"));
+  assert.ok(reviewReasons(second, [first, second]).includes("conflict"));
+});
+
+test("deux cotations du MÊME actif ne sont pas un conflit", () => {
+  const paris = listing();
+  const francfort = listing({ listingId: "l2", ticker: "AILA", exchange: "Francfort", micCode: "XFRA", yahooSymbol: "AILA.F", eodhdSymbol: "AILA.F" });
+  const single = reviewable({ isin: "FR0000120073", classificationStatus: "verified", listings: [paris, francfort] });
+  assert.equal(reviewReasons(single, [single]).includes("conflict"), false);
+});
+
+test("une classification « verified » n'est plus jamais signalée comme à confirmer", () => {
+  const corrected = reviewable({ isin: "FR0000120073", classificationStatus: "verified", listings: [listing()] });
+  assert.equal(reviewReasons(corrected, [corrected]).includes("needs_review"), false);
+  const pending = reviewable({ isin: "FR0000120073", classificationStatus: "needs_review", listings: [listing()] });
+  assert.ok(reviewReasons(pending, [pending]).includes("needs_review"));
+});
+
+test("la revue classe le plus bloquant d'abord, puis les actifs les plus utilisés", () => {
+  const conflictA = reviewable({ assetId: "c1", name: "Doublon A", isin: "FR0000120073", listings: [listing()] });
+  const conflictB = reviewable({ assetId: "c2", name: "Doublon B", isin: "FR0000120271", listings: [listing({ listingId: "l2" })] });
+  const orphan = reviewable({ assetId: "o1", name: "Sans cotation", isin: "FR0007052782", listings: [] });
+  const minor = reviewable({ assetId: "m1", name: "Sans ISIN", classificationStatus: "verified", listings: [listing({ listingId: "l9", ticker: "ZZZ" })], operationCount: 40 });
+
+  const ordered = buildReviewList([minor, orphan, conflictA, conflictB]).map((asset) => asset.assetId);
+  assert.ok(ordered.indexOf("c1") < ordered.indexOf("o1"), "un conflit passe avant une absence de cotation");
+  assert.ok(ordered.indexOf("o1") < ordered.indexOf("m1"), "une absence de cotation passe avant un simple ISIN manquant");
+  // Le motif le moins grave ne fait pas remonter un actif très utilisé devant un vrai blocage.
+  assert.equal(ordered.at(-1), "m1");
+});
+
+test("chaque motif a un libellé ET une conséquence expliquée", () => {
+  for (const reason of ["needs_review", "no_listing", "no_provider_symbol", "no_isin", "conflict"]) {
+    assert.ok(REVIEW_REASON_LABEL[reason]?.length > 0, `${reason} doit avoir un libellé`);
+    assert.ok(REVIEW_REASON_DETAIL[reason]?.length > 20, `${reason} doit expliquer ce qu'il empêche`);
+  }
 });
 
 test("le badge « Éligible PEA » n'est jamais affirmé faute de source fiable", () => {

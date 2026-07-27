@@ -40,7 +40,13 @@ La clé secrète reste uniquement dans `.env.local`. Elle ne doit jamais être a
 2. `migrations/20260725_investment_multicurrency.sql` — colonnes multi-devises / transferts de titres / taxes (`exchange_rate`, `taxes` sur `account_operations`, types `transfer_in`/`transfer_out`) + `monthly_target` / `opened_at` sur `financial_accounts` (objectif mensuel, date d’ouverture). Facultative pour le PEA de base ; **requise** pour les opérations « avancées » du compte-titres et pour la date d’ouverture / l’objectif.
 3. `migrations/20260726_investment_imports.sql` — imports d’opérations : table `investment_import_batches` (traçabilité + annulation) et colonnes `import_batch_id` / `external_reference` / `import_fingerprint` sur `account_operations`. **Requise** pour l’import CSV et l’annulation d’un lot. Sans elle, l’import renvoie une erreur `setupRequired` claire et le reste continue de fonctionner.
 
-Vérifier que 1 puis 2 sont bien passées **avant** 3 (3 dépend de `account_operations`). Les routes serveur détectent une migration manquante et renvoient un message explicite plutôt qu’une erreur brute.
+4. `migrations/20260811_asset_catalog.sql` — **catalogue d’actifs cotés** : tables `assets` (actif canonique, unique par ISIN) et `asset_listings` (cotation : place, MIC, devise, symboles fournisseurs), plus les colonnes **nullables** `asset_id` / `listing_id` sur `account_operations` et `listing_id` sur `holdings`. C’est elle qui remplace la saisie libre Nom/Ticker/ISIN/Devise par une **recherche puis sélection d’une cotation**, et qui rend impossible un couple ticker/ISIN incohérent.
+   - **Additive, idempotente, non destructive** : aucune table ni colonne supprimée, aucune opération réécrite. Rejouable sans risque.
+   - **Sans elle, rien ne casse** : la recherche continue de fonctionner via le fournisseur, et les opérations s’enregistrent simplement sans identifiant stable (les routes détectent l’absence des tables et dégradent silencieusement).
+   - **Amorçage** : insère Air Liquide (`FR0000120073` / `AI` / Euronext Paris / EUR) et reprend depuis `holdings` **uniquement** les lignes déjà confirmées à la main (`classification_status = 'verified'`) — jamais une supposition.
+   - Après exécution, contrôler avec `checks/2026-08-11_asset_catalog.sql`.
+
+Vérifier que 1 puis 2 sont bien passées **avant** 3 (3 dépend de `account_operations`). La 4 dépend de `account_operations` et de `holdings`. Les routes serveur détectent une migration manquante et renvoient un message explicite plutôt qu’une erreur brute.
 
 ### Mettre en service un compte PEA / compte-titres
 

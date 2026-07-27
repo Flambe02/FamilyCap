@@ -203,6 +203,49 @@ test("PEA et CTO partagent la même modale et le même sélecteur", () => {
 });
 
 // ==========================================================================================
+// ÉCRAN ADMIN « ACTIFS & COTATIONS » (§13)
+// ==========================================================================================
+test("la revue des actifs est réservée à l'administrateur, en lecture comme en écriture", () => {
+  const route = read("app/api/admin/asset-review/route.ts");
+  const guards = route.match(/requireAdmin/g) ?? [];
+  assert.ok(guards.length >= 2, "GET et PATCH doivent tous deux appeler requireAdmin");
+  assert.equal(/requireFamilyMember/.test(route), false, "aucun accès non-admin");
+});
+
+test("une correction administrateur confère « verified » — le seul endroit qui le fasse", () => {
+  assert.match(CATALOG_SERVER, /classification_status: "verified"/);
+  assert.match(CATALOG_SERVER, /validation_status: "verified"/);
+  // Et ce statut est ensuite immuable face aux déductions automatiques.
+  assert.match(read("lib/asset-catalog.ts"), /if \(current\.status === "verified"\) return current;/);
+});
+
+test("un ISIN invalide est refusé même par l'administrateur", () => {
+  assert.match(CATALOG_SERVER, /Cet ISIN est invalide \(clé de contrôle\)\./);
+});
+
+test("un ISIN déjà porté par un autre actif est signalé, jamais dupliqué en silence", () => {
+  assert.match(CATALOG_SERVER, /Un autre actif porte déjà cet ISIN/);
+});
+
+test("la revue ne liste que ce qui bloque : un catalogue sain affiche un état vide explicite", () => {
+  const route = read("app/api/admin/asset-review/route.ts");
+  const screen = read("app/admin-asset-review.tsx");
+  // Le filtrage vient de la fonction PURE et testée, pas d'une requête SQL parallèle.
+  assert.match(route, /buildReviewList\(assets\)/);
+  assert.match(screen, /Aucun actif à vérifier/);
+  // L'écran ne retrie ni ne refiltre la liste : il rend exactement ce que la route lui donne,
+  // sinon deux classements coexisteraient et le test du tri ne prouverait plus rien.
+  assert.equal(/rows\.(sort|filter)\(/.test(screen), false, "le classement reste dans lib/asset-catalog.ts");
+  assert.equal(/\.sort\(/.test(screen), false, "aucun tri local");
+});
+
+test("la migration absente donne une consigne, pas une erreur brute", () => {
+  const route = read("app/api/admin/asset-review/route.ts");
+  assert.match(route, /20260811_asset_catalog\.sql/);
+  assert.match(route, /setupRequired/);
+});
+
+// ==========================================================================================
 // MIGRATION : ADDITIVE, IDEMPOTENTE, NON DESTRUCTIVE
 // ==========================================================================================
 test("la migration est additive et idempotente", () => {

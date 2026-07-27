@@ -1,0 +1,52 @@
+/* Écran admin « Actifs & cotations ». Reprend les tokens existants (--ink, --teal, --line,
+   --muted, --amber, --shadow de app/family.css) : aucune couleur nouvelle, aucun style global. */
+
+.asset-review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.asset-review-head h3 { margin: 0 0 4px; font-family: var(--font-display-stack); font-size: 19px; font-weight: 600; color: var(--ink); }
+.asset-review-head p { margin: 0; max-width: 62ch; font-size: 13px; line-height: 1.5; color: var(--muted); }
+
+.asset-review-count { margin: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.asset-review-notice { margin: 12px 0 0; padding: 10px 13px; border-radius: 10px; background: var(--teal-soft); color: var(--teal); font-size: 13px; font-weight: 600; }
+.asset-review-setup { margin: 12px 0 0; padding: 10px 13px; border-radius: 10px; background: var(--amber-soft); color: var(--ink); font-size: 13px; font-weight: 600; }
+
+.asset-review-empty { display: flex; flex-direction: column; gap: 4px; margin-top: 16px; padding: 22px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; }
+.asset-review-empty b { font-size: 14px; color: var(--ink); }
+.asset-review-empty span { font-size: 12px; color: var(--muted); }
+
+.asset-review-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.asset-review-item { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); overflow: hidden; }
+.asset-review-item.is-open { border-color: var(--teal); }
+
+.asset-review-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 12px 14px; border: 0; background: none; text-align: left; cursor: pointer; }
+.asset-review-row:hover { background: var(--cream); }
+.asset-review-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.asset-review-main b { font-size: 14px; font-weight: 700; color: var(--ink); }
+.asset-review-sub { font-size: 12px; color: var(--muted); }
+
+.asset-review-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 0 0 auto; }
+.asset-review-tag { padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .2px; background: #eef1f3; color: var(--muted); }
+/* La sévérité se lit sans avoir à comparer : conflit et absence de cotation d'abord. */
+.asset-review-tag.reason-conflict { background: #fbe3de; color: #a8341c; }
+.asset-review-tag.reason-no_listing { background: var(--amber-soft); color: #8a5b04; }
+.asset-review-tag.reason-no_provider_symbol { background: var(--amber-soft); color: #8a5b04; }
+
+.asset-review-editor { padding: 4px 14px 14px; border-top: 1px solid var(--line); }
+.asset-review-why { margin: 12px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.asset-review-why li { font-size: 12px; line-height: 1.5; color: var(--muted); }
+
+.asset-review-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.asset-review-grid label { display: flex; flex-direction: column; gap: 5px; }
+.asset-review-grid label span { font-size: 10px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; color: var(--muted); }
+.asset-review-grid input, .asset-review-grid select { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font-size: 13px; background: #fff; color: var(--ink); }
+.asset-review-grid input:focus-visible, .asset-review-grid select:focus-visible { outline: 3px solid var(--amber); outline-offset: 1px; }
+.asset-review-nolisting { grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+
+.asset-review-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+@media (max-width: 780px) {
+  .asset-review-head { flex-direction: column; }
+  .asset-review-row { flex-direction: column; align-items: flex-start; }
+  .asset-review-tags { justify-content: flex-start; }
+  .asset-review-grid { grid-template-columns: 1fr; }
+  .asset-review-actions button { flex: 1 1 0; }
+}

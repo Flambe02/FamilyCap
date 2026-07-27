@@ -20,6 +20,7 @@ import { venueForExchangeLabel, venueForYahooSymbol } from "./market-venues.ts";
 import {
   type AssetCandidate,
   type ClassificationStatus,
+  type ReviewableAsset,
   type SearchIntent,
   classifyQuery,
   normalizeAssetType,
@@ -334,6 +335,126 @@ export async function loadAccountListings(accountId: string): Promise<Map<string
     if (isMissingSchema(error)) return byKey; // migration non jouée → pipeline inchangé
     throw error;
   }
+}
+
+// ==========================================================================================
+// REVUE ADMINISTRATEUR (§13)
+// ==========================================================================================
+/**
+ * Catalogue complet + nombre d'opérations par actif, pour l'écran « Actifs & cotations ».
+ * Le tri et la qualification des motifs sont faits par `buildReviewList` (pur, testable) : cette
+ * fonction ne fait que lire. `null` si la migration 20260811 n'est pas jouée.
+ */
+export async function loadReviewableAssets(): Promise<ReviewableAsset[] | null> {
+  try {
+    const [rows, operations] = await Promise.all([
+      supabaseRest<AssetRow[]>(`assets?select=${ASSET_SELECT}&order=name.asc&limit=500`),
+      supabaseRest<Array<{ asset_id: string | null }>>("account_operations?select=asset_id&asset_id=not.is.null&limit=5000"),
+    ]);
+    const usage = new Map<string, number>();
+    for (const row of operations ?? []) {
+      if (row.asset_id) usage.set(row.asset_id, (usage.get(row.asset_id) ?? 0) + 1);
+    }
+    return (rows ?? []).map((row) => ({
+      assetId: row.id,
+      name: row.name,
+      isin: normalizeIsin(row.isin),
+      assetType: normalizeAssetType(row.asset_type),
+      classificationStatus: toStatus(row.classification_status),
+      listings: (row.asset_listings ?? []).map((listing) => ({
+        listingId: listing.id,
+        ticker: normalizeTicker(listing.ticker),
+        exchange: listing.exchange,
+        micCode: normalizeMic(listing.mic_code),
+        currency: normalizeCurrency(listing.currency) ?? "EUR",
+        eodhdSymbol: normalizeTicker(listing.eodhd_symbol),
+        yahooSymbol: normalizeTicker(listing.yahoo_symbol),
+        validationStatus: toStatus(listing.validation_status),
+      })),
+      operationCount: usage.get(row.id) ?? 0,
+    }));
+  } catch (error) {
+    if (isMissingSchema(error)) return null;
+    throw error;
+  }
+}
+
+export type AdminCorrection = {
+  assetId: string;
+  name?: string;
+  isin?: string | null;
+  assetType?: string;
+  listing?: {
+    listingId?: string;
+    ticker?: string | null; exchange?: string | null; micCode?: string | null; currency?: string;
+    eodhdSymbol?: string | null; yahooSymbol?: string | null;
+  };
+};
+
+/**
+ * Applique une correction ADMINISTRATEUR : elle est la source de confiance la plus haute et
+ * marque l'actif (et la cotation touchée) `verified` — ce que `mergeClassification` et le
+ * pipeline de cotations refusent ensuite d'écraser, y compris après une panne fournisseur.
+ *
+ * Un ISIN n'est jamais effacé silencieusement : le passer à `null` doit être explicite.
+ */
+export async function applyAdminCorrection(correction: AdminCorrection):
+  Promise<{ ok: true } | { ok: false; error: string }> {
+  const patch: Record<string, unknown> = { classification_status: "verified", updated_at: new Date().toISOString() };
+  if (correction.name !== undefined) {
+    const name = String(correction.name).trim();
+    if (!name) return { ok: false, error: "Le nom de l'actif est obligatoire." };
+    patch.name = name;
+  }
+  if (correction.isin !== undefined) {
+    if (correction.isin === null || String(correction.isin).trim() === "") patch.isin = null;
+    else {
+      const isin = validIsinOrNull(correction.isin);
+      if (!isin) return { ok: false, error: "Cet ISIN est invalide (clé de contrôle)." };
+      patch.isin = isin;
+    }
+  }
+  if (correction.assetType !== undefined) patch.asset_type = normalizeAssetType(correction.assetType);
+
+  try {
+    await supabaseRest(`assets?id=eq.${encodeURIComponent(correction.assetId)}`, {
+      method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify(patch),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/duplicate key|assets_isin_key|23505/i.test(message)) {
+      return { ok: false, error: "Un autre actif porte déjà cet ISIN. Fusionnez-les plutôt que de les dupliquer." };
+    }
+    if (isMissingSchema(error)) return { ok: false, error: "Le catalogue d'actifs n'est pas encore installé (migration 20260811)." };
+    throw error;
+  }
+
+  const listing = correction.listing;
+  if (listing?.listingId) {
+    const listingPatch: Record<string, unknown> = { validation_status: "verified", updated_at: new Date().toISOString() };
+    if (listing.ticker !== undefined) listingPatch.ticker = normalizeTicker(listing.ticker);
+    if (listing.exchange !== undefined) listingPatch.exchange = listing.exchange?.trim() || null;
+    if (listing.micCode !== undefined) listingPatch.mic_code = normalizeMic(listing.micCode);
+    if (listing.eodhdSymbol !== undefined) listingPatch.eodhd_symbol = normalizeTicker(listing.eodhdSymbol);
+    if (listing.yahooSymbol !== undefined) listingPatch.yahoo_symbol = normalizeTicker(listing.yahooSymbol);
+    if (listing.currency !== undefined) {
+      const currency = normalizeCurrency(listing.currency);
+      if (!currency) return { ok: false, error: "La devise de la cotation est invalide." };
+      listingPatch.currency = currency;
+    }
+    try {
+      await supabaseRest(`asset_listings?id=eq.${encodeURIComponent(listing.listingId)}`, {
+        method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify(listingPatch),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (/duplicate key|asset_listings_|23505/i.test(message)) {
+        return { ok: false, error: "Une autre cotation porte déjà ce symbole ou cette identité." };
+      }
+      throw error;
+    }
+  }
+  return { ok: true };
 }
 
 // ==========================================================================================
