@@ -56,6 +56,7 @@ export type InstrumentPrice = {
   name: string | null;
   assetId?: string | null;
   providerSymbol?: string | null;
+  yahooSymbol?: string | null;
   exchange?: string | null;
   micCode?: string | null;
   dataProvider?: string | null;
@@ -81,6 +82,7 @@ export type PortfolioPosition = {
   assetType: "stock" | "etf" | "fund" | "bond" | "reit" | "gold" | "crypto" | "cash" | "other";
   assetId: string | null;
   providerSymbol: string | null;
+  yahooSymbol: string | null;
   exchange: string | null;
   micCode: string | null;
   dataProvider: string | null;
@@ -414,7 +416,7 @@ export function computeAccountModel(params: {
         isin: acc.isin,
         assetClass: assetClassOf(price?.assetType ?? null),
         assetType: assetTypeOf(price?.assetType ?? null),
-        assetId: price?.assetId ?? null, providerSymbol: price?.providerSymbol ?? null, exchange: price?.exchange ?? null,
+        assetId: price?.assetId ?? null, providerSymbol: price?.providerSymbol ?? null, yahooSymbol: price?.yahooSymbol ?? null, exchange: price?.exchange ?? null,
         micCode: price?.micCode ?? null, dataProvider: price?.dataProvider ?? null, quoteMode: price?.quoteMode ?? null,
         marketStatus: price?.marketStatus ?? null, dataDelayMinutes: price?.dataDelayMinutes ?? null, quoteFetchedAt: price?.fetchedAt ?? null,
         quantity: acc.qty,

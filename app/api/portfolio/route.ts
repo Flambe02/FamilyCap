@@ -46,7 +46,7 @@ async function fetchAccounts(filter: string): Promise<AccountRow[]> {
     throw error;
   }
 }
-type HoldingRow = { id: string; account_id: string; asset_type: string | null; name: string | null; symbol: string | null; isin: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at: string | null; currency: string; exchange?: string | null; provider_symbol?: string | null; market_symbol?: string | null; mic_code?: string | null; data_provider?: string | null; quote_mode?: string | null; country?: string | null };
+type HoldingRow = { id: string; account_id: string; asset_type: string | null; name: string | null; symbol: string | null; isin: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at: string | null; currency: string; exchange?: string | null; provider_symbol?: string | null; yahoo_symbol?: string | null; market_symbol?: string | null; mic_code?: string | null; data_provider?: string | null; quote_mode?: string | null; country?: string | null };
 type QuoteRow = { asset_id: string; provider: string; provider_symbol: string; price: number; currency: string; quoted_at: string; market_status: string; data_delay_minutes: number | null; fetched_at: string };
 type MemberRow = { id: string; name: string };
 type OperationRow = {
@@ -124,7 +124,9 @@ export async function GET(request: Request) {
     // position.
     const currenciesInUse = new Set<string>();
     for (const holding of holdingRows) {
-      const quote = latestQuoteByAsset.get(holding.id) ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined);
+      const quote = latestQuoteByAsset.get(holding.id)
+        ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined)
+        ?? (holding.yahoo_symbol ? latestQuoteBySymbol.get(`yahoo:${holding.yahoo_symbol}`) : undefined);
       currenciesInUse.add((quote?.currency ?? holding.currency ?? "EUR").toUpperCase());
     }
     for (const operation of operationRows) currenciesInUse.add((operation.currency ?? "EUR").toUpperCase());
@@ -132,7 +134,9 @@ export async function GET(request: Request) {
     const fxRows: FxRateRow[] = await loadPortfolioFxRates([...currenciesInUse]);
 
     const holdings = holdingRows.map((holding) => {
-      const quote = latestQuoteByAsset.get(holding.id) ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined);
+      const quote = latestQuoteByAsset.get(holding.id)
+        ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined)
+        ?? (holding.yahoo_symbol ? latestQuoteBySymbol.get(`yahoo:${holding.yahoo_symbol}`) : undefined);
       const referenceCurrency = accountCurrencyById.get(holding.account_id) ?? "EUR";
       const nativeCurrency = (quote?.currency ?? holding.currency).toUpperCase();
       // Facteur résolu par le SEUL module qui connaît la formule (lib/fx-rates.ts). La route ne
@@ -151,7 +155,7 @@ export async function GET(request: Request) {
       last_price: quote ? Number(quote.price) : (holding.last_price === null || holding.last_price === undefined ? null : Number(holding.last_price)),
       last_price_at: quote?.quoted_at ?? holding.last_price_at ?? null,
       currency: holding.currency,
-      exchange: holding.exchange ?? null, providerSymbol: holding.provider_symbol ?? holding.market_symbol ?? null, micCode: holding.mic_code ?? null,
+      exchange: holding.exchange ?? null, providerSymbol: holding.provider_symbol ?? holding.market_symbol ?? null, yahooSymbol: holding.yahoo_symbol ?? null, micCode: holding.mic_code ?? null,
       dataProvider: quote?.provider ?? holding.data_provider ?? null, quoteMode: holding.quote_mode ?? (quote ? "eod" : null), country: holding.country ?? null,
       marketStatus: quote?.market_status ?? null, dataDelayMinutes: quote?.data_delay_minutes ?? null, fetchedAt: quote?.fetched_at ?? null,
       fxRateToReference: fx, referenceCurrency,
@@ -209,11 +213,11 @@ async function fetchOperations(accountIds: string[]): Promise<OperationRow[]> {
 }
 
 async function fetchHoldings(accountIds: string[]): Promise<HoldingRow[]> {
-  const select = "id,account_id,asset_type,name,symbol,isin,quantity,average_cost,last_price,last_price_at,currency,exchange,provider_symbol,market_symbol,mic_code,data_provider,quote_mode,country";
+  const select = "id,account_id,asset_type,name,symbol,isin,quantity,average_cost,last_price,last_price_at,currency,exchange,provider_symbol,yahoo_symbol,market_symbol,mic_code,data_provider,quote_mode,country";
   try { return await supabaseRest<HoldingRow[]>(`holdings?select=${select}&account_id=in.(${accountIds.join(",")})`); }
   catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (!/provider_symbol|mic_code|data_provider|quote_mode|country|PGRST20[0-9]|42703/.test(message)) throw error;
+    if (!/provider_symbol|yahoo_symbol|mic_code|data_provider|quote_mode|country|PGRST20[0-9]|42703/.test(message)) throw error;
     return await supabaseRest<HoldingRow[]>(`holdings?select=id,account_id,asset_type,name,symbol,isin,quantity,average_cost,last_price,last_price_at,currency&account_id=in.(${accountIds.join(",")})`);
   }
 }

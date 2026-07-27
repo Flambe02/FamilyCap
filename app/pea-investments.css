@@ -439,6 +439,12 @@
 .inv-price-report.warn { border-color: #d8c78a; background: #fbf4dd; }
 .inv-price-report-close { position: absolute; top: 4px; right: 8px; border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: inherit; }
 .inv-price-report-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.inv-price-report > strong, .inv-price-report > span, .inv-price-report > small { display: block; }
+.inv-price-report > span { margin-top: 2px; }
+.inv-price-report > small { margin-top: 2px; color: var(--muted); }
+.inv-price-report-details { margin: 7px 0 0; padding: 0; border: 0; background: transparent; color: var(--teal-dark, var(--teal)); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; }
+.inv-price-report-details-content { margin-top: 8px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); color: var(--muted); }
+.inv-price-report-details-content p { margin: 3px 0; }
 
 .inv-confirm-modal { max-width: 520px; }
 .inv-confirm-body { display: flex; flex-direction: column; gap: 14px; padding: 0 4px 4px; }

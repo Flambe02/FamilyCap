@@ -46,7 +46,7 @@ export type InvestmentAccount = {
   accountNumberLast4?: string | null; ibanLast4?: string | null; openedAt?: string | null;
   monthlyTarget?: number | null; openingBalance?: number | null; notes?: string | null;
 };
-export type InvestmentHolding = { id?: string; account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string; exchange?: string | null; providerSymbol?: string | null; micCode?: string | null; dataProvider?: string | null; quoteMode?: "eod" | "delayed" | "realtime" | "manual" | null; country?: string | null; marketStatus?: string | null; dataDelayMinutes?: number | null; fetchedAt?: string | null; fxRateToReference?: number | null; referenceCurrency?: string | null };
+export type InvestmentHolding = { id?: string; account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string; exchange?: string | null; providerSymbol?: string | null; yahooSymbol?: string | null; micCode?: string | null; dataProvider?: string | null; quoteMode?: "eod" | "delayed" | "realtime" | "manual" | null; country?: string | null; marketStatus?: string | null; dataDelayMinutes?: number | null; fetchedAt?: string | null; fxRateToReference?: number | null; referenceCurrency?: string | null };
 export type InvestmentOperation = AccountOperation;
 
 // Plan d'investissement du membre affiché (sous-ensemble utile au shell). L'objectif mensuel
@@ -59,8 +59,9 @@ export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "p
 // inventée : un instrument introuvable ou coté dans une autre devise est RAPPORTÉ, pas écrit.
 export type PriceRefreshRow = {
   assetId: string; name: string;
-  status: "fresh" | "stale" | "unavailable" | "manual";
-  message?: string;
+  status: "fresh" | "stale" | "unavailable" | "manual" | "needs_review";
+  source: "eodhd" | "yahoo" | "cache" | "manual" | null;
+  marketDate?: string | null;
 };
 // Compte rendu de la passe de CHANGE, distincte de celle des cours : elle a ses propres
 // fournisseurs (gratuits, sans clé) et son propre cache quotidien.
@@ -222,7 +223,7 @@ export function InvestmentAccountShell({
     for (const holding of holdings.filter((item) => scopeIds.has(item.account_id))) {
       map.set(priceKeyOf({ isin: holding.isin ?? null, symbol: holding.symbol ?? null, name: holding.name ?? null }), {
         lastPrice: holding.last_price, lastPriceAt: holding.last_price_at ?? null, assetType: holding.asset_type ?? null, name: holding.name ?? null,
-        assetId: holding.id ?? null, providerSymbol: holding.providerSymbol ?? null, exchange: holding.exchange ?? null, micCode: holding.micCode ?? null,
+        assetId: holding.id ?? null, providerSymbol: holding.providerSymbol ?? null, yahooSymbol: holding.yahooSymbol ?? null, exchange: holding.exchange ?? null, micCode: holding.micCode ?? null,
         dataProvider: holding.dataProvider ?? null, quoteMode: holding.quoteMode ?? null, country: holding.country ?? null,
         marketStatus: holding.marketStatus ?? null, dataDelayMinutes: holding.dataDelayMinutes ?? null, fetchedAt: holding.fetchedAt ?? null,
         fxRateToReference: holding.fxRateToReference ?? null, referenceCurrency: holding.referenceCurrency ?? null,
@@ -843,7 +844,13 @@ function PositionsTab({
   });
   const visiblePositions = filtered.slice(0, visibleCount);
   const quoteDates = model.positions.map((position) => position.lastPriceAt).filter((date): date is string => Boolean(date));
+  const uniqueQuoteDates = [...new Set(quoteDates.map((date) => date.slice(0, 10)))];
   const latestQuoteAt = quoteDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+  const quoteFetchDates = model.positions.map((position) => position.quoteFetchedAt).filter((date): date is string => Boolean(date));
+  const latestQuoteFetchAt = quoteFetchDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+  const quoteHeader = uniqueQuoteDates.length === 1 && latestQuoteAt
+    ? `Cours au ${dayOf(latestQuoteAt)}`
+    : latestQuoteAt ? `Cours actualisés le ${dayOf(latestQuoteFetchAt ?? latestQuoteAt)}` : "Cours indisponibles";
   const hasActiveFilters = Boolean(search || typeFilter !== "all" || currencyFilter !== "all" || accountFilter !== "all" || sort !== "value");
   const resetFilters = () => {
     setSearch(""); setTypeFilter("all"); setCurrencyFilter("all"); setAccountFilter("all"); setSort("value"); setVisibleCount(15);
@@ -905,7 +912,7 @@ function PositionsTab({
           </p>
         </div>
         <div className="inv-quote-actions">
-          <span className="inv-quote-asof">{latestQuoteAt ? `Cours au ${dayOf(latestQuoteAt)}` : "Cours indisponibles"}</span>
+          <span className="inv-quote-asof">{quoteHeader}</span>
           {canManage && canRefreshPrices && (
             <button type="button" className="inv-refresh-button" disabled={pricesBusy} onClick={onRefreshPrices}
               title="Met à jour les dernières clôtures EODHD, avec cache quotidien et sans exposer la clé fournisseur.">
@@ -997,37 +1004,38 @@ function PositionsTab({
 // Compte rendu du rafraîchissement : chaque position a une ligne, y compris les échecs. Rien
 // n'est masqué — une position sans cours doit se voir, pas disparaître du total en silence.
 function PriceRefreshPanel({ report, onDismiss }: { report: PriceRefreshReport; onDismiss: () => void }) {
-  const failures = report.results.filter((row) => row.status === "unavailable");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const unavailable = report.results.filter((row) => row.status === "unavailable");
+  const preserved = report.results.filter((row) => row.status === "stale" || row.source === "cache");
+  const needsReview = report.results.filter((row) => row.status === "needs_review");
+  const primary = report.results.filter((row) => row.status === "fresh" && row.source === "eodhd");
+  const backup = report.results.filter((row) => row.status === "fresh" && row.source === "yahoo");
   const fx = report.fx ?? [];
   const fxFailures = fx.filter((row) => row.status === "unavailable");
-  const fxDone = fx.filter((row) => row.status !== "unavailable");
+  const hasIssue = unavailable.length > 0 || preserved.length > 0 || needsReview.length > 0 || fxFailures.length > 0;
+  const title = report.error ? "Actualisation momentanément indisponible"
+    : needsReview.length > 0 ? `${needsReview.length} actif${needsReview.length > 1 ? "s" : ""} à vérifier`
+      : !hasIssue ? "Cours actualisés"
+        : report.refreshed > 0 || preserved.length > 0 ? "Actualisation partielle" : "Actualisation momentanément indisponible";
+  const message = report.error ? "Les nouveaux cours n’ont pas pu être récupérés. Réessayez plus tard."
+    : needsReview.length > 0 ? `Le symbole de marché de ${needsReview[0]?.name ?? "cet actif"} doit être confirmé avant l’actualisation de son cours.`
+      : !hasIssue ? `${report.refreshed} position${report.refreshed > 1 ? "s" : ""} mise${report.refreshed > 1 ? "s" : ""} à jour.${backup.length ? " Un fournisseur de secours a été utilisé pour certains cours." : ""}`
+        : `${report.refreshed} cours actualisé${report.refreshed > 1 ? "s" : ""}. Les derniers cours connus sont conservés pour ${preserved.length} position${preserved.length > 1 ? "s" : ""}.`;
   return (
-    <div className={`inv-price-report${report.error || failures.length > 0 || fxFailures.length > 0 ? " warn" : ""}`} role="status">
+    <div className={`inv-price-report${hasIssue || report.error ? " warn" : ""}`} role="status">
       <button type="button" className="inv-price-report-close" onClick={onDismiss} aria-label="Fermer">×</button>
-      {report.error ? (
-        <strong>{report.error}</strong>
-      ) : (
-        <>
-          <strong>{`${report.refreshed} cours actualisé(s), ${report.cached} servi(s) depuis le cache${failures.length > 0 ? `, ${failures.length} indisponible(s)` : ""}.`}</strong>
-          {report.apiLimitReached && <small> Limite quotidienne EODHD atteinte : les derniers cours valides sont conservés.</small>}
-          {/* Le change est rapporté À PART : il a ses propres fournisseurs et son propre cache,
-              et c'est lui qui décide si une position en devise étrangère entre dans le total. */}
-          {fxDone.length > 0 && (
-            <small>
-              {` Change : ${fxDone.map((row) => `${row.pair.replace(":", "→")} ${row.rate !== undefined ? row.rate.toFixed(4).replace(".", ",") : "à jour"}${row.provider ? ` (${row.provider})` : ""}`).join(" · ")}.`}
-            </small>
-          )}
-          {(failures.length > 0 || fxFailures.length > 0) && (
-            <ul className="inv-price-report-list">
-              {failures.map((row) => (
-                <li key={row.assetId}><b>{row.name}</b> — {row.message ?? "Cours indisponible."}</li>
-              ))}
-              {fxFailures.map((row) => (
-                <li key={`fx-${row.pair}`}><b>{row.pair.replace(":", " → ")}</b> — {row.message ?? "Taux de change indisponible."}</li>
-              ))}
-            </ul>
-          )}
-        </>
+      <strong>{title}</strong>
+      <span>{message}</span>
+      {preserved.length > 0 && <small>Les valorisations restent disponibles avec la date de chaque cours.</small>}
+      {(hasIssue || backup.length > 0) && <button type="button" className="inv-price-report-details" onClick={() => setDetailsOpen((open) => !open)}>{detailsOpen ? "Masquer les détails" : "Voir les détails"}</button>}
+      {detailsOpen && (
+        <div className="inv-price-report-details-content">
+          {primary.length > 0 && <p>{primary.length} cours actualisé{primary.length > 1 ? "s" : ""} par le fournisseur principal.</p>}
+          {backup.length > 0 && <p>{backup.length} cours actualisé{backup.length > 1 ? "s" : ""} par le fournisseur de secours.</p>}
+          {preserved.length > 0 && <p>{preserved.length} dernier{preserved.length > 1 ? "s" : ""} cours conservé{preserved.length > 1 ? "s" : ""}. Le fournisseur principal était temporairement indisponible.</p>}
+          {needsReview.length > 0 && <p>Actif à vérifier : {needsReview.map((row) => row.name).join(", ")}.</p>}
+          {unavailable.length > 0 && <p>Aucun cours disponible : {unavailable.map((row) => row.name).join(", ")}.</p>}
+        </div>
       )}
     </div>
   );
@@ -1205,10 +1213,11 @@ function PositionDetailModal({ position, envLabel, operations, canManage, onClas
                 if (!response.ok) { const result = await response.json().catch(() => ({})) as { error?: string }; setClassificationStatus(result.error ?? "Enregistrement impossible."); return; }
                 setClassificationStatus("Classification enregistrée."); onClassified();
               }} className="inv-classify-form">
-                <label>Type<select name="assetType" defaultValue="other">{Object.entries(ASSET_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label>Type<select name="assetType" defaultValue={position.assetType}>{Object.entries(ASSET_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                 <label>ISIN<input name="isin" defaultValue={position.isin ?? ""} /></label>
                 <label>Ticker<input name="ticker" defaultValue={position.ticker ?? ""} /></label>
-                <label>Symbole EODHD<input name="providerSymbol" defaultValue={position.providerSymbol ?? ""} placeholder="ex. AIR.PA" /></label>
+                <label>Symbole EODHD<input name="providerSymbol" defaultValue={position.providerSymbol ?? ""} placeholder="ex. AI.PA" /></label>
+                <label>Symbole Yahoo<input name="yahooSymbol" defaultValue={position.yahooSymbol ?? ""} placeholder="ex. AI.PA" /></label>
                 <label>Place<input name="exchange" defaultValue={position.exchange ?? ""} /></label>
                 <label>Devise<input name="currency" defaultValue={position.currency} maxLength={3} /></label>
                 <label>MIC (optionnel)<input name="micCode" defaultValue={position.micCode ?? ""} /></label>
