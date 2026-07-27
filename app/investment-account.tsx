@@ -18,6 +18,12 @@ import {
   euro, euro0, dateOf, GainPill, BitcoinKpi, DonutChart, LegendRow,
   EvolutionChart, PeriodFilter, EmptyState, type ChartSeries,
 } from "./bitcoin-components";
+
+// This marker only restores the success screen after navigation. The server is
+// still the sole authority that decides whether a mission is completed.
+function rememberOnboardingAction(slug: string) {
+  if (typeof window !== "undefined") window.sessionStorage.setItem("capfamily:onboarding-action", slug);
+}
 import {
   computeAccountModel, windowAccountTimeline, supportedRanges, priceKeyOf, instrumentKey,
   type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice, type PortfolioPosition,
@@ -206,7 +212,7 @@ export function InvestmentAccountShell({
   const [tab, setTabState] = useState<InvestmentTab>(() => tabFromHash(config.hashPrefix) ?? "resume");
   const [range, setRange] = useState<"1M" | "3M" | "6M" | "1A" | "3A" | "TOUT">("TOUT");
   const [modal, setModal] = useState<{ open: boolean; type: AccountOperationType; mode: "admin" | "member" }>({ open: false, type: "achat", mode: "admin" });
-  const [importOpen, setImportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(() => typeof window !== "undefined" && window.location.hash === `#${config.hashPrefix}/import`);
   // Gestion des lignes : modification d'une opération existante, suppression (une ligne ou toute
   // une position), et vidage complet du compte. Toutes ces actions passent par le serveur ; le
   // portefeuille reste dérivé des opérations restantes (aucune quantité n'est stockée).
@@ -250,10 +256,17 @@ export function InvestmentAccountShell({
     if (typeof window !== "undefined") window.history.replaceState(null, "", `#${config.hashPrefix}/${next}`);
   }
   useEffect(() => {
-    if (typeof window !== "undefined" && (!window.location.hash.startsWith(`#${config.hashPrefix}/`) || tabFromHash(config.hashPrefix) === null)) {
+    const importIntent = typeof window !== "undefined" && window.location.hash === `#${config.hashPrefix}/import`;
+    if (importIntent) window.history.replaceState(null, "", `#${config.hashPrefix}/historique`);
+    if (typeof window !== "undefined" && (!window.location.hash.startsWith(`#${config.hashPrefix}/`) || (tabFromHash(config.hashPrefix) === null && !importIntent))) {
       window.history.replaceState(null, "", `#${config.hashPrefix}/${tab}`);
     }
     const onHash = () => {
+      if (window.location.hash === `#${config.hashPrefix}/import`) {
+        setImportOpen(true);
+        window.history.replaceState(null, "", `#${config.hashPrefix}/historique`);
+        return;
+      }
       const next = tabFromHash(config.hashPrefix);
       if (next) setTabState(next);
       else window.history.replaceState(null, "", `#${config.hashPrefix}/${tab}`);
@@ -322,6 +335,7 @@ export function InvestmentAccountShell({
   // l'admin doit d'abord choisir un compte dans le sélecteur d'en-tête.
   const importTarget = selectedAccount ?? (envAccounts.length === 1 ? envAccounts[0] : null);
   const importAccount = importTarget ? { id: importTarget.id, name: importTarget.name, kind: config.kind, currency: importTarget.currency, memberName: importTarget.memberName } : null;
+
 
   async function submitOperation(payload: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
     try {
@@ -580,7 +594,7 @@ export function InvestmentAccountShell({
           defaultType={modal.mode === "member" ? "achat" : modal.type} restrictToAchat={modal.mode === "member"}
           onClose={() => setModal((current) => ({ ...current, open: false }))}
           onSubmit={modal.mode === "member" ? submitMemberOperation : submitOperation}
-          onSaved={() => { setModal((current) => ({ ...current, open: false })); setNotice(modal.mode === "member" ? "Achat enregistré." : "Opération enregistrée."); onReload(); }} />
+          onSaved={() => { if (config.kind === "PEA" && ["achat", "vente", "correction"].includes(modal.type)) rememberOnboardingAction("onboarding_existing_portfolio"); setModal((current) => ({ ...current, open: false })); setNotice(modal.mode === "member" ? "Achat enregistré." : "Opération enregistrée."); onReload(); }} />
       )}
       {setupIntent && canManage && (
         <InvestmentAccountSetup
@@ -597,7 +611,7 @@ export function InvestmentAccountShell({
       {importOpen && canManage && importAccount && (
         <InvestmentImportWizard account={importAccount}
           onClose={() => setImportOpen(false)}
-          onDone={() => { setNotice("Import enregistré."); onReload(); }} />
+          onDone={() => { if (config.kind === "PEA") rememberOnboardingAction("onboarding_existing_portfolio"); setNotice("Import enregistré."); onReload(); }} />
       )}
       {editingOp && canManage && (
         <InvestmentOperationModal config={config} accounts={envAccounts.filter((item) => item.id === editingOp.accountId)} positions={model?.positions ?? []}

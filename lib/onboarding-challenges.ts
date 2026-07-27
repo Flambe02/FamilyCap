@@ -35,12 +35,12 @@ export type OnboardingMissionDef = {
 export const ONBOARDING_MISSIONS: readonly OnboardingMissionDef[] = [
   {
     slug: "onboarding_account_setup",
-    title: "Configure ton compte",
-    description: "Ajoute les informations essentielles de ton PEA ou de ton compte-titres.",
-    points: 100,
-    cta: "Configurer mon compte",
-    view: "investissements-pea",
-    successMessage: "Ton compte est prêt ! +100 points",
+    title: "Configure ton PEA",
+    description: "Ajoute ton PEA pour commencer à suivre tes investissements.",
+    points: 300,
+    cta: "Configurer mon PEA",
+    view: "parametres",
+    successMessage: "Ton PEA est configuré ! +300 points",
   },
   {
     slug: "onboarding_existing_portfolio",
@@ -94,18 +94,26 @@ export type OnboardingMemberFacts = {
   purchases: OnboardingPurchaseFact[]; // account_operations (tous types) des comptes PEA/CTO du membre
 };
 
-function isEligibleAccountType(accountType: string): boolean {
-  return accountType === "pea" || accountType === "securities";
-}
-
-/** Mission 1 : compte PEA/CTO actif, correctement typé, nommé (déjà obligatoire à la création). */
+/** Mission 1 : un vrai PEA actif et nommé. Un CTO ou un projet d'ouverture ne le remplace pas. */
 export function isOnboardingAccountReady(account: OnboardingAccountFact): boolean {
-  return isEligibleAccountType(account.accountType) && account.isActive && Boolean(account.name && account.name.trim());
+  return account.accountType === "pea" && account.isActive && Boolean(account.name && account.name.trim());
 }
 
 /** Mission 2 : au moins une position réelle détenue (achat, transfert entrant OU import de relevé — jamais une coquille vide). */
 export function hasOnboardingPortfolio(positions: OnboardingPositionFact[]): boolean {
   return positions.some((position) => position.quantity > 1e-9);
+}
+
+/** Mission 2 : une opération confirmée sur le PEA. `account_operations` ne contient pas de brouillon :
+ * les prévisualisations d'import restent côté client/assistant jusqu'au commit serveur. */
+export function isOnboardingPortfolioOperationEligible(op: OnboardingPurchaseFact): boolean {
+  if (!['achat', 'vente', 'correction'].includes(op.type)) return false;
+  if (!op.date || !(op.assetName?.trim() || op.ticker?.trim() || op.isin?.trim())) return false;
+  return Number(op.quantity) > 0 || Number(op.unitPrice) > 0;
+}
+
+export function hasOnboardingPortfolioOperation(operations: OnboardingPurchaseFact[], peaAccountIds: Set<string>): boolean {
+  return operations.some((op) => peaAccountIds.has(op.accountId) && isOnboardingPortfolioOperationEligible(op));
 }
 
 /** Mission 3 : plan enregistré, montant strictement positif, rattaché à un compte PEA/CTO utilisable du membre. */
@@ -139,12 +147,13 @@ export type OnboardingMissionResults = Record<OnboardingMissionSlug, boolean>;
 
 /** Évalue les 4 missions à partir des faits du membre. Idempotent, sans effet de bord. */
 export function evaluateOnboardingMissions(facts: OnboardingMemberFacts): OnboardingMissionResults {
-  const eligibleAccounts = facts.accounts.filter((account) => isEligibleAccountType(account.accountType));
+  const peaAccounts = facts.accounts.filter((account) => account.accountType === "pea");
+  const peaAccountIds = new Set(peaAccounts.map((account) => account.id));
   return {
-    onboarding_account_setup: eligibleAccounts.some(isOnboardingAccountReady),
-    onboarding_existing_portfolio: hasOnboardingPortfolio(facts.positions),
+    onboarding_account_setup: peaAccounts.some(isOnboardingAccountReady),
+    onboarding_existing_portfolio: hasOnboardingPortfolioOperation(facts.purchases, peaAccountIds),
     onboarding_monthly_plan: hasOnboardingPlan(facts.plan, facts.accounts),
-    onboarding_first_purchase: hasOnboardingFirstPurchase(facts.purchases),
+    onboarding_first_purchase: facts.purchases.some((op) => peaAccountIds.has(op.accountId) && isOnboardingPurchaseEligible(op)),
   };
 }
 

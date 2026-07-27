@@ -111,6 +111,13 @@
 .cha-onboard-done-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: rgba(47, 143, 91, 0.14); color: #2f8f5b; }
 .cha-onboard-done-mark .nav-icon-svg { width: 14px; height: 14px; }
 .cha-onboard-cta { min-height: 36px; padding: 0 14px; border: 1px solid var(--color-border, var(--line)); border-radius: 10px; background: #fff; color: var(--color-text, var(--ink)); font-size: 12px; font-weight: 700; cursor: pointer; }
+.cha-onboard-choice { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.cha-onboard-success-screen { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; border-color: rgba(47, 143, 91, .35); }
+.cha-onboard-success-screen > span { font-size: 30px; }
+.cha-onboard-success-screen h3, .cha-onboard-success-screen p { margin: 0; }
+.cha-onboard-success-screen p, .cha-onboard-success-screen small { color: var(--color-muted, var(--muted)); }
+.cha-onboard-success-screen strong, .cha-onboard-success-screen small { display: block; margin-top: 5px; }
+.cha-onboard-success-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 
 .cha-chip-todo { background: rgba(7, 45, 58, 0.06); color: var(--color-muted, var(--muted)); }
 
@@ -237,6 +244,9 @@
 
 /* ---- Mobile / PWA : recomposition (pas un simple empilement) ------------------------------- */
 @media (max-width: 780px) {
+  .cha-onboard-success-screen { grid-template-columns: 1fr; }
+  .cha-onboard-success-actions { justify-content: stretch; }
+  .cha-onboard-success-actions .cha-onboard-cta { flex: 1 1 100%; }
   .cha-page { gap: 13px; }
   .cha-head h1 { font-size: 24px; }
   .cha-head p { font-size: 12px; }

@@ -451,7 +451,16 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   function navigate(next: View) {
     if (next === "transactions") setTransactionShortcut(null);
     if (typeof window !== "undefined") {
-      const base = window.location.pathname + window.location.search;
+      const url = new URL(window.location.href);
+      // Les deep links de défis n'appartiennent qu'aux Paramètres. Les conserver en quittant
+      // l'écran rouvrirait le formulaire guidé lors d'une visite ordinaire ultérieure.
+      if (next !== "parametres") {
+        url.searchParams.delete("settings");
+        url.searchParams.delete("accountType");
+        url.searchParams.delete("challenge");
+        url.searchParams.delete("returnTo");
+      }
+      const base = url.pathname + (url.search || "");
       // « Défis » porte un hash pour que le raccourci PWA (/#defis) retombe dessus au
       // démarrage à froid ; en quittant Bitcoin/Défis on efface le hash d'onglet pour ne
       // pas y revenir au refresh.

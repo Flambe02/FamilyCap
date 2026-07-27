@@ -15,6 +15,11 @@ const service = read("lib/onboarding-challenges-service.ts");
 const route = read("app/api/challenges/onboarding/route.ts");
 const challengesService = read("lib/challenges-service.ts");
 const rewardsV2Migration = read("supabase/migrations/20260809_challenges_rewards_v2.sql");
+const peaChallengeMigration = read("supabase/migrations/20260814_onboarding_pea_challenge.sql");
+const settingsPage = read("app/settings.tsx");
+const settingsAccounts = read("app/settings-accounts.tsx");
+const challengesPage = read("app/challenges-page.tsx");
+const investmentAccount = read("app/investment-account.tsx");
 
 // ---- Migration additive : seed idempotent des 4 missions ---------------------------------
 test("les 4 missions sont seedées via une clé métier stable (slug), pas le titre", () => {
@@ -126,4 +131,27 @@ test("la migration v2 revalorise les quatre missions sans modifier les anciennes
 test("l'aperçu admin reste en lecture seule : la réconciliation est explicitement désactivée", () => {
   assert.match(route, /isAdminPreview/);
   assert.match(route, /reconcile:\s*!isAdminPreview/);
+});
+
+test("le défi PEA est revalorisé à 300 points par une migration idempotente", () => {
+  assert.match(peaChallengeMigration, /onboarding_account_setup/);
+  assert.match(peaChallengeMigration, /300/);
+  assert.match(peaChallengeMigration, /onboarding_reward_adjustment_pea_v1:/);
+  assert.match(peaChallengeMigration, /public\.apply_challenge_points/);
+  assert.equal(/insert into public\.points_ledger/i.test(peaChallengeMigration), false);
+});
+
+test("le deep link Paramètres > Mes comptes > PEA survit au rechargement", () => {
+  assert.match(settingsPage, /new URLSearchParams\(window\.location\.search\)/);
+  assert.match(settingsPage, /params\.get\("settings"\)/);
+  assert.match(settingsPage, /params\.get\("challenge"\)/);
+  assert.match(challengesPage, /settings", "comptes"/);
+  assert.match(challengesPage, /accountType", "pea"/);
+  assert.match(settingsAccounts, /guidedChallenge === "onboarding_account_setup"/);
+});
+
+test("la réussite d'un import ou d'une opération reste confirmée par le serveur", () => {
+  assert.match(investmentAccount, /capfamily:onboarding-action/);
+  assert.match(challengesPage, /mission\.status === "done"/);
+  assert.match(challengesPage, /capfamily:onboarding-action/);
 });

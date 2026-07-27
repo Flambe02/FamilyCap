@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Viewer } from "../lib/auth-types";
 import type { View } from "../lib/navigation";
 import { authHeader } from "../lib/supabase-session";
@@ -33,7 +33,97 @@ async function authHeaders(): Promise<Record<string, string>> {
   return authHeader();
 }
 
-export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer: Viewer; onNavigate?: (view: View) => void; scopeOverride?: "family" | "selected" }) {
+function PeaChallengeSetup({ viewer, canEdit, onSaved, onNavigate }: { viewer: Viewer; canEdit: boolean; onSaved: () => void; onNavigate?: (view: View) => void }) {
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const [situation, setSituation] = useState<"existing" | "opening">("existing");
+  const [institution, setInstitution] = useState("");
+  const [name, setName] = useState("Mon PEA");
+  const [openedAt, setOpenedAt] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState<{ points: number; totalPoints: number | null; rank: number | null; nextSlug: string | null } | null>(null);
+
+  useEffect(() => { titleRef.current?.focus(); }, []);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!canEdit || saving || situation !== "existing") return;
+    if (!institution.trim()) { setError("Indiquez l'établissement financier."); return; }
+    setSaving(true); setError("");
+    try {
+      const headers = await authHeaders();
+      const response = await fetch("/api/admin/accounts", {
+        method: "POST", headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ memberId: viewer.id, name: name.trim() || "Mon PEA", accountType: "pea", institution: institution.trim(), currency: "EUR", openedAt: openedAt || undefined }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Enregistrement impossible.");
+      const [pointsResponse, onboardingResponse] = await Promise.all([
+        fetch("/api/challenges/points", { headers }),
+        fetch("/api/challenges/onboarding", { headers }),
+      ]);
+      const pointsBody = pointsResponse.ok ? await pointsResponse.json() as { totalPoints?: number; rank?: number } : null;
+      const onboardingBody = onboardingResponse.ok ? await onboardingResponse.json() as { missions?: { slug: string; points: number; status: "todo" | "done" }[] } : null;
+      const awardedPoints = onboardingBody?.missions?.find((mission) => mission.slug === "onboarding_account_setup")?.points ?? 300;
+      const nextSlug = onboardingBody?.missions?.find((mission) => mission.status === "todo")?.slug ?? null;
+      setSuccess({ points: awardedPoints, totalPoints: Number.isFinite(pointsBody?.totalPoints) ? Number(pointsBody?.totalPoints) : null, rank: Number.isFinite(pointsBody?.rank) ? Number(pointsBody?.rank) : null, nextSlug });
+      onSaved();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Enregistrement impossible.");
+    } finally { setSaving(false); }
+  }
+
+  function continueWithNextChallenge() {
+    if (!onNavigate || typeof window === "undefined") { onNavigate?.("investissements-suggestions"); return; }
+    const url = new URL(window.location.href);
+    if (success?.nextSlug === "onboarding_monthly_plan") {
+      url.searchParams.set("settings", "rythme");
+      url.searchParams.set("challenge", success.nextSlug);
+      window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`);
+      onNavigate("parametres");
+      return;
+    }
+    if (success?.nextSlug === "onboarding_existing_portfolio" || success?.nextSlug === "onboarding_first_purchase") {
+      window.history.replaceState(null, "", `${url.pathname}${url.search}#pea/investir`);
+      onNavigate("investissements-pea");
+      return;
+    }
+    onNavigate("investissements-suggestions");
+  }
+
+  if (success) return (
+    <section className="set-challenge-success" aria-live="polite">
+      <span aria-hidden="true">🎉</span>
+      <h3 tabIndex={-1} ref={titleRef}>Ton PEA est configuré !</h3>
+      <p>Bravo, tu viens de terminer ton premier défi d’investissement.</p>
+      <strong>+{success.points} points</strong>
+      {success.totalPoints !== null && <small>Nouveau total : {success.totalPoints} points.</small>}
+      {success.rank !== null && <small>Position actuelle : {success.rank}.</small>}
+      <div className="set-actions"><button type="button" className="set-btn-primary" onClick={continueWithNextChallenge}>Continuer avec le défi suivant</button><button type="button" className="set-btn" onClick={() => onNavigate?.("investissements-suggestions")}>Voir tous mes défis</button></div>
+    </section>
+  );
+
+  return (
+    <section className="set-challenge-guide" aria-labelledby="pea-challenge-title">
+      <p className="set-challenge-kicker">Défi · Configure ton PEA</p>
+      <h3 id="pea-challenge-title" tabIndex={-1} ref={titleRef}>Complète cette étape pour gagner 300 points.</h3>
+      {canEdit && <p className="set-hint">Vous configurez le PEA de {viewer.name}.</p>}
+      {!canEdit && <p className="set-message info">Lecture seule : seul l’administrateur peut enregistrer un compte. Aucun défi ne sera validé depuis cet aperçu.</p>}
+      <form className="set-fields" onSubmit={submit}>
+        <label className="set-field"><span>Situation</span><select value={situation} onChange={(event) => setSituation(event.target.value as "existing" | "opening")} disabled={!canEdit || saving}><option value="existing">J’ai déjà un PEA</option><option value="opening">Je souhaite ouvrir un PEA</option></select></label>
+        {situation === "existing" ? <>
+          <label className="set-field"><span>Établissement financier</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="ex. Boursorama Banque" disabled={!canEdit || saving} required /></label>
+          <label className="set-field"><span>Nom du compte</span><input value={name} onChange={(event) => setName(event.target.value)} disabled={!canEdit || saving} /></label>
+          <label className="set-field"><span>Date d’ouverture (facultative)</span><input type="date" value={openedAt} onChange={(event) => setOpenedAt(event.target.value)} disabled={!canEdit || saving} /></label>
+        </> : <p className="set-hint">Un projet d’ouverture ne crée pas de compte actif et ne valide pas le défi. Revenez ici lorsque votre PEA sera réellement ouvert.</p>}
+        {error && <p className="set-message error" role="alert">{error}</p>}
+        <div className="set-actions"><button type="button" className="set-btn" onClick={() => onNavigate?.("investissements-suggestions")} disabled={saving}>Je le ferai plus tard</button>{situation === "existing" && <button type="submit" className="set-btn-primary" disabled={!canEdit || saving}>{saving ? "Enregistrement…" : "Enregistrer mon PEA et terminer le défi"}</button>}</div>
+      </form>
+    </section>
+  );
+}
+
+export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChallenge }: { viewer: Viewer; onNavigate?: (view: View) => void; scopeOverride?: "family" | "selected"; guidedChallenge?: "onboarding_account_setup" | null }) {
   const [lines, setLines] = useState<AccountLine[] | null>(null);
   const [visible, setVisible] = useState(true);
   const [error, setError] = useState("");
@@ -128,6 +218,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
 
   return (
     <SettingsSection title="Mes comptes" subtitle="Suivez vos comptes et la valeur de vos investissements.">
+      {guidedChallenge === "onboarding_account_setup" && <PeaChallengeSetup viewer={viewer} canEdit={canEdit} onSaved={() => void load()} onNavigate={onNavigate} />}
       {error && <p className="set-message error" role="status">{error}</p>}
       <SettingsMessage message={message} />
       {lines === null ? (

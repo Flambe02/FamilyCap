@@ -146,6 +146,41 @@ function withAsMember(url: string, asMemberId?: string): string {
   return `${url}${url.includes("?") ? "&" : "?"}asMember=${encodeURIComponent(asMemberId)}`;
 }
 
+/** Les défis ne naviguent jamais vers une rubrique vague : chaque étape encode sa destination
+ * persistante avant de changer de vue. Le serveur reste l'unique juge de la réussite. */
+function navigateToOnboardingMission(mission: OnboardingMissionDto, onNavigate: (view: View) => void) {
+  if (typeof window !== "undefined") {
+    const url = new URL(window.location.href);
+    if (mission.slug === "onboarding_account_setup") {
+      url.searchParams.set("settings", "comptes");
+      url.searchParams.set("accountType", "pea");
+      url.searchParams.set("challenge", mission.slug);
+      url.searchParams.set("returnTo", "defis");
+      window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`);
+      onNavigate("parametres");
+      return;
+    }
+    if (mission.slug === "onboarding_monthly_plan") {
+      url.searchParams.set("settings", "rythme");
+      url.searchParams.set("challenge", mission.slug);
+      url.searchParams.set("returnTo", "defis");
+      window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`);
+      onNavigate("parametres");
+      return;
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}#pea/investir`);
+  }
+  onNavigate("investissements-pea");
+}
+
+function navigateToPortfolioImport(onNavigate: (view: View) => void) {
+  if (typeof window !== "undefined") {
+    const url = new URL(window.location.href);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}#pea/import`);
+  }
+  onNavigate("investissements-pea");
+}
+
 export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boolean; onNavigate: (view: View) => void; asMemberId?: string }) {
   const [current, setCurrent] = useState<CurrentResp | null>(null);
   const [points, setPoints] = useState<PointsResp | null>(null);
@@ -156,6 +191,7 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [completedMission, setCompletedMission] = useState<OnboardingMissionDto | null>(null);
   const [joining, setJoining] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
@@ -174,9 +210,20 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boo
     setHistory((listBody.history ?? []) as HistoryItem[]);
     const onboardingData = onboardingBody as OnboardingResp;
     setOnboarding(onboardingData);
+    // A completed import or operation may already have reconciled server-side.
+    // This client marker never grants a reward: it only restores the success
+    // screen after the server has confirmed the mission is done.
+    const pendingAction = !asMemberId && typeof window !== "undefined" ? window.sessionStorage.getItem("capfamily:onboarding-action") : null;
+    const confirmedPendingMission = pendingAction ? onboardingData.missions.find((mission) => mission.slug === pendingAction && mission.status === "done") : null;
+    if (confirmedPendingMission) {
+      setCompletedMission(confirmedPendingMission);
+      window.sessionStorage.removeItem("capfamily:onboarding-action");
+    }
     // Message de réussite ciblé pour les missions « Bien démarrer » venant d'être reconnues
     // (y compris rétroactivement) — au chargement de l'écran, comme filet de sécurité.
     if (onboardingData.available && onboardingData.justCompleted?.length) {
+      const newlyCompleted = onboardingData.missions.find((mission) => onboardingData.justCompleted.includes(mission.slug)) ?? null;
+      if (newlyCompleted) setCompletedMission(newlyCompleted);
       const messages = onboardingData.justCompleted
         .map((slug) => onboardingData.missions.find((mission) => mission.slug === slug)?.successMessage)
         .filter((message): message is string => Boolean(message));
@@ -361,6 +408,13 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boo
 
       {error && <p className="cha-error" role="alert">{error}</p>}
       {notice && <div className="toast" role="status">✓ {notice}</div>}
+      {completedMission && (
+        <section className="panel cha-onboard-success-screen" role="status">
+          <span aria-hidden="true">🎉</span>
+          <div><h3>{completedMission.slug === "onboarding_account_setup" ? "Ton PEA est configuré !" : completedMission.slug === "onboarding_existing_portfolio" ? "Première opération ajoutée !" : "Défi terminé !"}</h3><p>{completedMission.slug === "onboarding_existing_portfolio" ? "Ton portefeuille commence à prendre vie." : "Bravo, tu viens de terminer une étape de ton parcours d’investissement."}</p><strong>+{completedMission.points} points</strong>{points && <small>{points.totalPoints} points au total · {onboarding?.completedCount ?? 0} défi(s) sur {onboarding?.totalCount ?? 4} terminé(s)</small>}</div>
+          <div className="cha-onboard-success-actions"><button type="button" className="cha-onboard-cta" onClick={() => { const next = onboarding?.missions.find((mission) => mission.status === "todo"); if (next) navigateToOnboardingMission(next, onNavigate); else setCompletedMission(null); }}>Continuer avec le défi suivant</button><button type="button" className="cha-onboard-cta" onClick={() => setCompletedMission(null)}>Voir tous mes défis</button></div>
+        </section>
+      )}
       {rulesPanel}
 
       {/* Parcours individuel « Bien démarrer » — permanent, distinct du défi du mois. */}
@@ -401,7 +455,8 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boo
                     <span className="cha-onboard-item-points">{mission.status === "done" ? `+${mission.points} pts` : `${mission.points} pts`}</span>
                     {mission.status === "done"
                       ? <span className="cha-onboard-done-mark" aria-hidden="true"><CheckIcon /></span>
-                      : <button type="button" className="cha-onboard-cta" onClick={() => onNavigate(mission.view)}>{mission.cta}</button>}
+                      : mission.slug === "onboarding_existing_portfolio" ? <span className="cha-onboard-choice"><button type="button" className="cha-onboard-cta" onClick={() => navigateToOnboardingMission(mission, onNavigate)}>Saisir une opération</button><button type="button" className="cha-onboard-cta" onClick={() => navigateToPortfolioImport(onNavigate)}>Importer un relevé</button></span>
+                      : <button type="button" className="cha-onboard-cta" onClick={() => navigateToOnboardingMission(mission, onNavigate)}>{mission.cta}</button>}
                   </div>
                 </li>
               ))}
@@ -667,7 +722,7 @@ export function ChallengesDashboardCard({ navigate, asMemberId }: { navigate: (v
           </div>
           <div className="cha-bar cha-bar-sm"><span style={{ width: `${onboardingPct}%` }} /></div>
           {nextMission && (
-            <button type="button" className="cha-dash-next" onClick={() => navigate(nextMission.view)}>
+            <button type="button" className="cha-dash-next" onClick={() => navigateToOnboardingMission(nextMission, navigate)}>
               <span className="cha-dash-next-label">Prochaine étape · {nextMission.title}</span>
               <em>+{intFmt.format(nextMission.points)} pts</em>
               <span aria-hidden="true">→</span>
@@ -777,7 +832,7 @@ export function ChallengesDashboardSection({ state: sectionState, navigate }: { 
               <div className="cha-dashboard-progress-label"><span>{intFmt.format(onboarding.earnedPoints)} / {intFmt.format(onboarding.totalPoints)} pts</span><b>{onboardingPct} %</b></div>
               <div className="cha-bar cha-dashboard-bar"><span style={{ width: `${onboardingPct}%` }} /></div>
             </div>
-            <div className="cha-dashboard-action-side"><span>+{intFmt.format(nextMission.points)} pts</span><button type="button" onClick={() => navigate(nextMission.view)}>{nextMission.cta} →</button></div>
+            <div className="cha-dashboard-action-side"><span>+{intFmt.format(nextMission.points)} pts</span><button type="button" onClick={() => navigateToOnboardingMission(nextMission, navigate)}>{nextMission.cta} →</button></div>
           </article>
         )}
 

@@ -24,6 +24,16 @@ type SectionId =
 
 type NavSection = { id: SectionId; label: string; icon: NavIconId };
 type NavGroup = { title: string; adminOnly?: boolean; items: NavSection[] };
+type GuidedChallenge = "onboarding_account_setup" | null;
+
+function settingsIntentFromUrl(): { section: SectionId; challenge: GuidedChallenge } {
+  if (typeof window === "undefined") return { section: "compte", challenge: null };
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("settings");
+  const section: SectionId = requested === "comptes" || requested === "rythme" ? requested : "compte";
+  const challenge = params.get("challenge") === "onboarding_account_setup" ? "onboarding_account_setup" : null;
+  return { section, challenge };
+}
 
 // Navigation secondaire des Paramètres. Le menu principal de l'application (sidebar) reste
 // inchangé ; ceci n'est jamais une seconde application. Les sections « Administration » ne
@@ -65,9 +75,10 @@ const GROUPS: NavGroup[] = [
 export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboarding, onResumeOnboarding, onNavigate, onViewerChanged }: { viewer: Viewer; onSignOut: () => void; publishedVersion: string; onReplayOnboarding?: () => void; onResumeOnboarding?: () => void; onNavigate?: (view: View) => void; onViewerChanged?: () => void }) {
   const groups = GROUPS.filter((group) => !group.adminOnly || viewer.role === "admin");
   const allowed = groups.flatMap((group) => group.items.map((item) => item.id));
-  const [active, setActive] = useState<SectionId>("compte");
+  const [active, setActive] = useState<SectionId>(() => settingsIntentFromUrl().section);
   const [mobileView, setMobileView] = useState<"index" | "detail">("index");
   const activeSection: SectionId = allowed.includes(active) ? active : "compte";
+  const guidedChallenge = settingsIntentFromUrl().challenge;
 
   function selectSection(id: string) {
     if ((allowed as string[]).includes(id)) { setActive(id as SectionId); setMobileView("detail"); }
@@ -107,7 +118,7 @@ export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboardi
 
           {activeSection === "compte" && <AccountSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onViewerChanged={onViewerChanged} />}
           {activeSection === "securite" && <SecuritySettings viewer={viewer} />}
-          {activeSection === "comptes" && <AccountsSettings viewer={viewer} onNavigate={onNavigate} />}
+          {activeSection === "comptes" && <AccountsSettings viewer={viewer} onNavigate={onNavigate} guidedChallenge={guidedChallenge} />}
           {activeSection === "rythme" && <InvestmentRhythmSettings viewer={viewer} />}
           {activeSection === "ledger" && <LedgerSettings viewer={viewer} />}
           {activeSection === "partage" && <InvestmentAccessSettings />}

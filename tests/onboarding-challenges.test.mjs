@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  isOnboardingAccountReady, hasOnboardingPortfolio, hasOnboardingPlan,
+  isOnboardingAccountReady, hasOnboardingPortfolio, hasOnboardingPortfolioOperation, hasOnboardingPlan,
   isOnboardingPurchaseEligible, hasOnboardingFirstPurchase, evaluateOnboardingMissions,
   buildOnboardingProgress, onboardingCompletionKey, ONBOARDING_TOTAL_POINTS, ONBOARDING_MISSIONS,
   ONBOARDING_MISSION_SLUGS,
@@ -28,8 +28,8 @@ test("compte PEA actif et nommé : mission 1 terminée", () => {
   assert.equal(isOnboardingAccountReady(account({ accountType: "pea" })), true);
 });
 
-test("compte compte-titres (CTO) actif et nommé : mission 1 terminée", () => {
-  assert.equal(isOnboardingAccountReady(account({ accountType: "securities" })), true);
+test("compte-titres actif : ne termine jamais le défi PEA", () => {
+  assert.equal(isOnboardingAccountReady(account({ accountType: "securities" })), false);
 });
 
 test("compte archivé (is_active=false) : mission 1 non terminée", () => {
@@ -68,6 +68,12 @@ test("position à quantité nulle (vendue en totalité) : mission 2 non terminé
 test("déclaration « aucun placement » (aucune position, aucune opération) : aucun point", () => {
   const result = evaluateOnboardingMissions(facts({ accounts: [account({})] }));
   assert.equal(result.onboarding_existing_portfolio, false);
+});
+
+test("une opération confirmée sur le PEA termine le défi portefeuille, pas un brouillon client", () => {
+  assert.equal(hasOnboardingPortfolioOperation([purchase({ type: "achat" })], new Set(["acc-1"])), true);
+  assert.equal(hasOnboardingPortfolioOperation([purchase({ type: "versement" })], new Set(["acc-1"])), false);
+  assert.equal(hasOnboardingPortfolioOperation([purchase({ accountId: "cto-1" })], new Set(["acc-1"])), false);
 });
 
 // ---- Mission 3 : rythme mensuel -------------------------------------------------------------
@@ -163,24 +169,24 @@ test("la clé d'idempotence dépend du membre : deux membres ne partagent jamais
   assert.notEqual(onboardingCompletionKey("onboarding_account_setup", "m1"), onboardingCompletionKey("onboarding_account_setup", "m2"));
 });
 
-// ---- Total du parcours = 650 points ---------------------------------------------------------
-test("le parcours totalise exactement 650 points (100 + 200 + 100 + 250)", () => {
-  assert.equal(ONBOARDING_TOTAL_POINTS, 650);
-  assert.equal(ONBOARDING_MISSIONS.reduce((sum, mission) => sum + mission.points, 0), 650);
+// ---- Total du parcours = 850 points ---------------------------------------------------------
+test("le parcours totalise exactement 850 points (300 + 200 + 100 + 250)", () => {
+  assert.equal(ONBOARDING_TOTAL_POINTS, 850);
+  assert.equal(ONBOARDING_MISSIONS.reduce((sum, mission) => sum + mission.points, 0), 850);
 });
 
-test("buildOnboardingProgress : parcours vierge (0/4), parcours complet (4/4 = 650 pts)", () => {
+test("buildOnboardingProgress : parcours vierge (0/4), parcours complet (4/4 = 850 pts)", () => {
   const empty = { onboarding_account_setup: false, onboarding_existing_portfolio: false, onboarding_monthly_plan: false, onboarding_first_purchase: false };
   const emptyProgress = buildOnboardingProgress(empty);
   assert.equal(emptyProgress.completedCount, 0);
   assert.equal(emptyProgress.earnedPoints, 0);
-  assert.equal(emptyProgress.totalPoints, 650);
+  assert.equal(emptyProgress.totalPoints, 850);
   assert.equal(emptyProgress.missions.every((mission) => mission.status === "todo"), true);
 
   const full = { onboarding_account_setup: true, onboarding_existing_portfolio: true, onboarding_monthly_plan: true, onboarding_first_purchase: true };
   const fullProgress = buildOnboardingProgress(full);
   assert.equal(fullProgress.completedCount, 4);
-  assert.equal(fullProgress.earnedPoints, 650);
+  assert.equal(fullProgress.earnedPoints, 850);
   assert.equal(fullProgress.missions.every((mission) => mission.status === "done"), true);
 });
 
@@ -188,7 +194,7 @@ test("buildOnboardingProgress : progression partielle (mélange terminé / à fa
   const partial = { onboarding_account_setup: true, onboarding_existing_portfolio: false, onboarding_monthly_plan: true, onboarding_first_purchase: false };
   const progress = buildOnboardingProgress(partial);
   assert.equal(progress.completedCount, 2);
-  assert.equal(progress.earnedPoints, 200); // 100 (compte) + 100 (rythme)
+  assert.equal(progress.earnedPoints, 400); // 300 (PEA) + 100 (rythme)
 });
 
 test("les 4 identifiants stables sont uniques et couvrent exactement les 4 missions attendues", () => {

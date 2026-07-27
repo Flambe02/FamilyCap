@@ -167,6 +167,19 @@ button.set-account-row:focus-visible{outline:3px solid rgba(29,112,107,.35);outl
 .set-message.error{background:#fbe7e2;color:#a74333}
 .set-message.info{background:var(--amber-soft);color:#835d0f}
 
+/* ---- Parcours défi PEA ---- */
+.set-challenge-guide,.set-challenge-success{margin:0 0 18px;padding:18px;border:1px solid #b9ddd3;border-radius:14px;background:linear-gradient(135deg,#f4fbf8,#fff);animation:set-challenge-enter .28s ease-out both}
+.set-challenge-guide .set-fields{margin-top:16px}
+.set-challenge-kicker{margin:0;color:var(--teal);font-size:10px;font-weight:900;letter-spacing:.8px;text-transform:uppercase}
+.set-challenge-guide h3,.set-challenge-success h3{margin:6px 0 0;color:var(--ink);font-size:17px;line-height:1.35}
+.set-challenge-success{display:grid;justify-items:start;gap:7px;text-align:left;border-color:#8ecfb9}
+.set-challenge-success>span{font-size:28px;animation:set-challenge-celebrate .65s ease-out both}
+.set-challenge-success p,.set-challenge-success small{margin:0;color:var(--muted);font-size:11px;line-height:1.5}
+.set-challenge-success strong{color:#14745d;font-size:19px}
+@keyframes set-challenge-enter{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes set-challenge-celebrate{0%{transform:scale(.65) rotate(-8deg)}70%{transform:scale(1.1) rotate(4deg)}100%{transform:scale(1) rotate(0)}}
+@media(prefers-reduced-motion:reduce){.set-challenge-guide,.set-challenge-success,.set-challenge-success>span{animation:none}}
+
 /* ---- Modale ---- */
 .set-modal-body{margin-top:10px}
 .set-account-detail-value{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 16px;padding:12px 14px;border-radius:12px;background:var(--surface-subtle,#f4f7f6)}
