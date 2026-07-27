@@ -405,6 +405,26 @@ export function amountCoherenceWarning(op: NormalizedOp): string | null {
   return `Incohérence : montant ${amount} ≠ quantité × prix (${Math.round(expected * 100) / 100}).${hint}`;
 }
 
+/**
+ * Où atterrit `amount` selon le type d'opération : montant BRUT (négocié) ou NET (trésorerie).
+ * Point unique de cette règle — la route de commit et la validation d'aperçu l'utilisent toutes
+ * les deux, faute de quoi une ligne validée à l'écran ne s'enregistrerait pas comme prévu.
+ *
+ * Le cas `correction` est le plus subtil : une position reprise d'un relevé porte un COÛT
+ * HISTORIQUE, pas un mouvement d'espèces. Il doit aller dans `gross_amount`, que le moteur lit
+ * tel quel (`buyCost`). Le ranger dans `net_amount` laissait `gross_amount` vide, et le moteur
+ * retombait alors sur quantité × prix de revient AFFICHÉ — un prix arrondi par la banque, d'où
+ * un coût faux de quelques dizaines de centimes par ligne (360 × 87,83 = 31 618,80 au lieu de
+ * 31 618,69). La trésorerie n'en est pas affectée : une correction est neutre sur les espèces.
+ */
+export function operationAmountFields(op: NormalizedOp): { grossAmount?: number | null; netAmount?: number | null } {
+  const t = op.type;
+  if (t === "achat" || t === "vente" || t === "transfer_in" || t === "transfer_out") return { grossAmount: op.amount };
+  if (t === "correction") return { grossAmount: op.amount };
+  // versement / retrait / frais / dividende : le montant est le net.
+  return { netAmount: op.amount };
+}
+
 /** Convertit une opération normalisée en OperationInput pour réutiliser validateOperation(). */
 export function toOperationInput(op: NormalizedOp): OperationInput {
   const t = op.type;
@@ -414,12 +434,12 @@ export function toOperationInput(op: NormalizedOp): OperationInput {
     fees: op.fees ?? undefined, taxes: op.taxes ?? undefined, exchangeRate: op.exchangeRate ?? undefined,
     note: op.note ?? undefined, externalReference: op.externalReference,
   };
+  const amounts = operationAmountFields(op);
   if (t === "achat" || t === "vente" || t === "transfer_in" || t === "transfer_out") {
-    return { ...base, quantity: op.quantity, unitPrice: op.unitPrice, grossAmount: op.amount };
+    return { ...base, ...amounts, quantity: op.quantity, unitPrice: op.unitPrice };
   }
-  if (t === "correction") return { ...base, quantity: op.quantity, netAmount: op.amount };
-  // versement / retrait / frais / dividende : le montant est le net.
-  return { ...base, netAmount: op.amount };
+  if (t === "correction") return { ...base, ...amounts, quantity: op.quantity, unitPrice: op.unitPrice };
+  return { ...base, ...amounts };
 }
 
 // ==========================================================================================

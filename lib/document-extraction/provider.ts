@@ -31,8 +31,24 @@ export type ExtractInput = {
    * le vote de tout pouvoir de détection.
    */
   pass?: number;
+  /**
+   * Consignes de lecture SUPPLÉMENTAIRES, propres au courtier reconnu (cf. brokers.ts) et à la
+   * passe en cours. Elles décrivent la structure réelle du tableau (colonnes empilées, boutons à
+   * ignorer…) : c'est ce qui distingue une retranscription fiable d'une lecture approximative.
+   */
+  extraInstructions?: string;
+  /** Consigne courte ajoutée au message utilisateur (ex. seconde passe ciblée sur le tableau). */
+  focusHint?: string;
 };
-export type DocumentProvider = { name: string; extract(input: ExtractInput): Promise<RawExtraction> };
+
+/**
+ * Résultat d'une passe. `raw` est la sortie JSON BRUTE du modèle, conservée pour la vérifier
+ * contre le contrat Zod strict : la normaliser d'abord masquerait précisément les manquements
+ * que ce contrôle doit révéler. `normalized` est la forme tolérante utilisée par le pipeline.
+ */
+export type ExtractResult = { raw: unknown; normalized: RawExtraction };
+
+export type DocumentProvider = { name: string; extract(input: ExtractInput): Promise<ExtractResult> };
 
 export type DocumentAiConfig = {
   provider: "anthropic" | "openai" | "none";
@@ -89,20 +105,32 @@ export function getDocumentAiConfig(): DocumentAiConfig {
 }
 
 // Extrait le premier objet JSON d'une réponse texte (tolère un éventuel bloc ```json).
-function parseJsonBlock(text: string): RawExtraction {
+function parseJsonBlock(text: string): ExtractResult {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
   const candidate = fenced ? fenced[1] : text;
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("Réponse IA sans JSON exploitable.");
-  return normalizeRawExtraction(JSON.parse(candidate.slice(start, end + 1)));
+  const raw: unknown = JSON.parse(candidate.slice(start, end + 1));
+  return { raw, normalized: normalizeRawExtraction(raw) };
+}
+
+/** Consigne système d'une passe : contrat JSON commun + consignes propres au courtier. */
+function systemPrompt(extra: string | undefined): string {
+  return extra ? `${EXTRACTION_JSON_INSTRUCTION}\n\n${extra}` : EXTRACTION_JSON_INSTRUCTION;
+}
+
+/** Consigne utilisateur d'une passe : consigne commune + angle de relecture + zone ciblée. */
+function userPrompt(input: ExtractInput, config: DocumentAiConfig): string {
+  return `${EXTRACTION_USER_PROMPT} Document : ${input.filename}. Maximum ${config.maxPages} page(s).`
+    + `${passHint(input.pass)}${input.focusHint ? ` ${input.focusHint}` : ""} Réponds en JSON strict conforme au schéma.`;
 }
 
 // Fournisseur Anthropic (Claude) via l'API Messages, en fetch brut (aucune dépendance SDK).
 function anthropicProvider(config: DocumentAiConfig): DocumentProvider {
   return {
     name: "anthropic",
-    async extract(input: ExtractInput): Promise<RawExtraction> {
+    async extract(input: ExtractInput): Promise<ExtractResult> {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) throw new Error("ANTHROPIC_API_KEY absente.");
       const isPdf = input.mediaType === "application/pdf";
@@ -122,8 +150,8 @@ function anthropicProvider(config: DocumentAiConfig): DocumentProvider {
             // page). À 4096 jetons, un relevé de plus d'une douzaine de lignes était TRONQUÉ, donc
             // illisible en JSON — l'import échouait alors sans que la cause soit visible.
             max_tokens: config.maxOutputTokens,
-            system: EXTRACTION_JSON_INSTRUCTION,
-            messages: [{ role: "user", content: [contentBlock, { type: "text", text: `${EXTRACTION_USER_PROMPT} Document : ${input.filename}. Maximum ${config.maxPages} pages. Réponds en JSON strict conforme au schéma.` }] }],
+            system: systemPrompt(input.extraInstructions),
+            messages: [{ role: "user", content: [contentBlock, { type: "text", text: userPrompt(input, config) }] }],
           }),
         });
         if (!response.ok) {
@@ -157,7 +185,7 @@ function responseText(data: { output_text?: string; output?: Array<{ content?: A
 function openaiProvider(config: DocumentAiConfig): DocumentProvider {
   return {
     name: "openai",
-    async extract(input: ExtractInput): Promise<RawExtraction> {
+    async extract(input: ExtractInput): Promise<ExtractResult> {
       const key = process.env.OPENAI_API_KEY;
       if (!key) throw new Error("OPENAI_API_KEY absente.");
       const controller = new AbortController();
@@ -171,7 +199,7 @@ function openaiProvider(config: DocumentAiConfig): DocumentProvider {
               input: [{
                 role: "user",
                 content: [
-                  { type: "input_text", text: `${EXTRACTION_JSON_INSTRUCTION}\n\n${EXTRACTION_USER_PROMPT} Document : ${input.filename}. Maximum ${config.maxPages} pages.${passHint(input.pass)}` },
+                  { type: "input_text", text: `${systemPrompt(input.extraInstructions)}\n\n${userPrompt(input, config)}` },
                   { type: "input_file", filename: input.filename, file_data: `data:${input.mediaType};base64,${input.base64}` },
                 ],
               }],
@@ -190,9 +218,9 @@ function openaiProvider(config: DocumentAiConfig): DocumentProvider {
               reasoning_effort: config.reasoningEffort,
               max_completion_tokens: config.maxOutputTokens,
               messages: [
-                { role: "system", content: EXTRACTION_JSON_INSTRUCTION },
+                { role: "system", content: systemPrompt(input.extraInstructions) },
                 { role: "user", content: [
-                  { type: "text", text: `${EXTRACTION_USER_PROMPT} Document : ${input.filename}.${passHint(input.pass)}` },
+                  { type: "text", text: userPrompt(input, config) },
                   { type: "image_url", image_url: { url: `data:${input.mediaType};base64,${input.base64}`, detail: "high" } },
                 ] },
               ],

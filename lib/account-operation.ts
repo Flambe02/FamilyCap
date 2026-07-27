@@ -100,7 +100,9 @@ export function validateOperation(input: OperationInput):
     if (net === null || !(Number(net) > 0)) return { ok: false, error: "Un dividende exige un montant net positif." };
     if (gross === null) gross = net;
   } else if (type === "correction") {
-    if (quantity === null && net === null) return { ok: false, error: "Une correction exige une quantité ou un montant." };
+    // Le montant d'une correction peut être porté par `gross` (coût historique d'une position
+    // reprise d'un relevé) ou par `net` (ajustement de trésorerie) : les deux valent montant.
+    if (quantity === null && net === null && gross === null) return { ok: false, error: "Une correction exige une quantité ou un montant." };
   }
 
   return { ok: true, type, date: input.date, quantity, unitPrice, gross, net, fees, taxes, exchangeRate };

@@ -62,13 +62,6 @@
 .inv-positions-head .btc-panel-kicker { margin: 0; }
 .inv-positions-head h2 { margin: 0; font-size: 21px; color: var(--ink); }
 .inv-positions-subtitle { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
-.inv-position-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 14px 0; }
-.inv-position-kpis > div { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; }
-.inv-position-kpis small { display: block; color: var(--muted); font-size: 10px; }
-.inv-position-kpis strong { display: block; margin-top: 4px; font-size: 15px; color: var(--ink); }
-.inv-tag-warning { background: #fff3d6; border-color: #e9bd62; color: #8c5a00; }
-.inv-weight-bar { display: block; height: 4px; width: 72px; margin: 5px 0 0 auto; border-radius: 99px; overflow: hidden; background: var(--btc-track); }
-.inv-weight-bar i { display: block; height: 100%; border-radius: inherit; background: var(--teal); }
 .inv-classify p { margin: 0 0 9px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .inv-classify-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; align-items: end; }
 .inv-classify-form label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 700; }
@@ -82,47 +75,14 @@
 .inv-filters input:focus-visible, .inv-filters select:focus-visible { outline: 3px solid var(--amber); outline-offset: 1px; }
 .inv-muted { color: var(--muted); font-size: 10px; }
 
-/* ---- Tableau des positions ------------------------------------------------------------
-   `table-layout: fixed` est la clé du « plus de ligne coupée » : sans lui, le navigateur
-   dimensionne les colonnes sur leur contenu le plus large, et un libellé d'ETF de 60
-   caractères pousse tout le tableau hors du panneau. Ici, seule la colonne « Actif » est
-   élastique (elle absorbe le reste) ; les colonnes chiffrées sont calibrées et ne se
-   coupent jamais au milieu d'un nombre. */
-.inv-table { table-layout: fixed; }
-.inv-table thead th { white-space: nowrap; }
-.inv-table th:first-child, .inv-table td:first-child { width: auto; }
-.inv-table th:not(:first-child) { width: 9.5%; }
-.inv-table th:last-child { width: 11%; }
-.inv-table tbody td { vertical-align: top; }
-.inv-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.inv-table .num small { font-weight: 600; opacity: .85; }
-
-/* Cellule « Actif » : nom sur une ou deux lignes, puis les identifiants EN PASTILLES —
-   ticker et ISIN ne se lisent plus collés l'un à l'autre. Toute la cellule est cliquable. */
-.inv-asset-cell { min-width: 0; }
-.inv-asset-btn {
-  display: flex; flex-direction: column; gap: 5px; width: 100%; min-width: 0; text-align: left;
-  border: 0; background: none; padding: 0; margin: 0; cursor: pointer; color: inherit; font: inherit;
-  border-radius: 8px;
-}
-.inv-asset-btn:hover .inv-asset-name { color: var(--teal); text-decoration: underline; text-underline-offset: 2px; }
-.inv-asset-btn:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
-/* Le libellé n'est JAMAIS tronqué : il se replie autant que nécessaire et la ligne s'agrandit.
-   Une troncature (clamp / ellipsis) rendait « Vanguard FTSE All-World High Dividend Yield UCITS
-   ETF - USD DIS » indiscernable de sa variante ACC — c'est précisément ce qu'il ne faut pas.
-   `min-width: 0` + `overflow-wrap: anywhere` garantissent le repli jusque dans une carte mobile. */
-.inv-asset-name {
-  font-size: 12.5px; font-weight: 700; line-height: 1.35; color: var(--ink);
-  min-width: 0; overflow-wrap: anywhere; text-wrap: pretty;
-}
-.inv-asset-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+/* Les positions ne sont plus un tableau : voir `positions-list.css` (grille explicite +
+   cartes mobiles). Ne restent ici que les pastilles réutilisées par la fiche d'un actif. */
 .inv-tag {
   display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 6px;
   font-size: 9.5px; font-weight: 800; letter-spacing: .3px; line-height: 1.5; white-space: nowrap;
 }
 .inv-tag-ticker { background: var(--teal-soft); color: var(--teal); }
 .inv-tag-isin { background: var(--btc-track, #eef2f1); color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 700; }
-.inv-tag-class { background: #eef3fb; color: #3f6ea5; }
 .inv-tag-ccy { background: #fff2cf; color: #9d6a00; }
 
 /* ---- Fiche d'un actif ---- */
@@ -209,9 +169,6 @@
   .pea-parcours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pea-skeleton-kpis { grid-template-columns: repeat(2, 1fr); }
   .pea-skeleton-row { grid-template-columns: 1fr; }
-  /* Sous 1024px, le tableau garde ses colonnes chiffrées lisibles en défilant DANS son
-     panneau (.responsive-table), plutôt qu'en écrasant la colonne « Actif ». */
-  .inv-table { table-layout: auto; min-width: 720px; }
   .inv-detail-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 780px) {
@@ -226,24 +183,8 @@
   .imp-summary { flex-wrap: wrap; }
   .imp-mapping-grid { grid-template-columns: 1fr; }
 
-  /* --- Positions en CARTES (mobile / PWA) ---------------------------------------------
-     `.btc-table` passe déjà en mode carte sous 780px (bitcoin-investments.css). On annule
-     ici le min-width hérité du palier 1024px — sans quoi chaque carte forcerait 720px de
-     large et ferait défiler toute la page horizontalement. */
-  .pea-page .inv-table { min-width: 0; }
-  .inv-position-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Les positions passent en cartes via `positions-list.css` (requête de conteneur). */
   .inv-classify-form { grid-template-columns: 1fr; }
-  /* L'actif devient l'EN-TÊTE de la carte : pleine largeur, sans étiquette redondante. */
-  .pea-page .inv-table tbody td.inv-asset-cell { display: block; padding: 4px 0 10px; text-align: left; }
-  .pea-page .inv-table tbody td.inv-asset-cell::before { content: none; }
-  .pea-page .inv-asset-name { font-size: 13.5px; }
-  .pea-page .inv-asset-btn { gap: 7px; }
-  .pea-page .inv-table tbody tr { padding: 10px 14px; }
-  .pea-page .inv-table tbody td { padding: 7px 0; gap: 10px; }
-  .pea-page .inv-table tbody td.num { justify-content: space-between; }
-  .pea-page .inv-table .num small { display: block; }
-  /* Les actions (Lignes / 🗑) reviennent à gauche, sur toute la largeur de la carte. */
-  .pea-page .inv-table tbody td[data-label="Actions"] .inv-row-actions { justify-content: flex-end; }
 
   /* --- Fiche d'un actif --- */
   .inv-detail-modal.modal { width: 100%; max-height: 94vh; }
@@ -409,6 +350,57 @@
   .imp-scan-doc img { max-height: 150px; }
 }
 
+/* ---- Document choisi (clic, glisser-déposer OU collage Ctrl+V) --------------------------- */
+/* Une seule zone, trois façons de l'alimenter : dès qu'un document est là, on montre ce qui a
+   été retenu (miniature + provenance + état) plutôt que de laisser la zone de dépôt vide. */
+.imp-picked {
+  display: flex; gap: 14px; align-items: center; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--teal-soft);
+}
+.imp-picked .imp-thumb { max-height: 96px; max-width: 150px; background: #fff; }
+.imp-picked-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.imp-picked-info strong { font-size: 13px; word-break: break-word; }
+.imp-picked-info small { font-size: 11px; color: var(--muted); }
+.imp-picked-state { font-size: 10px; font-weight: 900; letter-spacing: .4px; text-transform: uppercase; color: var(--teal); }
+.imp-picked-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+
+/* ---- Écran de VALIDATION d'une capture : la capture à gauche, les données à droite -------- */
+.imp-verify { gap: 14px; }
+.imp-verify-head { display: flex; flex-direction: column; gap: 4px; }
+.imp-verify-head h3 { margin: 0; font-size: 16px; }
+.imp-verify-identity { margin: 0; font-size: 12.5px; color: var(--muted); }
+.imp-verify-identity strong { color: var(--ink); }
+.imp-verify-counts { margin: 0; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; font-weight: 700; }
+.imp-verify-counts .imp-check-ok { color: #0e5d57; }
+.imp-verify-counts .imp-check-ko { color: #b23a30; }
+.imp-verify-split { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.imp-verify-doc {
+  margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--btc-track, #eef2f1); display: flex; flex-direction: column; gap: 8px;
+  position: sticky; top: 0;
+}
+.imp-verify-doc img { width: 100%; max-height: 340px; object-fit: contain; border-radius: 8px; background: #fff; }
+.imp-verify-doc figcaption { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--muted); word-break: break-word; }
+.imp-verify-doc figcaption small { font-size: 10px; line-height: 1.45; }
+.imp-verify-data { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.imp-verify-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.imp-verify-grid label { display: flex; flex-direction: column; gap: 3px; }
+.imp-verify-grid span { font-size: 9px; font-weight: 900; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); }
+.imp-verify-grid input { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12.5px; background: #fff; color: var(--ink); }
+.imp-check-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; line-height: 1.45; }
+.imp-cost { white-space: nowrap; }
+.imp-cost b { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 980px) {
+  .imp-verify-split { grid-template-columns: 1fr; }
+  .imp-verify-doc { position: static; }
+  .imp-verify-doc img { max-height: 200px; }
+}
+@media (max-width: 780px) {
+  .imp-picked { flex-direction: column; align-items: stretch; }
+  .imp-picked-actions { flex-direction: row; justify-content: space-between; align-items: center; }
+}
+
 .danger-button {
   min-height: 42px; border: 1px solid #d98b82; border-radius: 10px; padding: 12px 17px;
   background: #fff; color: #b23a30; font-size: 11px; font-weight: 800; cursor: pointer; transition: .18s;
@@ -476,76 +468,49 @@
   .pea-info-grid { grid-template-columns: 1fr 1fr; }
 }
 
-/* Passe UX/UI ciblée : positions PEA et compte-titres. */
-.inv-positions-panel { padding: 20px 24px; border: 1px solid #e2e8e6; border-radius: 18px; box-shadow: 0 6px 20px rgba(17, 47, 43, .035); }
+/* Passe UX/UI ciblée : positions PEA et compte-titres.
+   Marge intérieure symétrique de 20 px : la liste de positions la reprend à l'identique pour
+   « saigner » jusqu'aux bords du panneau (voir positions-list.css). */
+.inv-positions-panel { padding: 20px; border: 1px solid #e2e8e6; border-radius: 18px; box-shadow: 0 6px 20px rgba(17, 47, 43, .035); }
 .inv-positions-panel .inv-positions-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 24px; align-items: center; margin-bottom: 4px; }
 .inv-positions-panel .inv-positions-head h2 { font-size: clamp(23px, 2vw, 26px); line-height: 1.15; letter-spacing: -.02em; }
 .inv-positions-panel .inv-positions-subtitle { margin-top: 5px; font-size: 13px; line-height: 1.45; }
 .inv-quote-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .inv-quote-asof { color: var(--muted); font-size: 12px; white-space: nowrap; }
-.inv-refresh-button, .inv-reset-filters, .inv-view-button {
+.inv-refresh-button, .inv-reset-filters {
   min-height: 40px; border: 1px solid #d5e0dd; border-radius: 10px; background: #fff; color: var(--teal);
   padding: 0 13px; font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; white-space: nowrap;
 }
-.inv-refresh-button:hover:not(:disabled), .inv-reset-filters:hover, .inv-view-button:hover { background: #f3f8f7; border-color: #b9cfca; }
+.inv-refresh-button:hover:not(:disabled), .inv-reset-filters:hover { background: #f3f8f7; border-color: #b9cfca; }
 .inv-refresh-button:disabled { cursor: wait; opacity: .62; }
-.inv-positions-panel .inv-position-kpis { gap: 12px; margin: 18px 0; }
-.inv-positions-panel .inv-position-kpis > div { min-width: 0; border-color: #e2e8e6; border-radius: 14px; padding: 16px 18px; }
-.inv-positions-panel .inv-position-kpis small { font-size: 12px; line-height: 1.35; }
-.inv-positions-panel .inv-position-kpis strong { margin-top: 6px; font-size: clamp(20px, 1.8vw, 24px); line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .inv-positions-panel .inv-filters { grid-column: 1 / -1; gap: 10px; padding-top: 2px; }
 .inv-positions-panel .inv-filters input, .inv-positions-panel .inv-filters select {
   box-sizing: border-box; height: 40px; border-color: #dce5e2; border-radius: 10px; font-size: 12px; font-weight: 650; padding: 0 12px; max-width: 190px;
 }
 .inv-positions-panel .inv-filter-search { flex: 1 1 300px; }
 .inv-positions-panel .inv-filter-search input { width: 100%; max-width: none; }
-.inv-positions-panel .inv-table { width: 100%; table-layout: fixed; border: 1px solid #e2e8e6; border-radius: 14px; overflow: hidden; }
-.inv-positions-panel .inv-table thead th { background: #f8faf9; color: #687776; font-size: 11px; font-weight: 750; letter-spacing: .01em; }
-.inv-positions-panel .inv-table th:nth-child(1), .inv-positions-panel .inv-table td:nth-child(1) { width: 24%; }
-.inv-positions-panel .inv-table th:nth-child(2), .inv-positions-panel .inv-table td:nth-child(2) { width: 8%; }
-.inv-positions-panel .inv-table th:nth-child(3), .inv-positions-panel .inv-table td:nth-child(3) { width: 7%; }
-.inv-positions-panel .inv-table th:nth-child(4), .inv-positions-panel .inv-table td:nth-child(4) { width: 9%; }
-.inv-positions-panel .inv-table th:nth-child(5), .inv-positions-panel .inv-table td:nth-child(5) { width: 11%; }
-.inv-positions-panel .inv-table th:nth-child(6), .inv-positions-panel .inv-table td:nth-child(6) { width: 11%; }
-.inv-positions-panel .inv-table th:nth-child(7), .inv-positions-panel .inv-table td:nth-child(7) { width: 12%; }
-.inv-positions-panel .inv-table th:nth-child(8), .inv-positions-panel .inv-table td:nth-child(8) { width: 10%; }
-.inv-positions-panel .inv-table th:nth-child(9), .inv-positions-panel .inv-table td:nth-child(9) { width: 8%; }
-.inv-positions-panel .inv-table tbody td { min-height: 70px; padding-top: 13px; padding-bottom: 13px; vertical-align: middle; font-size: 13px; }
-.inv-positions-panel .inv-table tbody tr:nth-child(even) { background: #fafbfa; }
-.inv-positions-panel .inv-table tbody tr:hover { background: #f3f8f7; }
-.inv-positions-panel .inv-table .num { font-variant-numeric: tabular-nums; }
-.inv-positions-panel .inv-table .num small { display: block; margin-top: 4px; font-size: 11px; font-weight: 600; line-height: 1.25; }
-.inv-positions-panel .inv-asset-btn { gap: 4px; }
-.inv-positions-panel .inv-asset-name { display: -webkit-box; overflow: hidden; font-size: 14px; font-weight: 700; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.inv-positions-panel .inv-asset-meta { display: block; overflow: hidden; color: var(--muted); font-size: 11.5px; font-weight: 550; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.inv-positions-panel .inv-tag { padding: 4px 9px; border-radius: 8px; font-size: 12px; font-weight: 750; letter-spacing: 0; line-height: 1.35; }
-.inv-positions-panel .inv-weight-bar { width: 70px; margin-top: 6px; background: #e9efed; }
-.inv-quote-date { color: var(--muted); }
-.inv-quote-date.is-stale::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: #dc8b2d; vertical-align: 1px; }
-.inv-quote-unavailable { color: var(--muted); font-size: 12px; }
-.inv-view-button { min-height: 34px; padding: 0 11px; font-size: 12px; }
 .inv-show-more { display: flex; justify-content: center; margin-top: 16px; }
 .inv-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .inv-detail-actions .secondary-button { min-height: 38px; font-size: 12px; }
 
-@media (max-width: 1024px) and (min-width: 781px) {
-  .inv-positions-panel .inv-table { min-width: 980px; }
+/* ---- Largeur de page des écrans PEA / compte-titres --------------------------------------
+   Une liste de positions à six zones a besoin de toute la place disponible entre la barre
+   latérale (252 px) et le bord droit. Seuls ces deux écrans l'obtiennent, via `workspace-wide`
+   posé par le tableau de bord — et la barre du haut suit, sinon le contenu ne serait plus
+   aligné avec elle. Les autres vues gardent exactement leur largeur actuelle. */
+@media (min-width: 781px) {
+  .workspace-wide .topbar, .workspace-wide .page-stack, .workspace-wide .content-grid {
+    width: min(1380px, calc(100% - 24px));
+  }
 }
 
 @media (max-width: 780px) {
   .inv-positions-panel { padding: 18px 16px; }
   .inv-positions-panel .inv-positions-head { grid-template-columns: 1fr; gap: 12px; }
   .inv-quote-actions { justify-content: space-between; }
-  .inv-positions-panel .inv-position-kpis { gap: 10px; margin: 14px 0; }
-  .inv-positions-panel .inv-position-kpis > div { padding: 14px; }
-  .inv-positions-panel .inv-position-kpis strong { font-size: 20px; }
   .inv-positions-panel .inv-filters { gap: 8px; }
   .inv-positions-panel .inv-filters label, .inv-positions-panel .inv-filters select, .inv-positions-panel .inv-filters .inv-filter-search { flex: 1 1 100%; max-width: none; }
   .inv-positions-panel .inv-filters input, .inv-positions-panel .inv-filters select { width: 100%; max-width: none; }
   .inv-reset-filters { flex: 1 1 100%; }
-  .pea-page .inv-positions-panel .inv-table { min-width: 0; }
-  .pea-page .inv-positions-panel .inv-table tbody tr { padding: 14px 16px; }
-  .pea-page .inv-positions-panel .inv-table tbody td { padding: 8px 0; gap: 12px; font-size: 13px; }
-  .pea-page .inv-positions-panel .inv-table tbody td[data-label="Action"] .inv-row-actions { justify-content: flex-end; }
   .inv-detail-actions .secondary-button { flex: 1 1 100%; }
 }

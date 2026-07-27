@@ -19,11 +19,28 @@ export type RawExtraction = {
     holder?: ExtractedField<string>;
     // Relevé de POSITIONS : date d'arrêté + totaux imprimés sur le document. Les totaux ne sont
     // jamais importés — ils servent uniquement de contre-vérification arithmétique de la somme
-    // des lignes retranscrites (cf. `crossCheckTotals`).
+    // des lignes retranscrites (cf. `crossCheckTotals` et `runAccountingChecks`).
     as_of_date?: ExtractedField<string>;
     total_valuation?: ExtractedField<number>;
     total_gain?: ExtractedField<number>;
     cash_balance?: ExtractedField<number>;
+    // En-tête complet d'une capture de courtier (cf. lib/document-extraction/statement.ts).
+    // Ces champs n'existaient pas tant que seul un « relevé » générique était visé ; une capture
+    // d'écran, elle, porte tout le bandeau de synthèse, et c'est lui qui rend les contrôles
+    // comptables possibles (total = titres + espèces, somme des lignes = évaluation titres…).
+    account_name?: ExtractedField<string>;
+    account_number?: ExtractedField<string>;
+    opening_date?: ExtractedField<string>;
+    management_mode?: ExtractedField<string>;
+    total_portfolio?: ExtractedField<number>;
+    available_cash?: ExtractedField<number>;
+    securities_value?: ExtractedField<number>;
+    unrealized_gain?: ExtractedField<number>;
+    unrealized_gain_pct?: ExtractedField<number>;
+    deposit_ceiling?: ExtractedField<number>;
+    cumulative_deposits?: ExtractedField<number>;
+    /** Intitulés recopiés verbatim : ils servent à RECONNAÎTRE le courtier (cf. brokers.ts). */
+    detected_markers?: string[];
   };
   // Un relevé de POSITIONS (« Mes positions », « Portefeuille », « Gestion libre ») ne contient
   // aucune opération datée : il décrit un état à une date. Il alimente `positions`, pas
@@ -101,7 +118,19 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, de la forme :
     "currency": {"value": string|null, "confidence": number, "page": number},
     "holder": {"value": string|null, "confidence": number, "page": number},
     "period": {"value": string|null, "confidence": number, "page": number},
+    "account_name": {"value": string|null, "confidence": number, "page": number},
+    "account_number": {"value": string|null, "confidence": number, "page": number},
     "as_of_date": {"value": "YYYY-MM-DD"|null, "confidence": number, "page": number},
+    "opening_date": {"value": "YYYY-MM-DD"|null, "confidence": number, "page": number},
+    "management_mode": {"value": string|null, "confidence": number, "page": number},
+    "total_portfolio": {"value": number|null, "confidence": number, "page": number},
+    "available_cash": {"value": number|null, "confidence": number, "page": number},
+    "securities_value": {"value": number|null, "confidence": number, "page": number},
+    "unrealized_gain": {"value": number|null, "confidence": number, "page": number},
+    "unrealized_gain_pct": {"value": number|null, "confidence": number, "page": number},
+    "deposit_ceiling": {"value": number|null, "confidence": number, "page": number},
+    "cumulative_deposits": {"value": number|null, "confidence": number, "page": number},
+    "detected_markers": [string],
     "total_valuation": {"value": number|null, "confidence": number, "page": number},
     "total_gain": {"value": number|null, "confidence": number, "page": number},
     "cash_balance": {"value": number|null, "confidence": number, "page": number}
@@ -149,10 +178,16 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, de la forme :
   ]
 }
 Règles STRICTES :
+- N'AJOUTE AUCUNE CLÉ hors de celles listées ci-dessus. Toute clé supplémentaire fait échouer la validation du schéma. N'ajoute ni commentaire, ni total calculé, ni résumé.
+- Chaque objet {"value", "confidence", "page"} accepte une quatrième clé FACULTATIVE "raw" : le texte exact lu à l'écran. C'est la seule clé supplémentaire autorisée.
 - confidence est un nombre entre 0 et 1.
 - N'invente AUCUNE valeur : si une information est absente, mets value=null et confidence basse.
 - Les nombres sont des NOMBRES JSON, avec un POINT décimal et sans séparateur de milliers ni symbole : « 76 634,75 € » → 76634.75. Une perte ou un gain négatif est négatif : « -4 129,09 € » → -4129.09.
-- Ne calcule RIEN : ni total de portefeuille, ni prix moyen, ni performance. Recopie uniquement ce qui est imprimé. Si une colonne est absente du document, mets null — ne la déduis pas des autres.
+- La DEVISE ne fait jamais partie du montant : « 244,65 € » → last_price 244.65 et currency "EUR".
+- Les dates sont TOUJOURS au format YYYY-MM-DD. « 09/12/2025 » (format français, jour d'abord) → "2025-12-09".
+- Les séparateurs de milliers sont des espaces : « 5 000 » vaut cinq mille, jamais cinq. « 1 000 » vaut mille.
+- Ne calcule RIEN : ni total de portefeuille, ni prix moyen, ni performance, ni coût de revient. Recopie uniquement ce qui est imprimé. Si une colonne est absente du document, mets null — ne la déduis pas des autres.
+- Recopie dans le champ "raw" de chaque valeur chiffrée le texte EXACT lu à l'écran, avec ses espaces, sa virgule et son symbole (« 177 418,34 € »). Il sert à expliquer une correction ; il n'est jamais importé.
 - Recopie le texte source de chaque ligne dans source_text (utile à la vérification humaine).
 - Retranscris TOUTES les lignes du tableau, y compris celles qui sont partiellement lisibles (avec une confiance basse), jamais un échantillon.
 - Attention aux caractères ambigus d'un ISIN (O/0, I/1, S/5) : en cas de doute, baisse la confiance de l'ISIN.`;
