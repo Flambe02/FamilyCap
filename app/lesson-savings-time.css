@@ -1,0 +1,98 @@
+/* Leçon « Épargne et temps ».
+   Même modale et mêmes tokens que les deux leçons existantes (family.css : .modal, .info-callout,
+   .primary-button). Ce fichier ne décrit que la colonne de lecture propre à cet article ; les
+   graphiques ont leur propre feuille (lesson-charts.css). */
+
+.savings-lesson-modal { position: relative; width: min(940px, 96vw); max-height: 92vh; overflow: auto; }
+.savings-lesson-body { display: grid; gap: 26px; margin-top: 14px; padding-bottom: 4px; }
+
+.sav-intro { max-width: 740px; margin: 0; color: var(--ink); font-size: 14px; line-height: 1.65; }
+.sav-intro-second { margin-top: -14px; color: var(--muted); }
+.sav-meta { display: flex; flex-wrap: wrap; gap: 7px; }
+.sav-meta span { padding: 5px 9px; border-radius: 999px; background: var(--surface-subtle, #f7f9f8); color: var(--muted); font-size: 10px; font-weight: 700; }
+
+/* L'essentiel en 30 secondes */
+.sav-essential { padding: 19px 20px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface-subtle, #f7f9f8); }
+.sav-essential h3 { margin: 0 0 13px; color: var(--ink); font-size: 15px; font-weight: 750; }
+.sav-essential ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 20px; margin: 0; padding: 0; list-style: none; }
+.sav-essential li { display: flex; gap: 9px; align-items: baseline; min-width: 0; color: var(--ink); font-size: 12px; line-height: 1.45; }
+.sav-essential b { flex: 0 0 auto; color: var(--teal); font-size: 10px; letter-spacing: .06em; }
+
+/* Sections numérotées */
+.sav-section { display: grid; gap: 13px; }
+.sav-section + .sav-section { padding-top: 24px; border-top: 1px solid var(--line); }
+.sav-head { display: flex; align-items: center; gap: 13px; }
+.sav-head-icon { flex: 0 0 auto; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: var(--teal-soft); color: var(--teal); }
+.sav-head-icon svg { width: 22px; height: 22px; }
+.sav-head-number { display: block; color: var(--teal); font-size: 10px; font-weight: 900; letter-spacing: .14em; }
+.sav-head h3 { margin: 3px 0 0; color: var(--ink); font-size: 17px; font-weight: 700; line-height: 1.3; }
+.sav-section > p { max-width: 720px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.68; }
+.sav-sub { max-width: 720px; margin: 8px 0 0; color: var(--ink); font-size: 14px; font-weight: 750; }
+.sav-note { max-width: 720px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.sav-note b { color: var(--ink); }
+
+/* Formules */
+.sav-formula { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 720px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--teal); border-radius: 0 12px 12px 0; background: var(--surface-subtle, #f7f9f8); }
+.sav-formula b { color: var(--ink); font-size: 12.5px; font-weight: 800; }
+.sav-formula span { color: var(--teal); font-size: 15px; font-weight: 900; }
+
+/* Tableau visible de la règle des 4 % */
+.sav-table-wrap { max-width: 560px; border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
+.sav-table { width: 100%; border-collapse: collapse; background: #fff; }
+.sav-table th,.sav-table td { padding: 10px 14px; text-align: left; font-size: 12px; }
+.sav-table thead th { background: var(--surface-subtle, #f7f9f8); color: var(--muted); font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.sav-table tbody th { color: var(--muted); font-weight: 600; }
+.sav-table tbody td { color: var(--ink); font-weight: 800; text-align: right; }
+.sav-table tbody tr + tr th,.sav-table tbody tr + tr td { border-top: 1px solid #f0f3f3; }
+
+.sav-warning { margin-top: 0; }
+
+/* À retenir — même traitement que la leçon « 7 règles » */
+.sav-takeaway { padding: 12px 15px; border-left: 3px solid var(--teal); border-radius: 0 11px 11px 0; background: var(--teal-soft); }
+.sav-takeaway b { color: var(--teal); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.sav-takeaway p { max-width: 700px; margin: 4px 0 0; color: #406768; font-size: 12px; line-height: 1.55; }
+
+/* Plan d'action */
+.sav-plan { padding: 19px 20px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface-subtle, #f7f9f8); }
+.sav-plan h3 { margin: 0 0 13px; color: var(--ink); font-size: 15px; font-weight: 750; }
+/* `list-style: decimal` est explicite : le preflight de Tailwind remet `list-style: none` sur
+   tous les `ol`, les numéros disparaîtraient sans cette ligne. */
+.sav-plan ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; margin: 0; padding-left: 19px; list-style: decimal; color: var(--ink); font-size: 12px; line-height: 1.5; }
+.sav-plan li::marker { color: var(--teal); font-weight: 900; }
+
+.sav-conclusion h3 { margin: 0; color: var(--ink); font-size: 17px; font-weight: 700; }
+
+.sav-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.sav-actions .primary-button,.sav-actions .secondary-button { min-height: 44px; }
+
+/* Hypothèses et sources */
+.sav-details { border: 1px solid var(--line); border-radius: 13px; background: #fff; }
+.sav-details + .sav-details { margin-top: -14px; }
+.sav-details summary { min-height: 44px; display: flex; align-items: center; padding: 0 16px; color: var(--ink); font-size: 12px; font-weight: 800; cursor: pointer; }
+.sav-details summary::marker { color: var(--teal); }
+.sav-details p { max-width: 720px; margin: 0; padding: 0 16px 15px; color: var(--muted); font-size: 11.5px; line-height: 1.65; }
+.sav-sources { margin: 0; padding: 0 16px 15px; display: grid; gap: 9px; list-style: none; }
+.sav-sources a { color: var(--teal); font-size: 11.5px; font-weight: 700; line-height: 1.5; text-decoration: none; }
+.sav-sources a:hover { text-decoration: underline; }
+
+.sav-disclaimer { margin: 0; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+@media (max-width: 780px) {
+  /* La modale occupe l'écran : l'article se lit en plein écran. */
+  .savings-lesson-modal { width: 100%; max-height: calc(100vh - 24px); padding: 20px 18px; }
+  /* Le bouton de fermeture doit rester atteignable pendant toute la lecture : sur mobile
+     uniquement, l'en-tête de CETTE modale est collant. Le `top` négatif compense le padding de
+     `.modal`, sinon le filet s'épingle sous lui et du texte défile au-dessus. Sélecteur doublé
+     (`.modal.savings-lesson-modal`) pour passer devant `.modal header` de family.css. */
+  .modal.savings-lesson-modal > header { position: sticky; top: -20px; z-index: 6; margin: -20px -18px 0; padding: 20px 18px 10px; background: #fff; }
+  .modal.savings-lesson-modal h2 { font-size: 17px; line-height: 1.3; }
+  .savings-lesson-body { gap: 22px; }
+  .sav-intro { font-size: 13px; }
+  .sav-essential ol,.sav-plan ol { grid-template-columns: 1fr; }
+  .sav-head h3 { font-size: 15.5px; }
+  .sav-head-icon { width: 40px; height: 40px; border-radius: 12px; }
+  .sav-section > p { font-size: 12.5px; }
+  .sav-actions { display: grid; grid-template-columns: 1fr; }
+  .sav-actions button { width: 100%; }
+  .sav-table th,.sav-table td { padding: 9px 11px; font-size: 11.5px; }
+}

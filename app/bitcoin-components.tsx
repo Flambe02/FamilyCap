@@ -163,7 +163,9 @@ export function EvolutionChart({ points, series, height = 240 }: { points: Timel
   );
 }
 
-function niceCeil(value: number): number {
+// Exporté : les graphiques de la leçon « Épargne et temps » réutilisent la même échelle d'axe
+// que la courbe Bitcoin, pour que deux graphiques de l'application ne graduent jamais autrement.
+export function niceCeil(value: number): number {
   if (value <= 0) return 1;
   const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
   const normalized = value / magnitude;

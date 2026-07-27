@@ -1,0 +1,21 @@
+/* Illustration de la leçon « Épargne et temps » + son emplacement sur la carte du catalogue.
+   Ce fichier est chargé avec le catalogue (et non avec la modale), car la carte l'affiche avant
+   toute ouverture de l'article. */
+
+.savings-illu { overflow: hidden; border-radius: 14px; background: #0a1720; }
+.savings-illu-svg { display: block; width: 100%; height: 100%; }
+/* 12:5 sur desktop : recadrage panoramique de la composition 16:9, assez court pour que le titre
+   et l'introduction restent visibles sans défiler, assez haut pour que le sujet (y de 158 à 770
+   dans le viewBox) ne soit jamais rogné par `slice`. */
+.savings-illu-hero { aspect-ratio: 12 / 5; }
+.savings-illu-card { aspect-ratio: 3 / 2; }
+
+/* Carte du catalogue : même structure et mêmes styles que les autres cartes de leçon, le visuel
+   remplace simplement la pastille d'icône. Aucune autre carte n'est modifiée. */
+.lesson-card-visual { margin-bottom: 18px; border-radius: 14px; }
+.lesson-card-visual .savings-illu-card { aspect-ratio: 3 / 2; }
+
+@media (max-width: 780px) {
+  /* Recadrage plus haut sur mobile : le sujet reste entier, le cadre respire moins. */
+  .savings-illu-hero { aspect-ratio: 5 / 3; }
+}

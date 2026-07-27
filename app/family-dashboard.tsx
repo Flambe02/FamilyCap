@@ -20,6 +20,7 @@ const CtoInvestmentPage = dynamic(() => import("./cto-investments").then((module
 const SouvenirsPage = dynamic(() => import("./souvenirs").then((module) => module.SouvenirsPage));
 const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((module) => module.PeaPortfolioLesson));
 const InvestingRulesLesson = dynamic(() => import("./lesson-investing-rules").then((module) => module.InvestingRulesLesson));
+const SavingsTimeLesson = dynamic(() => import("./lesson-savings-time").then((module) => module.SavingsTimeLesson));
 import type { AccountOperation } from "../lib/portfolio-account";
 import { isChallengeEligible, toFamilyRole, type Viewer } from "../lib/auth-types";
 import type { FxRateRow } from "../lib/fx-rates";
@@ -33,6 +34,7 @@ import { onboardingCopy } from "../lib/onboarding/onboarding-copy";
 import type { OnboardingState } from "../lib/onboarding/onboarding-types";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_SHORT, formatBirthday, type MemberName } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
+import { SavingsIllustration } from "./lesson-savings-illustration";
 import { NavIcon, PanelTitle } from "./dashboard-ui";
 import {
   BOTTOM_NAV_ITEMS,
@@ -1126,12 +1128,16 @@ function Portfolios({ viewer, requests, selectedMember, onOpenTransactions }: { 
   return <GiftPortfolio viewer={viewer} requests={requests} selectedMember={selectedMember} onOpenTransactions={onOpenTransactions} />;
 }
 
-type Lesson = { id: string; level: string; minutes: number; title: string; text: string; icon: string; color: string; cta?: string; onOpen?: () => void };
+// `visual` remplace la pastille d'icône par l'illustration 3:2 de l'article. Champ optionnel :
+// les cartes qui ne le renseignent pas gardent exactement leur rendu actuel.
+// `meta` remplace le suffixe « · N MIN » quand la carte porte plus qu'une durée (niveau…).
+type Lesson = { id: string; level: string; minutes: number; title: string; text: string; icon: string; color: string; cta?: string; onOpen?: () => void; visual?: ReactNode; meta?: string };
 
 function Learn({ onNavigate }: { onNavigate: (view: View) => void }) {
   const [openLessonId, setOpenLessonId] = useState<string | null>(null);
   const lessons: Lesson[] = [
     { id: "investing-rules", level: "BOURSE", minutes: 5, title: "Les 7 règles essentielles pour bien investir", text: "Sept repères simples pour investir avec régularité, patience et discipline.", icon: "↗", color: "teal", cta: "Lire la leçon", onOpen: () => setOpenLessonId("investing-rules") },
+    { id: "savings-time", level: "INVESTISSEMENT · LEÇON", minutes: 6, meta: "6 MIN · DÉBUTANT", title: "Épargne et temps", text: "Découvrez comment la régularité, les intérêts composés, les frais et l’inflation influencent votre patrimoine.", icon: "◷", color: "teal", cta: "Lire la leçon", onOpen: () => setOpenLessonId("savings-time"), visual: <SavingsIllustration variant="card" label="Illustration abstraite représentant la croissance progressive d’une épargne dans le temps." /> },
     { id: "invest-early", level: "LES BASES", minutes: 4, title: "Pourquoi investir tôt ?", text: "Le temps et les intérêts composés sont les deux meilleurs alliés d’un jeune investisseur.", icon: "↗", color: "navy" },
     { id: "pea-portfolio-type", level: "PEA", minutes: 6, title: "Le portefeuille PEA type", text: "Une stratégie simple et diversifiée pour investir à long terme avec seulement trois ETF.", icon: "◕", color: "amber", cta: "Découvrir le portefeuille", onOpen: () => setOpenLessonId("pea-portfolio-type") },
     { id: "etf-5min", level: "BOURSE", minutes: 6, title: "Un ETF en 5 minutes", text: "Acheter en une fois un panier diversifié d’entreprises, avec des frais généralement réduits.", icon: "▥", color: "teal" },
@@ -1147,8 +1153,10 @@ function Learn({ onNavigate }: { onNavigate: (view: View) => void }) {
       <section className="lesson-grid">
         {lessons.map((lesson) => (
           <article className="lesson-card" key={lesson.id}>
-            <div className={`lesson-icon ${lesson.color}`}>{lesson.icon}</div>
-            <span>{lesson.level} · {lesson.minutes} MIN</span>
+            {lesson.visual
+              ? <div className="lesson-card-visual">{lesson.visual}</div>
+              : <div className={`lesson-icon ${lesson.color}`}>{lesson.icon}</div>}
+            <span>{lesson.level} · {lesson.meta ?? `${lesson.minutes} MIN`}</span>
             <h3>{lesson.title}</h3>
             <p>{lesson.text}</p>
             {lesson.onOpen ? (
@@ -1160,6 +1168,11 @@ function Learn({ onNavigate }: { onNavigate: (view: View) => void }) {
         ))}
       </section>
       {openLessonId === "pea-portfolio-type" && <PeaPortfolioLesson onClose={() => setOpenLessonId(null)} />}
+      {openLessonId === "savings-time" && <SavingsTimeLesson
+        onClose={() => setOpenLessonId(null)}
+        onDefineRhythm={() => { setOpenLessonId(null); onNavigate("parametres"); }}
+        onOpenPeaPortfolio={() => setOpenLessonId("pea-portfolio-type")}
+      />}
       {openLessonId === "investing-rules" && <InvestingRulesLesson
         onClose={() => setOpenLessonId(null)}
         onDefineRhythm={() => { setOpenLessonId(null); onNavigate("parametres"); }}

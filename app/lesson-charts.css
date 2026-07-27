@@ -1,0 +1,90 @@
+/* Graphiques des articles pédagogiques.
+   Reprend les tokens de family.css (--ink, --teal, --line, --muted, --surface-subtle) : aucun
+   nouveau système de couleurs, aucune ombre inventée. Le fond des cartes de graphique est
+   légèrement distinct de celui de l'article, avec une bordure très discrète.
+   Toutes les largeurs sont relatives : aucun défilement horizontal possible, y compris à 320 px. */
+
+.art-chart { margin: 0; padding: 17px 18px 15px; display: grid; gap: 13px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-subtle, #f8faf9); }
+.art-chart-head { display: grid; gap: 4px; }
+.art-chart-head h4 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 750; line-height: 1.3; }
+.art-chart-head p { margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+
+/* Zone de lecture : hauteur réservée en permanence, donc aucun saut de mise en page au survol. */
+.art-chart-readout { margin: 0; min-height: 42px; display: flex; align-items: center; padding: 8px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.art-chart-readout strong { color: var(--ink); font-weight: 800; }
+.art-chart-readout em { font-style: normal; color: var(--teal); font-weight: 800; }
+.art-chart-note { margin: 0; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+
+.art-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 7px 15px; }
+.art-legend li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.art-legend b { color: var(--ink); font-size: 10.5px; font-weight: 800; }
+.art-legend em { font-style: normal; color: var(--muted); font-size: 9.5px; }
+.art-legend-swatch { flex: 0 0 auto; width: 11px; height: 11px; border-radius: 4px; }
+
+/* ---- Barres horizontales (graphiques 1 et 3) ---- */
+.art-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.art-bar { width: 100%; min-height: 44px; display: grid; gap: 5px; padding: 6px 8px; border: 0; border-radius: 10px; background: transparent; text-align: left; cursor: pointer; transition: background .16s; }
+.art-bar:hover,.art-bar.is-active { background: rgba(29, 112, 107, .07); }
+.art-bar-head { display: flex; align-items: baseline; gap: 8px; }
+.art-bar-label { color: var(--ink); font-size: 11.5px; font-weight: 800; }
+.art-bar-badge { padding: 2px 7px; border-radius: 999px; background: var(--teal-soft); color: var(--teal); font-size: 8px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.art-bar-track { position: relative; height: 19px; border-radius: 7px; background: #eaefef; }
+.art-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; min-width: 5px; border-radius: 7px; }
+.art-bar.is-flagged .art-bar-fill { box-shadow: 0 0 0 2.5px rgba(29, 112, 107, .22); }
+.art-bar-value { color: var(--ink); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.art-bar-value-inline { position: absolute; top: 50%; transform: translateY(-50%); }
+.art-bar-value-stacked { display: none; margin-left: auto; }
+
+/* ---- Colonnes groupées (graphique 5) ---- */
+.art-scenario { display: none; padding: 3px; border-radius: 999px; background: #eaefef; }
+.art-scenario button { min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 800; cursor: pointer; }
+.art-scenario button.is-active { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(23, 50, 77, .14); }
+.art-groups { display: flex; gap: 22px; }
+.art-group { flex: 1 1 0; min-width: 0; display: grid; gap: 7px; }
+.art-columns { display: flex; align-items: stretch; gap: 6px; height: 186px; }
+.art-column { flex: 1 1 0; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 5px; padding: 4px 2px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; transition: background .16s; }
+.art-column:hover,.art-column.is-active { background: rgba(29, 112, 107, .07); }
+.art-column-track { display: flex; align-items: flex-end; }
+.art-column-fill { width: 100%; min-height: 4px; border-radius: 7px 7px 3px 3px; }
+.art-column-value { color: var(--ink); font-size: 9.5px; font-weight: 800; text-align: center; }
+.art-column-label { color: var(--muted); font-size: 9px; line-height: 1.25; text-align: center; }
+.art-group-label { margin: 0; padding-top: 7px; border-top: 1px solid var(--line); color: var(--ink); font-size: 10.5px; font-weight: 800; text-align: center; }
+
+/* ---- Séries temporelles (graphiques 2 et 4) ---- */
+.art-plot { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 7px; }
+.art-plot-y { position: relative; height: 224px; }
+.art-plot-y span { position: absolute; right: 0; transform: translateY(-50%); color: var(--muted); font-size: 9.5px; white-space: nowrap; }
+.art-plot-area { position: relative; height: 224px; }
+.art-plot-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.art-plot-grid { stroke: #e3eaea; }
+.art-plot-rule { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(23, 50, 77, .2); }
+.art-plot-dot { position: absolute; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border: 2.5px solid; border-radius: 50%; background: #fff; }
+/* Annotation calée par sa DROITE : positionnée par `left` + translate, sa largeur disponible
+   aurait été « largeur du tracé − left », soit zéro au dernier point — le texte se serait replié
+   en colonne d'un mot. */
+.art-plot-annotation { position: absolute; max-width: 152px; padding: 5px 8px; border-radius: 9px; background: rgba(255, 255, 255, .9); color: var(--ink); font-size: 9.5px; font-weight: 800; line-height: 1.35; text-align: right; }
+.art-plot-hits { position: absolute; inset: 0; overflow: hidden; }
+.art-plot-hits button { position: absolute; top: 0; bottom: 0; min-width: 34px; padding: 0; border: 0; border-radius: 6px; background: transparent; transform: translateX(-50%); cursor: pointer; }
+.art-plot-hits button:hover,.art-plot-hits button.is-active { background: rgba(29, 112, 107, .06); }
+.art-plot-x { position: relative; height: 32px; margin-left: 61px; }
+.art-plot-x span { position: absolute; top: 0; color: var(--muted); font-size: 9.5px; white-space: nowrap; }
+.art-plot-x b { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .04em; }
+
+@media (max-width: 640px) {
+  .art-chart { padding: 15px 14px 13px; }
+  .art-bar-value-inline { display: none; }
+  .art-bar-value-stacked { display: inline; }
+  .art-scenario { display: inline-flex; justify-self: start; }
+  .art-groups { display: block; }
+  .art-group[data-active="false"] { display: none; }
+  .art-group-label { display: none; }
+  .art-columns { height: 168px; }
+  .art-plot { grid-template-columns: 42px minmax(0, 1fr); }
+  .art-plot-y,.art-plot-area { height: 190px; }
+  .art-plot-x { margin-left: 49px; }
+  .art-plot-annotation { max-width: 118px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .art-bar,.art-column { transition: none; }
+}
