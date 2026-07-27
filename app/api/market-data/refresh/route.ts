@@ -4,6 +4,7 @@ import { acquireRefreshLock, releaseRefreshLock, syncMarketData, type CachedQuot
 import { loadImportAccount, isOperationAccount } from "../../../../lib/investment-import-server";
 import { supabaseRest } from "../../../../lib/supabase-rest";
 import { resolveMarketIdentity } from "../../../../lib/market-identity";
+import { loadAccountListings, type ListingIdentity } from "../../../../lib/asset-catalog-server";
 
 export const runtime = "nodejs";
 
@@ -35,12 +36,54 @@ async function loadHoldings(accountId: string) {
     return await supabaseRest<HoldingRow[]>(`holdings?select=id,account_id,asset_type,name,symbol,isin,currency,exchange,provider_symbol,market_symbol,mic_code,data_provider,quote_mode,country&account_id=eq.${encodeURIComponent(accountId)}`);
   }
 }
-async function createReference(accountId: string, position: ReturnType<typeof computeAccountModel>["positions"][number]) {
-  const rows = await supabaseRest<HoldingRow[]>("holdings", {
-    method: "POST", headers: { prefer: "return=representation" },
-    body: JSON.stringify({ account_id: accountId, asset_type: "other", name: position.name, symbol: position.ticker, isin: position.isin, quantity: 0, average_cost: null, currency: position.currency, data_provider: "manual", quote_mode: "manual" }),
-  });
-  return rows[0];
+/**
+ * Crée la ligne `holdings` de référence d'une position qui n'en a pas encore. `quantity: 0` :
+ * cette table reste un RÉFÉRENTIEL DE PRIX, jamais une source de position.
+ *
+ * Quand l'utilisateur a sélectionné une cotation, elle est reprise ici telle quelle — symbole
+ * fournisseur, place, MIC, devise, type. C'est ce qui remplace la déduction depuis le nom, seule
+ * responsable jusqu'ici des « symbole de marché à confirmer » sur des actifs pourtant identifiés.
+ */
+async function createReference(
+  accountId: string,
+  position: ReturnType<typeof computeAccountModel>["positions"][number],
+  listing: ListingIdentity | null,
+) {
+  const record: Record<string, unknown> = {
+    account_id: accountId, quantity: 0, average_cost: null,
+    asset_type: listing?.assetType ?? "other",
+    name: listing?.name || position.name,
+    symbol: listing?.ticker ?? position.ticker,
+    isin: listing?.isin ?? position.isin,
+    currency: listing?.currency ?? position.currency,
+    data_provider: listing?.eodhdSymbol ? "eodhd" : listing?.yahooSymbol ? "yahoo" : "manual",
+    quote_mode: listing?.eodhdSymbol || listing?.yahooSymbol ? "eod" : "manual",
+  };
+  if (listing) {
+    record.provider_symbol = listing.eodhdSymbol;
+    record.yahoo_symbol = listing.yahooSymbol;
+    record.exchange = listing.exchange;
+    record.mic_code = listing.micCode;
+    record.country = listing.country;
+    record.classification_status = listing.classificationStatus;
+    record.listing_id = listing.listingId;
+  }
+  try {
+    const rows = await supabaseRest<HoldingRow[]>("holdings", {
+      method: "POST", headers: { prefer: "return=representation" }, body: JSON.stringify(record),
+    });
+    return rows[0];
+  } catch (error) {
+    // Colonnes du catalogue absentes (migration 20260811 non jouée) : on retombe sur la référence
+    // minimale d'avant plutôt que d'échouer tout le rafraîchissement.
+    const message = error instanceof Error ? error.message : "";
+    if (!/listing_id|yahoo_symbol|classification_status|PGRST204|42703/.test(message)) throw error;
+    const rows = await supabaseRest<HoldingRow[]>("holdings", {
+      method: "POST", headers: { prefer: "return=representation" },
+      body: JSON.stringify({ account_id: accountId, asset_type: "other", name: position.name, symbol: position.ticker, isin: position.isin, quantity: 0, average_cost: null, currency: position.currency, data_provider: "manual", quote_mode: "manual" }),
+    });
+    return rows[0];
+  }
 }
 
 export async function POST(request: Request) {
@@ -55,16 +98,18 @@ export async function POST(request: Request) {
     const confirmedAccountId = accountId;
     if (!await acquireRefreshLock(accountId)) return Response.json({ error: "Une actualisation est déjà en cours pour ce compte." }, { status: 409 });
 
-    const [operations, holdingRows] = await Promise.all([
+    const [operations, holdingRows, listingByKey] = await Promise.all([
       loadOperations(accountId),
       loadHoldings(accountId),
+      // Cotations choisies à la saisie : elles fournissent le symbole exact du fournisseur.
+      loadAccountListings(accountId),
     ]);
     const model = computeAccountModel({ operations: operations.map(asOperation), priceByKey: new Map<string, InstrumentPrice>(), accountType: account.accountType === "pea" ? "PEA" : "CTO", referenceCurrency: account.currency });
     const holdingByKey = new Map(holdingRows.map((item) => [priceKeyOf({ isin: item.isin, symbol: item.symbol, name: item.name }), item]));
     const unresolved = new Map<string, HoldingRow>();
     for (const position of model.positions) {
       const key = instrumentKey({ isin: position.isin, ticker: position.ticker, assetName: position.name });
-      unresolved.set(key, holdingByKey.get(key) ?? await createReference(accountId, position));
+      unresolved.set(key, holdingByKey.get(key) ?? await createReference(accountId, position, listingByKey.get(key) ?? null));
     }
     const assetIds = [...new Set([...unresolved.values()].map((item) => item.id))];
     const quotes = assetIds.length ? await supabaseRest<Array<CachedQuote & { asset_id: string }>>(`market_quotes?select=asset_id,provider,provider_symbol,price,currency,quoted_at,market_status,data_delay_minutes,fetched_at,raw_metadata&asset_id=in.(${assetIds.join(",")})&order=fetched_at.desc`) : [];
@@ -72,13 +117,22 @@ export async function POST(request: Request) {
     for (const quote of quotes) if (!quoteByAsset.has(quote.asset_id)) quoteByAsset.set(quote.asset_id, quote);
     const assets: SyncAsset[] = [...unresolved.entries()].map(([key, item]) => {
       const position = model.positions.find((candidate) => instrumentKey({ isin: candidate.isin, ticker: candidate.ticker, assetName: candidate.name }) === key)!;
+      // Ordre de confiance : cotation SÉLECTIONNÉE > correction admin déjà stockée > déduction.
+      // Un symbole choisi par l'utilisateur n'est jamais écrasé par une valeur devinée du nom,
+      // mais il ne prime pas non plus sur une ligne que l'administrateur a explicitement corrigée.
+      const listing = item.classification_status === "verified" ? null : listingByKey.get(key) ?? null;
       return {
         ...resolveMarketIdentity({
-          name: item.name || position.name, isin: item.isin ?? position.isin, ticker: item.symbol ?? position.ticker,
-          providerSymbol: item.provider_symbol ?? item.market_symbol, yahooSymbol: item.yahoo_symbol,
-          exchange: item.exchange, micCode: item.mic_code, currency: item.currency || position.currency,
-          assetType: item.asset_type as SyncAsset["assetType"], classificationStatus: item.classification_status,
-          dataProvider: item.data_provider, quoteMode: item.quote_mode as SyncAsset["quoteMode"], country: item.country,
+          name: item.name || position.name, isin: listing?.isin ?? item.isin ?? position.isin, ticker: listing?.ticker ?? item.symbol ?? position.ticker,
+          providerSymbol: listing?.eodhdSymbol ?? item.provider_symbol ?? item.market_symbol,
+          yahooSymbol: listing?.yahooSymbol ?? item.yahoo_symbol,
+          exchange: listing?.exchange ?? item.exchange, micCode: listing?.micCode ?? item.mic_code,
+          currency: listing?.currency ?? item.currency ?? position.currency,
+          assetType: (listing?.assetType ?? item.asset_type) as SyncAsset["assetType"],
+          classificationStatus: listing?.classificationStatus ?? item.classification_status,
+          dataProvider: listing?.eodhdSymbol ? "eodhd" : item.data_provider,
+          quoteMode: (listing?.eodhdSymbol ? "eod" : item.quote_mode) as SyncAsset["quoteMode"],
+          country: listing?.country ?? item.country,
         }),
         id: item.id, accountId: confirmedAccountId, referenceCurrency: account.currency, lastQuote: quoteByAsset.get(item.id) ?? null,
       };

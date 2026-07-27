@@ -1,6 +1,7 @@
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
 import { supabaseRest } from "../../../../lib/supabase-rest";
-import { buildOperationRecord, type OperationInput } from "../../../../lib/account-operation";
+import { buildOperationRecord, requiresAssetSelection, type OperationInput } from "../../../../lib/account-operation";
+import { applySelection } from "../../../../lib/asset-catalog-server";
 import { instrumentKeyOf } from "../../../../lib/investment-import";
 import { loadImportAccount, loadImportContext, isOperationAccount } from "../../../../lib/investment-import-server";
 import { reconcileMemberForActive } from "../../../../lib/challenges-service";
@@ -26,6 +27,27 @@ export const runtime = "nodejs";
 
 type OperationRow = { id: string; account_id: string; member_id: string };
 
+type OperationBody = OperationInput & { accountId?: string; selection?: unknown };
+
+/**
+ * Remplace l'identité libre du corps de requête par celle de la COTATION SÉLECTIONNÉE, et la
+ * matérialise en base (actif canonique + cotation) pour obtenir `asset_id` / `listing_id`.
+ *
+ * `requireSelection` n'est vrai qu'à la CRÉATION : en modification, une opération historique sans
+ * identité stable doit rester corrigeable (quantité, prix, frais) sans qu'on la rattache d'office
+ * à un actif deviné — le cahier interdit de réécrire silencieusement une ligne financière.
+ */
+async function resolveIdentity(body: OperationBody, type: string, requireSelection: boolean):
+  Promise<{ ok: true; input: OperationInput } | { ok: false; status: number; error: string }> {
+  const applied = await applySelection(body.selection);
+  if (applied && !applied.ok) return { ok: false, status: 422, error: applied.error };
+  if (applied) return { ok: true, input: { ...body, ...applied.fields } };
+  if (requireSelection && requiresAssetSelection(type)) {
+    return { ok: false, status: 400, error: "Sélectionnez un actif dans la liste avant d'enregistrer." };
+  }
+  return { ok: true, input: body };
+}
+
 function setupResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erreur Supabase";
   if (message.includes("exchange_rate") || message.includes("taxes") || message.includes("PGRST204") || message.includes("_type_check") || message.includes("check constraint")) {
@@ -40,7 +62,7 @@ function setupResponse(error: unknown) {
 export async function POST(request: Request) {
   try {
     await requireAdmin(request);
-    const body = (await request.json()) as OperationInput & { accountId?: string };
+    const body = (await request.json()) as OperationBody;
     if (!body.accountId) return Response.json({ error: "Le compte est obligatoire." }, { status: 400 });
 
     // Identité + éligibilité du compte (jamais fournies par le client).
@@ -51,18 +73,25 @@ export async function POST(request: Request) {
 
     const type = (body.type ?? "").trim();
 
+    // L'identité est résolue AVANT la garde de vente : la garde doit raisonner sur la même clé
+    // d'instrument que celle qui sera enregistrée, sinon un ticker libre contradictoire lui ferait
+    // comparer la quantité demandée à celle d'une autre position.
+    const identity = await resolveIdentity(body, type, true);
+    if (!identity.ok) return Response.json({ error: identity.error }, { status: identity.status });
+    const input = identity.input;
+
     // Garde PEA : une vente / sortie de titres ne peut excéder la quantité détenue.
     if (account.accountType === "pea" && (type === "vente" || type === "transfer_out")) {
       const context = await loadImportContext(account);
-      const key = instrumentKeyOf({ isin: body.isin ?? null, ticker: body.ticker ?? null, instrumentName: body.assetName ?? null });
+      const key = instrumentKeyOf({ isin: input.isin ?? null, ticker: input.ticker ?? null, instrumentName: input.assetName ?? null });
       const held = context.openingQuantities[key] ?? 0;
-      const wanted = Number(body.quantity ?? 0);
+      const wanted = Number(input.quantity ?? 0);
       if (wanted > held + 1e-9) {
         return Response.json({ error: `Vente impossible : ${wanted} demandé(s) pour ${held} détenu(s) sur ce PEA.` }, { status: 422 });
       }
     }
 
-    const built = buildOperationRecord(body, { memberId: account.memberId, source: body.source?.trim() || "saisie manuelle" });
+    const built = buildOperationRecord(input, { memberId: account.memberId, source: body.source?.trim() || "saisie manuelle" });
     if (!built.ok) return Response.json({ error: built.error }, { status: 400 });
 
     const rows = await supabaseRest<Array<{ id: string }>>("account_operations", {
@@ -90,7 +119,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await requireAdmin(request);
-    const body = (await request.json()) as OperationInput & { id?: string };
+    const body = (await request.json()) as OperationBody & { id?: string };
     const id = String(body.id ?? "").trim();
     if (!id) return Response.json({ error: "Opération manquante." }, { status: 400 });
 
@@ -106,11 +135,19 @@ export async function PATCH(request: Request) {
     if (!account.isActive) return Response.json({ error: "Ce compte est archivé : réactivez-le avant de modifier une opération." }, { status: 409 });
 
     const type = (body.type ?? "").trim();
+
+    // Sélection FACULTATIVE en modification : si l'utilisateur en fournit une, elle rattache la
+    // ligne à une identité stable ; sinon l'opération garde exactement ses références d'origine
+    // (asset_id / listing_id ne sont alors pas dans le patch, donc pas écrasés).
+    const identity = await resolveIdentity(body, type, false);
+    if (!identity.ok) return Response.json({ error: identity.error }, { status: identity.status });
+    const input = identity.input;
+
     if (account.accountType === "pea" && (type === "vente" || type === "transfer_out")) {
       const context = await loadImportContext(account, { excludeOperationIds: [id] });
-      const key = instrumentKeyOf({ isin: body.isin ?? null, ticker: body.ticker ?? null, instrumentName: body.assetName ?? null });
+      const key = instrumentKeyOf({ isin: input.isin ?? null, ticker: input.ticker ?? null, instrumentName: input.assetName ?? null });
       const held = context.openingQuantities[key] ?? 0;
-      const wanted = Number(body.quantity ?? 0);
+      const wanted = Number(input.quantity ?? 0);
       if (wanted > held + 1e-9) {
         return Response.json({ error: `Vente impossible : ${wanted} demandé(s) pour ${held} détenu(s) sur ce PEA (hors cette ligne).` }, { status: 422 });
       }
@@ -118,7 +155,7 @@ export async function PATCH(request: Request) {
 
     // member_id repris de la ligne existante (jamais du client), source explicitée : une ligne
     // importée puis corrigée à la main ne doit plus se présenter comme une donnée brute d'import.
-    const built = buildOperationRecord(body, { memberId: current.member_id, source: body.source?.trim() || "saisie manuelle (modifiée)" });
+    const built = buildOperationRecord(input, { memberId: current.member_id, source: body.source?.trim() || "saisie manuelle (modifiée)" });
     if (!built.ok) return Response.json({ error: built.error }, { status: 400 });
 
     // account_id / member_id retirés du patch : immuables par construction.

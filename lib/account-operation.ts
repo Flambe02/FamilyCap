@@ -19,14 +19,33 @@ export const OPERATION_TYPES: ReadonlySet<string> = new Set<OperationType>([
 // Types qui EXIGENT la migration 20260725 (transferts de titres). Le PEA n'en émet jamais.
 export const ADVANCED_TYPES: ReadonlySet<string> = new Set<OperationType>(["transfer_in", "transfer_out"]);
 
+// Types qui portent un actif : la SAISIE MANUELLE exige alors une cotation sélectionnée.
+// La règle n'est PAS dans validateOperation à dessein — l'import CSV et la reprise de capture
+// alimentent les mêmes colonnes sans passer par un sélecteur, et les soumettre à cette exigence
+// casserait l'import. Ce sont les routes de saisie qui l'appliquent (cf. requiresAssetSelection).
+const ASSET_BEARING_TYPES: ReadonlySet<string> = new Set<OperationType>([
+  "achat", "vente", "dividende", "correction", "transfer_in", "transfer_out",
+]);
+
+/** `true` si une saisie manuelle de ce type doit être rattachée à une cotation sélectionnée. */
+export function requiresAssetSelection(type: string | null | undefined): boolean {
+  return ASSET_BEARING_TYPES.has(String(type ?? "").trim());
+}
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type OperationInput = {
   type?: string;
   date?: string;
-  assetName?: string;
-  ticker?: string;
-  isin?: string;
+  // `null` est une valeur PORTEUSE DE SENS et non un champ omis : une cotation peut n'avoir
+  // aucun ticker, et le rattacher à une chaîne vide en ferait un identifiant fantôme.
+  // buildOperationRecord traite déjà null et undefined de la même façon (colonne à null).
+  assetName?: string | null;
+  ticker?: string | null;
+  isin?: string | null;
+  /** Identité stable issue du catalogue. Absente sur les opérations historiques et les imports. */
+  assetId?: string | null;
+  listingId?: string | null;
   quantity?: number | null;
   unitPrice?: number | null;
   grossAmount?: number | null;
@@ -137,6 +156,10 @@ export function buildOperationRecord(input: OperationInput, extras: OperationExt
   };
   if (validated.taxes !== null) record.taxes = validated.taxes;
   if (validated.exchangeRate !== null) record.exchange_rate = validated.exchangeRate;
+  // Identité stable (migration 20260811) — ajoutée seulement si présente, comme les colonnes
+  // avancées ci-dessus : une opération importée ou antérieure au catalogue reste enregistrable.
+  if (input.assetId) record.asset_id = input.assetId;
+  if (input.listingId) record.listing_id = input.listingId;
   if (extras.importBatchId) record.import_batch_id = extras.importBatchId;
   const extRef = extras.externalReference ?? input.externalReference ?? null;
   if (extRef) record.external_reference = String(extRef).slice(0, 200);

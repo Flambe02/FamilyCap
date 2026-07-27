@@ -24,6 +24,12 @@ import {
 } from "../lib/portfolio-account";
 import { computeMonthlyPlanProgress, type MonthlyPlanProgress } from "../lib/investment-plan";
 import { FX_FOOTNOTE, getLatestFxRate, shortRateDate, staleRateNotice, type FxRateRow } from "../lib/fx-rates";
+// Sélection d'un actif coté : remplace les champs libres Nom / Ticker / ISIN / Devise de la modale.
+import { AssetSearchField } from "./asset-search-field";
+import {
+  ASSET_TYPES, ASSET_TYPE_LABEL as CATALOG_TYPE_LABEL,
+  type AssetCandidate, type NormalizedAssetType,
+} from "../lib/asset-catalog";
 
 /** Le compte a-t-il des opérations antérieures au premier taux connu ? (coût approximé) */
 function operationsStartBefore(startDate: string | null, firstRateDate: string): boolean {
@@ -493,7 +499,7 @@ export function InvestmentAccountShell({
       )}
 
       {modal.open && (canManage || (memberCanRecord && modal.mode === "member")) && writeAccounts.length > 0 && (
-        <InvestmentOperationModal config={config} accounts={writeAccounts} defaultAccountId={selectedAccount?.id ?? writeAccounts[0].id}
+        <InvestmentOperationModal config={config} accounts={writeAccounts} positions={model?.positions ?? []} defaultAccountId={selectedAccount?.id ?? writeAccounts[0].id}
           defaultType={modal.mode === "member" ? "achat" : modal.type} restrictToAchat={modal.mode === "member"}
           onClose={() => setModal((current) => ({ ...current, open: false }))}
           onSubmit={modal.mode === "member" ? submitMemberOperation : submitOperation}
@@ -517,7 +523,7 @@ export function InvestmentAccountShell({
           onDone={() => { setNotice("Import enregistré."); onReload(); }} />
       )}
       {editingOp && canManage && (
-        <InvestmentOperationModal config={config} accounts={envAccounts.filter((item) => item.id === editingOp.accountId)}
+        <InvestmentOperationModal config={config} accounts={envAccounts.filter((item) => item.id === editingOp.accountId)} positions={model?.positions ?? []}
           defaultAccountId={editingOp.accountId} defaultType={editingOp.type} editing={editingOp}
           onClose={() => setEditingOp(null)}
           onSubmit={submitOperationEdit}
@@ -1651,8 +1657,36 @@ export function InvestmentSkeleton() {
 // tous les types restent proposés — une ligne importée peut être une « correction ».
 const num2 = (value: number | null | undefined) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? "" : String(value));
 
-function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultType, restrictToAchat = false, editing = null, onClose, onSubmit, onSaved }: {
-  config: EnvelopeConfig; accounts: InvestmentAccount[]; defaultAccountId: string; defaultType: AccountOperationType; restrictToAchat?: boolean;
+// Types portant un actif : la saisie passe alors par la sélection d'une cotation (étape 1).
+const ASSET_TYPES_SET = new Set<AccountOperationType>(["achat", "vente", "dividende", "correction", "transfer_in", "transfer_out"]);
+// Types dont l'actif doit être une position RÉELLEMENT DÉTENUE sur le compte (§7 du cahier).
+const HELD_ONLY_TYPES = new Set<AccountOperationType>(["vente", "dividende", "transfer_out"]);
+
+/** Une position détenue devient un candidat sélectionnable, sans repasser par le fournisseur. */
+function positionToCandidate(position: PortfolioPosition): AssetCandidate {
+  return {
+    assetId: position.assetId, listingId: null, isin: position.isin, name: position.name,
+    assetType: position.assetType, ticker: position.ticker, exchange: position.exchange,
+    micCode: position.micCode, currency: position.currency, country: null,
+    eodhdSymbol: position.providerSymbol, yahooSymbol: position.yahooSymbol,
+    lastPrice: position.lastPrice, lastPriceAt: position.lastPriceAt,
+    peaEligible: null, origin: "held", confidence: "inferred",
+  };
+}
+
+/** Une opération existante redevient un candidat pour permettre sa modification sans re-recherche. */
+function editingToCandidate(operation: InvestmentOperation): AssetCandidate | null {
+  if (!operation.assetName && !operation.ticker && !operation.isin) return null;
+  return {
+    assetId: null, listingId: null, isin: operation.isin, name: operation.assetName ?? operation.ticker ?? "Actif",
+    assetType: "other", ticker: operation.ticker, exchange: null, micCode: null,
+    currency: operation.currency || "EUR", country: null, eodhdSymbol: null, yahooSymbol: null,
+    lastPrice: null, lastPriceAt: null, peaEligible: null, origin: "catalog", confidence: "needs_review",
+  };
+}
+
+function InvestmentOperationModal({ config, accounts, positions = [], defaultAccountId, defaultType, restrictToAchat = false, editing = null, onClose, onSubmit, onSaved }: {
+  config: EnvelopeConfig; accounts: InvestmentAccount[]; positions?: PortfolioPosition[]; defaultAccountId: string; defaultType: AccountOperationType; restrictToAchat?: boolean;
   editing?: InvestmentOperation | null;
   onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>; onSaved: () => void;
 }) {
@@ -1660,48 +1694,92 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
   const [accountId, setAccountId] = useState(defaultAccountId);
   const [type, setType] = useState<AccountOperationType>(defaultType);
   const [date, setDate] = useState(editing?.date ?? todayISO());
-  const [assetName, setAssetName] = useState(editing?.assetName ?? "");
-  const [ticker, setTicker] = useState(editing?.ticker ?? "");
-  const [isin, setIsin] = useState(editing?.isin ?? "");
+  const [selection, setSelection] = useState<AssetCandidate | null>(editing ? editingToCandidate(editing) : null);
+  const [unlisted, setUnlisted] = useState(false);
+  const [unlistedName, setUnlistedName] = useState("");
+  const [unlistedType, setUnlistedType] = useState<NormalizedAssetType>("other");
   const [quantity, setQuantity] = useState(num2(editing?.quantity));
   const [unitPrice, setUnitPrice] = useState(num2(editing?.unitPrice));
   const [amount, setAmount] = useState(num2(editing?.netAmount ?? editing?.grossAmount));
   const [fees, setFees] = useState(num2(editing?.fees));
-  const [taxes, setTaxes] = useState("");
+  // Champs déjà présents en base et jusqu'ici jamais repeuplés en modification (retenue d'un
+  // dividende importé, notamment) : ils sont désormais réhydratés depuis l'opération éditée.
+  const [taxes, setTaxes] = useState(num2(editing?.taxes));
   const account = accounts.find((item) => item.id === accountId) ?? accounts[0];
-  const [currency, setCurrency] = useState(editing?.currency ?? account?.currency ?? "EUR");
-  const [exchangeRate, setExchangeRate] = useState("");
+  const [accountCurrency, setAccountCurrency] = useState(editing?.currency ?? account?.currency ?? "EUR");
+  const [paidEur, setPaidEur] = useState("");
   const [note, setNote] = useState(editing?.note ?? "");
+  const [moreOpen, setMoreOpen] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const isEditing = editing !== null;
 
   const isTransfer = type === "transfer_in" || type === "transfer_out";
-  const needsAsset = type === "achat" || type === "vente" || type === "dividende" || type === "correction" || isTransfer;
+  const needsAsset = ASSET_TYPES_SET.has(type);
   const needsQtyPrice = type === "achat" || type === "vente" || isTransfer;
   const needsAmount = type === "versement" || type === "retrait" || type === "frais" || type === "dividende";
   const needsQtyOnly = type === "correction";
   const advanced = config.modalAdvanced;
-  // La devise est toujours modifiable en correction, y compris sur un PEA : un import sans
-  // colonne « devise » a repris celle du compte, et c'est précisément ce qu'il faut pouvoir
-  // rectifier pour qu'un cours de marché puisse s'appliquer à la position.
-  const showCurrency = (advanced || isEditing) && (needsAsset || needsAmount);
+  const heldOnly = HELD_ONLY_TYPES.has(type);
+
+  // La devise n'est plus saisie : elle vient de la cotation choisie (ou du compte pour les
+  // opérations d'espèces). C'est ce qui supprime la dernière voie d'incohérence d'identité.
+  const currency = needsAsset ? (selection?.currency ?? accountCurrency) : accountCurrency;
+
+  const heldCandidates = useMemo(
+    () => positions.filter((position) => position.quantity > 1e-9).map(positionToCandidate),
+    [positions],
+  );
+  const availableQuantity = useMemo(() => {
+    if (!heldOnly || !selection) return null;
+    const match = positions.find((position) =>
+      (selection.isin && position.isin === selection.isin)
+      || (selection.ticker && position.ticker === selection.ticker)
+      || position.name === selection.name);
+    return match ? match.quantity : null;
+  }, [heldOnly, selection, positions]);
+
+  // Total affiché, JAMAIS enregistré comme donnée indépendante : validateOperation le recalcule
+  // côté serveur (gross = quantité × prix, net = gross + frais pour un achat).
+  const qtyNumber = Number(quantity);
+  const priceNumber = Number(unitPrice);
+  const feesNumber = fees ? Number(fees) : 0;
+  const total = Number.isFinite(qtyNumber) && Number.isFinite(priceNumber) && quantity !== "" && unitPrice !== ""
+    ? qtyNumber * priceNumber + (Number.isFinite(feesNumber) ? feesNumber : 0)
+    : null;
+
+  const quoteDate = selection?.lastPriceAt ? new Date(selection.lastPriceAt) : null;
+  const quoteDateLabel = quoteDate && !Number.isNaN(quoteDate.getTime()) ? quoteDate.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : null;
+
+  const assetReady = !needsAsset || selection !== null;
+  const overSells = heldOnly && availableQuantity !== null && qtyNumber > availableQuantity + 1e-9;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    if (needsAsset && !selection) { setError("Sélectionnez un actif dans la liste avant d'enregistrer."); return; }
+    if (overSells) { setError(`Vente impossible : ${qtyNumber} demandé(s) pour ${availableQuantity} détenu(s).`); return; }
+
+    // Le montant payé en euros est une donnée HISTORIQUE : on en déduit le taux réellement subi,
+    // au lieu de reconvertir plus tard au taux courant (ce qui réécrirait un coût passé).
+    const nativeTotal = total;
+    const paid = paidEur ? Number(paidEur) : null;
+    const derivedRate = paid !== null && Number.isFinite(paid) && nativeTotal !== null && nativeTotal > 0
+      ? paid / nativeTotal
+      : null;
+
     const payload: Record<string, unknown> = {
       accountId, type, date,
-      assetName: needsAsset ? assetName.trim() || undefined : undefined,
-      ticker: needsAsset ? ticker.trim() || undefined : undefined,
-      isin: needsAsset ? isin.trim() || undefined : undefined,
+      // L'identité n'est plus composée champ par champ : elle est transmise en bloc, et le serveur
+      // la réécrit depuis la cotation qu'il a lui-même résolue.
+      selection: needsAsset && selection ? selection : undefined,
       quantity: needsQtyPrice || needsQtyOnly ? Number(quantity) : undefined,
       unitPrice: needsQtyPrice ? Number(unitPrice) : undefined,
       netAmount: needsAmount ? Number(amount) : undefined,
       fees: fees ? Number(fees) : undefined,
       taxes: advanced && taxes ? Number(taxes) : undefined,
-      currency: showCurrency ? currency : undefined,
-      exchangeRate: advanced && exchangeRate ? Number(exchangeRate) : undefined,
+      currency: needsAsset ? undefined : accountCurrency,
+      exchangeRate: derivedRate ?? undefined,
       note: note.trim() || undefined,
     };
     setSaving(true);
@@ -1709,6 +1787,19 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
     setSaving(false);
     if (!result.ok) { setError(result.error ?? "Enregistrement impossible."); return; }
     onSaved();
+  }
+
+  function confirmUnlisted() {
+    const name = unlistedName.trim();
+    if (!name) return;
+    setSelection({
+      assetId: null, listingId: null, isin: null, name, assetType: unlistedType, ticker: null,
+      exchange: null, micCode: null, currency: accountCurrency, country: null,
+      eodhdSymbol: null, yahooSymbol: null, lastPrice: null, lastPriceAt: null,
+      peaEligible: null, origin: "catalog", confidence: "needs_review",
+    });
+    setUnlisted(false);
+    setUnlistedName("");
   }
 
   const envLabel = config.kind === "CTO" ? "Compte-titres" : "PEA";
@@ -1727,21 +1818,21 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
           )}
           {accounts.length > 1 && !isEditing && (
             <label className="pea-field pea-field-wide">
-              <span>Compte</span>
-              <select value={accountId} onChange={(event) => { setAccountId(event.target.value); const next = accounts.find((item) => item.id === event.target.value); if (next) setCurrency(next.currency); }}>
+              <span className="pea-field-label">Compte</span>
+              <select value={accountId} onChange={(event) => { setAccountId(event.target.value); const next = accounts.find((item) => item.id === event.target.value); if (next) setAccountCurrency(next.currency); }}>
                 {accounts.map((item) => <option key={item.id} value={item.id}>{item.name}{item.institution ? ` · ${item.institution}` : ""}</option>)}
               </select>
             </label>
           )}
           {restrictToAchat ? (
             <label className="pea-field">
-              <span>Type d’opération</span>
+              <span className="pea-field-label">Type d’opération</span>
               <input value="Achat" readOnly aria-readonly="true" />
             </label>
           ) : (
             <label className="pea-field">
-              <span>Type d’opération</span>
-              <select value={type} onChange={(event) => setType(event.target.value as AccountOperationType)}>
+              <span className="pea-field-label">Type d’opération</span>
+              <select value={type} onChange={(event) => { setType(event.target.value as AccountOperationType); setSelection(null); setUnlisted(false); }}>
                 {config.investCards.map((value) => <option key={value} value={value}>{OP_LABEL[value]}</option>)}
                 {!config.investCards.includes("correction") && <option value="correction">Correction</option>}
                 {/* En modification, le type d'origine reste proposé même s'il n'est pas dans les cartes. */}
@@ -1750,42 +1841,128 @@ function InvestmentOperationModal({ config, accounts, defaultAccountId, defaultT
             </label>
           )}
           <label className="pea-field">
-            <span>Date</span>
+            <span className="pea-field-label">Date{type === "dividende" ? " de paiement" : ""}</span>
             <input type="date" value={date} max={todayISO()} onChange={(event) => setDate(event.target.value)} required />
           </label>
+
+          {/* ÉTAPE 1 / ÉTAPE 2 — visibles dans la même modale, sans navigation. */}
           {needsAsset && (
-            <>
-              <label className="pea-field pea-field-wide"><span>Nom de l’actif</span><input value={assetName} onChange={(event) => setAssetName(event.target.value)} placeholder="Amundi MSCI World" /></label>
-              <label className="pea-field"><span>Ticker</span><input value={ticker} onChange={(event) => setTicker(event.target.value)} placeholder="CW8" /></label>
-              <label className="pea-field"><span>ISIN</span><input value={isin} onChange={(event) => setIsin(event.target.value)} placeholder="FR0010315770" /></label>
-            </>
+            <ol className="asset-steps pea-field-wide" aria-label="Étapes de saisie">
+              <li className={selection ? "is-done" : "is-current"}>
+                <span className="asset-step-dot" aria-hidden="true">{selection ? "✓" : "1"}</span>Identifier l’actif
+              </li>
+              <li className={selection ? "is-current" : ""}>
+                <span className="asset-step-dot" aria-hidden="true">2</span>Saisir l’opération
+              </li>
+            </ol>
           )}
-          {(needsQtyPrice || needsQtyOnly) && (
-            <label className="pea-field"><span>Quantité{needsQtyOnly ? " (signée)" : ""}</span><input type="number" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} required={needsQtyPrice} /></label>
+
+          {needsAsset && !unlisted && (
+            <AssetSearchField
+              value={selection}
+              onSelect={setSelection}
+              accountId={accountId}
+              restrictTo={heldOnly ? heldCandidates : null}
+              label={heldOnly ? "Sélectionner une position détenue" : "Rechercher une action, un ETF ou un fonds"}
+              onUnlisted={heldOnly ? undefined : () => setUnlisted(true)}
+            />
           )}
-          {needsQtyPrice && (
-            <label className="pea-field"><span>Prix unitaire{isTransfer ? " (prix de revient repris)" : ""}</span><input type="number" step="any" min="0" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} required={!isTransfer} /></label>
+
+          {needsAsset && unlisted && (
+            <div className="pea-field pea-field-wide asset-unlisted">
+              <b>Actif non coté</b>
+              <p>Sa valorisation restera <b>manuelle</b> : aucune synchronisation automatique de cours ne sera proposée.</p>
+              <div className="asset-unlisted-grid">
+                <label className="pea-field"><span className="pea-field-label">Nom</span><input value={unlistedName} onChange={(event) => setUnlistedName(event.target.value)} placeholder="Parts de SCI familiale" /></label>
+                <label className="pea-field">
+                  <span className="pea-field-label">Type</span>
+                  <select value={unlistedType} onChange={(event) => setUnlistedType(event.target.value as NormalizedAssetType)}>
+                    {ASSET_TYPES.map((value) => <option key={value} value={value}>{CATALOG_TYPE_LABEL[value]}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="asset-empty-actions">
+                <button type="button" className="secondary-button" onClick={() => setUnlisted(false)}>Revenir à la recherche</button>
+                <button type="button" className="primary-button" onClick={confirmUnlisted} disabled={!unlistedName.trim()}>Utiliser cet actif</button>
+              </div>
+            </div>
           )}
-          {needsAmount && (
-            <label className="pea-field"><span>Montant{type === "dividende" ? " net" : ""}</span><input type="number" step="any" min="0" value={amount} onChange={(event) => setAmount(event.target.value)} required /></label>
+
+          {/* ÉTAPE 2 — n'apparaît qu'une fois l'identité verrouillée. */}
+          {assetReady && (needsQtyPrice || needsQtyOnly) && (
+            <label className="pea-field">
+              <span className="pea-field-label">Quantité{needsQtyOnly ? " (signée)" : type === "vente" ? " vendue" : ""}</span>
+              <input type="number" step="any" inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} required={needsQtyPrice}
+                max={heldOnly && availableQuantity !== null ? availableQuantity : undefined} />
+              {heldOnly && availableQuantity !== null && (
+                <small className="pea-field-hint">{availableQuantity} détenu(s) sur ce compte</small>
+              )}
+            </label>
           )}
-          {showCurrency && (
-            <label className="pea-field"><span>Devise</span><input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={3} placeholder="EUR" /></label>
+          {assetReady && needsQtyPrice && (
+            <label className="pea-field">
+              <span className="pea-field-label">{isTransfer ? "Prix de revient repris" : type === "vente" ? "Prix de vente" : "Prix unitaire"}{currency !== "EUR" ? ` (${currency})` : ""}</span>
+              <input type="number" step="any" min="0" inputMode="decimal" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} required={!isTransfer} />
+              {/* Aide FACULTATIVE : le prix reste celui de l'opération historique, jamais remplacé
+                  d'office par le cours du jour. L'action est explicite et le champ reste modifiable. */}
+              {selection?.lastPrice !== null && selection?.lastPrice !== undefined && quoteDateLabel && (
+                <button type="button" className="asset-quote-hint" onClick={() => setUnitPrice(String(selection.lastPrice))}>
+                  ↺ Utiliser le cours du {quoteDateLabel}
+                </button>
+              )}
+            </label>
           )}
-          {(needsQtyPrice || type === "frais") && (
-            <label className="pea-field"><span>Frais</span><input type="number" step="any" min="0" value={fees} onChange={(event) => setFees(event.target.value)} /></label>
+          {assetReady && needsAmount && (
+            <label className="pea-field">
+              <span className="pea-field-label">Montant{type === "dividende" ? " net" : ""}{currency !== "EUR" ? ` (${currency})` : ""}</span>
+              <input type="number" step="any" min="0" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required />
+            </label>
           )}
-          {advanced && type === "dividende" && (
-            <label className="pea-field"><span>Retenue / taxes</span><input type="number" step="any" min="0" value={taxes} onChange={(event) => setTaxes(event.target.value)} /></label>
+          {assetReady && (needsQtyPrice || type === "frais") && (
+            <label className="pea-field">
+              <span className="pea-field-label">Frais</span>
+              <input type="number" step="any" min="0" inputMode="decimal" value={fees} onChange={(event) => setFees(event.target.value)} />
+            </label>
           )}
-          {advanced && showCurrency && currency !== "EUR" && (
-            <label className="pea-field"><span>Taux de change → EUR (facultatif)</span><input type="number" step="any" min="0" value={exchangeRate} onChange={(event) => setExchangeRate(event.target.value)} placeholder="ex. 0,92" /></label>
+          {assetReady && needsQtyPrice && currency !== "EUR" && (
+            <label className="pea-field">
+              <span className="pea-field-label">Montant payé en EUR (facultatif)</span>
+              <input type="number" step="any" min="0" inputMode="decimal" value={paidEur} onChange={(event) => setPaidEur(event.target.value)} />
+              <small className="pea-field-hint">Conserve le coût réellement subi, sans reconversion au taux courant.</small>
+            </label>
           )}
-          <label className="pea-field pea-field-wide"><span>Note (facultatif)</span><input value={note} onChange={(event) => setNote(event.target.value)} /></label>
+
+          {assetReady && total !== null && needsQtyPrice && (
+            <div className="asset-total pea-field-wide">
+              <div>
+                <span>Montant total</span>
+                <b>{money(total, currency)}</b>
+              </div>
+              <small>{quantity} × {money(priceNumber, currency)}{feesNumber ? ` + ${money(feesNumber, currency)}` : ""}</small>
+            </div>
+          )}
+
+          {assetReady && (
+            <details className="asset-more pea-field-wide" open={moreOpen} onToggle={(event) => setMoreOpen((event.currentTarget as HTMLDetailsElement).open)}>
+              <summary>⚙ Options supplémentaires</summary>
+              <div className="asset-more-body">
+                {advanced && type === "dividende" && (
+                  <label className="pea-field"><span className="pea-field-label">Retenue / taxes</span><input type="number" step="any" min="0" inputMode="decimal" value={taxes} onChange={(event) => setTaxes(event.target.value)} /></label>
+                )}
+                <label className="pea-field pea-field-wide">
+                  <span className="pea-field-label">Note {type === "correction" ? "(motif obligatoire)" : "(facultatif)"}</span>
+                  <input value={note} onChange={(event) => setNote(event.target.value)} required={type === "correction"} />
+                </label>
+              </div>
+            </details>
+          )}
+
           {error && <p className="pea-form-error" role="alert">{error}</p>}
           <div className="pea-form-actions">
             <button type="button" className="secondary-button" onClick={onClose}>Annuler</button>
-            <button type="submit" className="primary-button" disabled={saving}>{saving ? "Enregistrement…" : isEditing ? "Enregistrer les modifications" : "Enregistrer"}</button>
+            <button type="submit" className="primary-button" disabled={saving || !assetReady || overSells}>
+              {saving ? "Enregistrement…" : isEditing ? "Enregistrer les modifications" : needsAsset ? "Ajouter l’opération" : "Enregistrer"}
+            </button>
           </div>
         </form>
       </section>

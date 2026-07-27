@@ -1,6 +1,7 @@
 import { authErrorResponse, requireFamilyMember } from "../../../lib/auth-server";
 import { supabaseRest } from "../../../lib/supabase-rest";
 import { buildOperationRecord, type OperationInput } from "../../../lib/account-operation";
+import { applySelection } from "../../../lib/asset-catalog-server";
 import { loadImportAccount } from "../../../lib/investment-import-server";
 import { authorizeMemberOperation } from "../../../lib/investment-plan";
 import { reconcileMemberForActive } from "../../../lib/challenges-service";
@@ -33,7 +34,7 @@ function setupResponse(error: unknown) {
 export async function POST(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
-    const body = (await request.json()) as OperationInput & { accountId?: string };
+    const body = (await request.json()) as OperationInput & { accountId?: string; selection?: unknown };
     if (!body.accountId) return Response.json({ error: "Le compte est obligatoire." }, { status: 400 });
 
     // Identité + éligibilité du compte : chargées côté serveur, jamais fournies par le client.
@@ -45,10 +46,17 @@ export async function POST(request: Request) {
     });
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
 
+    // La cotation sélectionnée est OBLIGATOIRE ici : cette route ne sert qu'à des achats, et un
+    // achat porte toujours un actif. Nom, ticker, ISIN et devise sont réécrits depuis la sélection,
+    // ce qui rend inopérant tout champ d'identité forgé dans le corps de la requête.
+    const applied = await applySelection(body.selection);
+    if (!applied) return Response.json({ error: "Sélectionnez un actif dans la liste avant d'enregistrer." }, { status: 400 });
+    if (!applied.ok) return Response.json({ error: applied.error }, { status: 422 });
+
     // member_id FORCÉ depuis le compte (== viewer.id, déjà vérifié) ; type forcé 'achat' ;
     // source tracée. Le corps ne peut pas injecter member_id (buildOperationRecord ne lit que
     // extras.memberId).
-    const built = buildOperationRecord({ ...body, type: "achat" }, { memberId: account!.memberId, source: "member_manual" });
+    const built = buildOperationRecord({ ...body, ...applied.fields, type: "achat" }, { memberId: account!.memberId, source: "member_manual" });
     if (!built.ok) return Response.json({ error: built.error }, { status: 400 });
 
     const rows = await supabaseRest<Array<{ id: string }>>("account_operations", {

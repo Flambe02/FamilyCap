@@ -141,7 +141,9 @@
 @keyframes pea-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* ---- Modale d'opération (réutilise le chrome partagé .modal / .modal-backdrop) ---- */
-.pea-modal.modal { width: min(560px, 100%); }
+/* Élargie de 560 à 640px : la liste de résultats doit tenir une ligne « nom · type » puis
+   « ticker · place · devise » sans se replier, sinon deux cotations deviennent indiscernables. */
+.pea-modal.modal { width: min(640px, 100%); }
 .pea-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .pea-modal-head h2 { margin: 8px 0 0; font-family: var(--font-display-stack); font-size: 22px; font-weight: 600; }
 .pea-modal-close { flex: 0 0 auto; }
@@ -153,6 +155,76 @@
 .pea-field input:focus-visible, .pea-field select:focus-visible { outline: 3px solid var(--amber); outline-offset: 1px; }
 .pea-form-error { grid-column: 1 / -1; margin: 0; color: #c0392b; font-size: 12px; font-weight: 600; }
 .pea-form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ---- Recherche et sélection d'un actif coté (étape 1 de la modale) --------------------
+   `.pea-field span` (ci-dessus) met TOUT span descendant en 10px/majuscules : c'est voulu
+   pour les libellés de champ, mais cela écraserait le nom d'un actif et son ISIN. On neutralise
+   donc l'héritage sur les blocs d'actif AVANT de les styler — sans toucher la règle d'origine,
+   qui reste celle de tous les autres champs du formulaire. */
+.pea-field .asset-selected span, .pea-field .asset-results span,
+.pea-field .asset-empty span, .pea-field .asset-unlisted p,
+.pea-field .asset-search-box span {
+  font-size: inherit; font-weight: inherit; letter-spacing: normal; text-transform: none; color: inherit;
+}
+.pea-field-hint { font-size: 11px; font-weight: 500; letter-spacing: normal; text-transform: none; color: var(--muted); }
+
+/* Fil des deux étapes — informatif, sans navigation : tout tient dans la même modale. */
+.asset-steps { display: flex; align-items: center; gap: 10px; margin: 2px 0 0; padding: 0; list-style: none; }
+.asset-steps li { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.asset-steps li + li::before { content: ""; width: 46px; height: 1px; background: var(--line); margin-right: 4px; }
+.asset-steps .asset-step-dot { display: inline-flex; align-items: center; justify-content: center; width: 21px; height: 21px; border-radius: 50%; background: #eef1f3; color: var(--muted); font-size: 11px; font-weight: 800; }
+.asset-steps li.is-current { color: var(--ink); }
+.asset-steps li.is-current .asset-step-dot { background: var(--ink); color: #fff; }
+.asset-steps li.is-done { color: var(--teal); }
+.asset-steps li.is-done .asset-step-dot { background: var(--teal-soft); color: var(--teal); }
+
+.asset-search { position: relative; }
+.asset-search-box { position: relative; display: flex; align-items: center; }
+.asset-search-box input { width: 100%; }
+.asset-search-box.is-loading input { padding-right: 34px; }
+.asset-search-spinner { position: absolute; right: 11px; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--teal); border-radius: 50%; animation: asset-spin .7s linear infinite; }
+@keyframes asset-spin { to { transform: rotate(360deg); } }
+.asset-search-note { grid-column: auto; margin-top: 6px; }
+
+.asset-results { list-style: none; margin: 6px 0 0; padding: 4px; max-height: 292px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow); }
+.asset-hit { display: flex; flex-direction: column; gap: 3px; padding: 10px 11px; border-radius: 9px; cursor: pointer; }
+.asset-hit.is-active { background: var(--teal-soft); }
+.asset-hit-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.asset-hit-name { font-size: 14px; font-weight: 700; color: var(--ink); }
+.asset-hit-type { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; background: #eef1f3; font-size: 10px; font-weight: 700; color: var(--muted); }
+.asset-hit-line { font-size: 12px; font-weight: 600; color: var(--ink); }
+.asset-hit-meta { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.asset-hit-price { white-space: nowrap; }
+
+/* Sélection verrouillée : nom, type, ticker, place, devise et ISIN ne sont plus modifiables
+   séparément — c'est la cotation entière qui a été choisie. */
+.asset-selected { display: flex; align-items: flex-start; gap: 11px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.asset-selected-check { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--teal-soft); color: var(--teal); font-weight: 800; }
+.asset-selected-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
+.asset-change { flex: 0 0 auto; border: 0; background: none; padding: 0; color: var(--teal); font-size: 12px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+
+.asset-quote-hint { align-self: flex-start; margin-top: 2px; border: 0; background: none; padding: 0; color: var(--teal); font-size: 11px; font-weight: 600; cursor: pointer; }
+
+.asset-total { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; padding: 13px 15px; border-radius: 12px; background: var(--teal-soft); }
+.asset-total > div { display: flex; flex-direction: column; gap: 2px; }
+.asset-total span { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--teal); }
+.asset-total b { font-family: var(--font-display-stack); font-size: 24px; font-weight: 600; color: var(--ink); }
+.asset-total small { font-size: 11px; color: var(--muted); }
+
+.asset-empty { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding: 14px; border: 1px dashed var(--line); border-radius: 12px; }
+.asset-empty b { font-size: 13px; color: var(--ink); }
+.asset-empty span { font-size: 12px; color: var(--muted); }
+.asset-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+.asset-unlisted { gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--cream); }
+.asset-unlisted b { font-size: 13px; color: var(--ink); }
+.asset-unlisted p { margin: 0; font-size: 12px; color: var(--muted); }
+.asset-unlisted-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
+
+.asset-more { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.asset-more > summary { padding: 11px 14px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; list-style: none; }
+.asset-more > summary::-webkit-details-marker { display: none; }
+.asset-more-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0 14px 14px; }
 
 /* ---- Proportions des blocs (desktop) --------------------------------------------------
    Scopé à `.pea-page` (et donc `.cto-page`, qui la porte aussi) : l'écran Bitcoin, qui
@@ -180,6 +252,22 @@
   .pea-account-select select { max-width: none; width: 100%; }
   .pea-form { grid-template-columns: 1fr; }
   .pea-regular-actions button { flex: 1 1 100%; }
+
+  /* --- Modale d'opération en panneau plein écran ---
+     Une liste de résultats dans une boîte flottante de 300px est inutilisable au doigt : sur
+     mobile la modale occupe l'écran, les résultats défilent verticalement (jamais de tableau
+     horizontal) et la barre d'action reste collée en bas, toujours atteignable. */
+  .pea-modal.modal { width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; border-radius: 0; display: flex; flex-direction: column; overflow-y: auto; }
+  .pea-modal .pea-form { flex: 1 1 auto; }
+  .asset-steps li + li::before { width: 20px; }
+  .asset-results { max-height: none; box-shadow: none; }
+  /* Cible tactile confortable (≈ 56px) sur toute la largeur de la ligne. */
+  .asset-hit { padding: 13px 12px; }
+  .asset-hit-meta { flex-direction: column; gap: 2px; }
+  .asset-unlisted-grid, .asset-more-body { grid-template-columns: 1fr; }
+  .asset-total { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .pea-modal .pea-form-actions { position: sticky; bottom: 0; margin: 0 -4px -4px; padding: 12px 4px calc(4px + env(safe-area-inset-bottom)); background: var(--paper); border-top: 1px solid var(--line); }
+  .pea-modal .pea-form-actions button { flex: 1 1 0; }
   .imp-summary { flex-wrap: wrap; }
   .imp-mapping-grid { grid-template-columns: 1fr; }
 

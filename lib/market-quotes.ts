@@ -91,28 +91,67 @@ function suffixOf(symbol: string): string {
 // ==========================================================================================
 type YahooSearchQuote = { symbol?: string; shortname?: string; longname?: string; exchDisp?: string; quoteType?: string; score?: number };
 
+/** Un résultat de recherche, tel que le fournisseur le renvoie — aucun champ complété d'office. */
+export type InstrumentSearchHit = {
+  symbol: string;
+  name: string | null;
+  exchangeLabel: string | null;
+  quoteType: string | null;
+};
+
+/**
+ * Recherche d'instruments chez le fournisseur (une requête, un terme). SERVEUR UNIQUEMENT : le
+ * navigateur n'appelle jamais Yahoo, il passe par /api/instruments/search.
+ *
+ * Contrairement à `resolveSymbols`, on CONSERVE ici le nom, la place et le type renvoyés : c'est
+ * précisément ce qui permet à l'utilisateur de distinguer deux cotations d'un même ticker. Les
+ * jeter était la raison pour laquelle aucune interface ne pouvait s'appuyer sur cette fonction.
+ *
+ * VALEUR DE RETOUR À TROIS ÉTATS, volontairement :
+ *   - un tableau NON VIDE : des cotations correspondent ;
+ *   - un tableau VIDE     : le fournisseur a répondu, rien ne correspond → « Aucun actif trouvé » ;
+ *   - `null`              : le fournisseur n'a PAS répondu → « recherche indisponible, réessayez ».
+ * Confondre les deux derniers cas envoie l'utilisateur corriger une saisie pourtant correcte.
+ */
+export async function searchInstruments(query: string): Promise<InstrumentSearchHit[] | null> {
+  const term = String(query ?? "").trim();
+  if (term.length < 2) return [];
+  try {
+    const url = `${YAHOO_SEARCH}?q=${encodeURIComponent(term)}&quotesCount=12&newsCount=0&enableFuzzyQuery=false`;
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return null; // 4xx/5xx/429 : indisponibilité, pas une absence de résultat
+    const data = (await response.json()) as { quotes?: YahooSearchQuote[] };
+    const hits: InstrumentSearchHit[] = [];
+    for (const quote of data.quotes ?? []) {
+      const symbol = String(quote.symbol ?? "").trim();
+      const type = String(quote.quoteType ?? "").toUpperCase();
+      if (!symbol || (type && type !== "EQUITY" && type !== "ETF" && type !== "MUTUALFUND")) continue;
+      if (hits.some((hit) => hit.symbol === symbol)) continue;
+      hits.push({
+        symbol,
+        name: (quote.longname ?? quote.shortname ?? null) || null,
+        exchangeLabel: (quote.exchDisp ?? null) || null,
+        quoteType: type || null,
+      });
+    }
+    return hits;
+  } catch {
+    return null; // réseau coupé / délai dépassé : l'appelant décide du message, on n'invente rien
+  }
+}
+
 /** Résout un identifiant (ISIN de préférence) en symboles Yahoo candidats, du plus au moins pertinent. */
 export async function resolveSymbols(target: QuoteTarget): Promise<string[]> {
   const queries = [target.isin, target.ticker, target.name]
     .map((value) => String(value ?? "").trim())
     .filter((value) => value.length >= 2);
-  const found: string[] = [];
   for (const query of queries) {
-    try {
-      const url = `${YAHOO_SEARCH}?q=${encodeURIComponent(query)}&quotesCount=8&newsCount=0&enableFuzzyQuery=false`;
-      const response = await fetchWithTimeout(url);
-      if (!response.ok) continue;
-      const data = (await response.json()) as { quotes?: YahooSearchQuote[] };
-      for (const quote of data.quotes ?? []) {
-        const symbol = String(quote.symbol ?? "").trim();
-        const type = String(quote.quoteType ?? "").toUpperCase();
-        if (!symbol || (type && type !== "EQUITY" && type !== "ETF" && type !== "MUTUALFUND")) continue;
-        if (!found.includes(symbol)) found.push(symbol);
-      }
-      if (found.length > 0) return found.slice(0, 6); // une recherche fructueuse suffit
-    } catch { /* fournisseur indisponible → on tente la requête suivante */ }
+    const hits = await searchInstruments(query);
+    // `null` (fournisseur muet) et `[]` (aucune correspondance) mènent tous deux à la requête
+    // suivante : ici, seul un résultat exploitable arrête la recherche.
+    if (hits && hits.length > 0) return hits.map((hit) => hit.symbol).slice(0, 6);
   }
-  return found.slice(0, 6);
+  return [];
 }
 
 /** Cours d'un symbole Yahoo (prix, devise, horodatage). null si indisponible. */
