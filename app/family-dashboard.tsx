@@ -22,6 +22,7 @@ const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((
 const InvestingRulesLesson = dynamic(() => import("./lesson-investing-rules").then((module) => module.InvestingRulesLesson));
 const SavingsTimeLesson = dynamic(() => import("./lesson-savings-time").then((module) => module.SavingsTimeLesson));
 import type { AccountOperation } from "../lib/portfolio-account";
+import { investmentWealth } from "../lib/home-portfolio";
 import { isChallengeEligible, toFamilyRole, type Viewer } from "../lib/auth-types";
 import type { FxRateRow } from "../lib/fx-rates";
 import { getAccessToken } from "../lib/supabase-session";
@@ -379,22 +380,13 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
     const bitcoinCost = scoped.reduce((sum, record) => sum + Math.max(0, Number(record.amount_eur) || 0), 0);
     const bitcoinValueEur = bitcoinEur && bitcoinEur > 0 ? btc * bitcoinEur : null;
 
-    // PEA & compte-titres : positions valorisées (quantité × dernier cours), limitées au
-    // périmètre affiché (toute la famille pour l'admin, sinon le membre courant).
+    // PEA & compte-titres : valeur DÉRIVÉE des opérations par le moteur partagé, exactement comme
+    // les écrans PEA et Compte-titres — le tableau de bord ne peut donc pas en diverger. Le détail
+    // et le piège `holdings.quantity` sont documentés dans lib/home-portfolio.ts.
     const scopedAccounts = family ? portfolioAccounts : portfolioAccounts.filter((account) => account.memberName === effectiveViewer.name);
-    const perAccount = new Map<string, { value: number; cost: number }>();
-    for (const holding of portfolioHoldings) {
-      const value = holding.quantity * (holding.last_price ?? 0);
-      const cost = holding.quantity * (holding.average_cost ?? 0);
-      const current = perAccount.get(holding.account_id) ?? { value: 0, cost: 0 };
-      perAccount.set(holding.account_id, { value: current.value + value, cost: current.cost + cost });
-    }
-    const bucket = (type: string) => scopedAccounts.filter((account) => account.accountType === type).reduce((acc, account) => {
-      const totals = perAccount.get(account.id) ?? { value: 0, cost: 0 };
-      return { value: acc.value + totals.value, cost: acc.cost + totals.cost };
-    }, { value: 0, cost: 0 });
-    const pea = bucket("pea");
-    const cto = bucket("securities");
+    const { pea, cto } = investmentWealth({
+      accounts: scopedAccounts, holdings: portfolioHoldings, operations: portfolioOperations, fxRates: portfolioFxRates,
+    });
 
     // Le Bitcoin n'entre dans le patrimoine que si son cours est connu (sinon on n'affiche
     // pas un total partiel trompeur). Chaque classe d'actif n'apparaît que si elle est > 0.
@@ -406,7 +398,9 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
     if (cto.value > 0) assets.push({ key: "Compte-titres", color: "#3aa17e", value: cto.value, cost: cto.cost });
     const total = assets.reduce((sum, asset) => sum + asset.value, 0);
 
-    const valueEur = btcUnpriced ? null : total;
+    // Une classe non valorisable rend le TOTAL indisponible plutôt que faussement complet :
+    // afficher la somme des seules classes connues laisserait croire à un patrimoine entier.
+    const valueEur = btcUnpriced || pea.unpriced || cto.unpriced ? null : total;
     const repartition: HomeAsset[] = btcUnpriced
       ? [{ key: "Bitcoin", color: "#f0a63a", valueEur: null, pct: 100, qty: btcQty }]
       : total > 0
@@ -437,7 +431,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
     const birthday = homeBirthdayInfo(effectiveViewer.name, !family, familyBirthdays);
     const hasAssets = btc > 0 || pea.value > 0 || cto.value > 0;
     return { btc, bitcoinValueEur, valueEur, gainEur, gainPct, investedMonth, operations, repartition, birthday, hasAssets };
-  }, [familyGiftRecords, bitcoinEur, portfolioAccounts, portfolioHoldings, viewer.role, isPreview, effectiveViewer.name, familyBirthdays]);
+  }, [familyGiftRecords, bitcoinEur, portfolioAccounts, portfolioHoldings, portfolioOperations, portfolioFxRates, viewer.role, isPreview, effectiveViewer.name, familyBirthdays]);
 
   // Relance volontaire (visite, sans écriture) et reprise d'un parcours reporté (mode obligatoire).
   function replayOnboarding() { setOnboardingOverlay({ mode: "tour" }); }
@@ -737,7 +731,9 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           // La section est rendue dès que le membre y a droit — le contenu s'adapte au statut.
           // La conditionner aux DONNÉES la faisait disparaître sur la moindre défaillance.
           challengesSection={challengesEligible ? <ChallengesDashboardSection state={challengesView} navigate={navigate} /> : null}
-          checklist={challengesEligible ? <OnboardingChecklist key={checklistToken} compact={challengesView.status === "ready"} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null}
+          // Dès que les Défis sont chargés, ils portent déjà la carte « Bien démarrer » : la
+          // checklist de découverte ne s'affiche plus, pour ne pas doubler la même consigne.
+          checklist={challengesEligible && challengesView.status !== "ready" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null}
         />}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} onOpenTransactions={openFilteredTransactions} />}

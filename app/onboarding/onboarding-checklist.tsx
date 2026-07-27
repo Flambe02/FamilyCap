@@ -24,8 +24,8 @@ type Task = { key: string; label: string; done: boolean; view: View; track: bool
 // Carte compacte de progression sur le tableau de bord. Adapte les tâches aux modules choisis,
 // n'invente jamais d'action indisponible, se masque quand tout est fait, et peut être masquée
 // puis rouverte depuis Paramètres. Le report affiche un rappel « Reprendre ».
-export function OnboardingChecklist({ viewer, navigate, onResume, compact = false }: {
-  viewer: Viewer; navigate: (view: View) => void; onResume: () => void; compact?: boolean;
+export function OnboardingChecklist({ viewer, navigate, onResume }: {
+  viewer: Viewer; navigate: (view: View) => void; onResume: () => void;
 }) {
   const [state, setState] = useState<OnboardingState | null>(null);
   const [context, setContext] = useState<OnboardingContext | null>(null);
@@ -94,18 +94,10 @@ export function OnboardingChecklist({ viewer, navigate, onResume, compact = fals
     setDismissed(true);
   }
 
-  // Le parcours général reste disponible après les Défis, sans créer une seconde grande
-  // carte « Bien démarrer » ni mélanger les missions d'investissement avec la découverte.
-  if (compact) {
-    return (
-      <section className="panel home-card ob-checklist ob-checklist-compact" aria-label={c.title}>
-        <div><h3 className="home-card-kicker">Parcours de découverte</h3><p>{c.progress(doneCount, tasks.length)}</p></div>
-        {!completed && <button type="button" className="ob-checklist-compact-cta" onClick={onResume}>{c.resumeCta} →</button>}
-        <button type="button" className="ob-checklist-dismiss" onClick={dismiss}>{onboardingCopy.checklist.dismiss}</button>
-      </section>
-    );
-  }
-
+  // Une seule forme de carte. La variante compacte « Parcours de découverte », affichée quand les
+  // Défis étaient actifs, a été retirée : elle faisait doublon avec la carte « Bien démarrer »
+  // déjà présente dans « Mes défis ». Le tableau de bord n'affiche donc plus cette checklist dès
+  // que les Défis prennent le relais (voir le point d'appel dans family-dashboard.tsx).
   return (
     <section className="panel home-card ob-checklist" aria-label={c.title}>
       <div className="ob-checklist-head">
