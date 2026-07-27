@@ -998,6 +998,19 @@ function Dashboard({ name, navigate, home, marketLoading, checklist, challengesS
   const gainText = showGain
     ? `${gainPositive ? "+" : "−"}${euro.format(Math.abs(home.gainEur as number))} (${gainPositive ? "+" : "−"}${Math.abs(home.gainPct as number).toFixed(1).replace(".", ",")} %)`
     : "";
+
+  // Ouvre l'écran de la classe d'actif cliquée dans la légende, directement sur son onglet
+  // Revenus pour PEA/CTO — même mécanisme que la restauration d'écran au chargement
+  // (`viewForHash` ci-dessus, `#pea/…` et `#cto/…` sont déjà les ancres réelles de ces écrans).
+  // Bitcoin n'a pas cet onglet : un clic y ouvre simplement l'écran.
+  function openWealthAsset(key: string) {
+    // `history.replaceState`, pas une affectation directe à `location.hash` : même idiome que
+    // `setTab()` dans investment-account.tsx pour poser l'ancre `#pea/…` / `#cto/…` sans recharger.
+    if (key === "PEA" && typeof window !== "undefined") window.history.replaceState(null, "", "#pea/revenus");
+    if (key === "Compte-titres" && typeof window !== "undefined") window.history.replaceState(null, "", "#cto/revenus");
+    navigate(key === "PEA" ? "investissements-pea" : key === "Compte-titres" ? "investissements-comptetitres" : "bitcoin");
+  }
+
   return (
     <div className="content-grid dashboard-home">
       <section className="home-hero">
@@ -1059,7 +1072,15 @@ function Dashboard({ name, navigate, home, marketLoading, checklist, challengesS
                 </div>
                 <ul className="home-legend">
                   {home.repartition.map((asset) => (
-                    <li key={asset.key}>
+                    <li
+                      key={asset.key}
+                      className="home-legend-item"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Ouvrir ${asset.key === "Compte-titres" ? "le compte-titres" : asset.key}`}
+                      onClick={() => openWealthAsset(asset.key)}
+                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openWealthAsset(asset.key); } }}
+                    >
                       <span className="home-legend-dot" aria-hidden="true" style={{ background: asset.color }} />
                       <span className="home-legend-name">{asset.key}</span>
                       <span className="home-legend-val">

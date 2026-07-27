@@ -29,6 +29,7 @@ import {
   type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice, type PortfolioPosition,
 } from "../lib/portfolio-account";
 import { computeMonthlyPlanProgress, type MonthlyPlanProgress } from "../lib/investment-plan";
+import { FLAT_TAX_RATE, dividendToReceive, heldQuantityFor, withEstimatedDividends, yearOf } from "../lib/dividend-projection";
 import { FX_FOOTNOTE, getLatestFxRate, shortRateDate, staleRateNotice, type FxRateRow } from "../lib/fx-rates";
 // Sélection d'un actif coté : remplace les champs libres Nom / Ticker / ISIN / Devise de la modale.
 import { AssetSearchField } from "./asset-search-field";
@@ -1519,6 +1520,15 @@ function HistoriqueTab({ config, operations, accountNameById, canManage, onImpor
 // REVENUS (dividendes)
 // ==========================================================================================
 type AnnouncedDividend = { id: string; ex_date: string; payment_date: string | null; amount_per_share: number | null; currency: string | null; status: string; asset: { name: string; symbol: string | null; isin: string | null } | null };
+
+// « Déc. 2026 » : mois en toutes lettres, mis en évidence dans sa propre colonne (voir le libellé
+// « montre bien les mois » — un mois isolé se repère bien plus vite qu'enfoui dans une date complète).
+const monthYearFormat = new Intl.DateTimeFormat("fr-FR", { month: "short", year: "numeric", timeZone: "UTC" });
+function monthYearLabel(iso: string): string {
+  const label = monthYearFormat.format(new Date(`${iso}T00:00:00Z`));
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 function RevenusTab({ model, operations, accountIds }: { model: AccountModel; operations: InvestmentOperation[]; accountIds: string[] }) {
   const dividends = operations.filter((op) => op.type === "dividende").sort((a, b) => b.date.localeCompare(a.date));
   const [announced, setAnnounced] = useState<AnnouncedDividend[]>([]);
@@ -1539,6 +1549,14 @@ function RevenusTab({ model, operations, accountIds }: { model: AccountModel; op
       .finally(() => { if (active) setAnnouncedLoading(false); });
     return () => { active = false; };
   }, [accountIdsKey]);
+
+  // Complète les annonces réelles par une projection « Estimé » quand la période équivalente de
+  // l'année en cours n'a pas encore été communiquée par le fournisseur — jamais stocké, jamais
+  // présenté comme confirmé (lib/dividend-projection.ts).
+  const projected = useMemo(() => withEstimatedDividends(announced, todayISO()), [announced]);
+  const hasEstimated = projected.some((event) => event.estimated);
+  const isCto = model.accountType === "CTO";
+
   return (
     <>
       <section className="panel btc-synth">
@@ -1551,8 +1569,53 @@ function RevenusTab({ model, operations, accountIds }: { model: AccountModel; op
       </section>
       <section className="panel btc-ops-card">
         <h3 className="btc-panel-kicker">DIVIDENDES ANNONCÉS</h3>
-        <p className="btc-chart-source">Annonce fournisseur uniquement : elle ne crée jamais un dividende encaissé ni une opération.</p>
-        {announcedLoading ? <p className="inv-muted">Chargement des annonces…</p> : announced.length === 0 ? <EmptyState title="Aucun dividende annoncé" description="Les annonces EODHD apparaîtront après une synchronisation réussie." /> : <ul className="btc-ops">{announced.slice(0, 12).map((event) => <li key={event.id}><span className="btc-ops-mark" aria-hidden="true">◌</span><div className="btc-ops-info"><strong>{event.asset?.name ?? "Actif"}</strong><small>Dividende annoncé · détachement {dateOf(event.ex_date)}</small></div><div className="btc-ops-amount"><b>{event.amount_per_share === null ? "Montant non communiqué" : money(event.amount_per_share, event.currency ?? "EUR")}</b><small>{event.payment_date ? `paiement ${dateOf(event.payment_date)}` : "date de paiement inconnue"}</small></div></li>)}</ul>}
+        <p className="btc-chart-source">
+          {isCto
+            ? `Brut et net (après un prélèvement forfaitaire simplifié de ${Math.round(FLAT_TAX_RATE * 100)} %), sur la base de vos positions actuelles — une indication, pas une confirmation du fournisseur.`
+            : "Montant brut, sur la base de vos positions actuelles — dans un PEA, il n’est pas soumis au prélèvement forfaitaire tant que le plan reste ouvert."}
+          {hasEstimated && " Les lignes « Estimé » reprennent le dernier montant connu du fournisseur pour la même période, faute de confirmation pour l’année en cours."}
+        </p>
+        {announcedLoading ? (
+          <p className="inv-muted">Chargement des annonces…</p>
+        ) : projected.length === 0 ? (
+          <EmptyState title="Aucun dividende annoncé" description="Les annonces EODHD apparaîtront après une synchronisation réussie." />
+        ) : (
+          <ul className="btc-ops">
+            {projected.slice(0, 12).map((event) => {
+              const heldQty = heldQuantityFor(model.positions, event.asset);
+              const { gross, net } = dividendToReceive({ amountPerShare: event.amount_per_share, quantityHeld: heldQty, accountType: model.accountType });
+              const currency = event.currency ?? "EUR";
+              return (
+                <li key={event.id}>
+                  <span className="btc-ops-mark" aria-hidden="true">◌</span>
+                  <div className="btc-ops-info">
+                    <strong>{event.asset?.name ?? "Actif"}</strong>
+                    <small>
+                      {event.estimated ? (
+                        <><span className="div-estimated-badge">Estimé</span> d’après {yearOf(event.ex_date) - 1}{event.payment_date ? ` · paiement prévu ${dateOf(event.payment_date)}` : ""}</>
+                      ) : (
+                        <>Détachement {dateOf(event.ex_date)}{event.payment_date ? ` · paiement ${dateOf(event.payment_date)}` : ""}</>
+                      )}
+                    </small>
+                  </div>
+                  <div className="btc-ops-amount">
+                    {gross === null ? (
+                      <b>Montant non communiqué</b>
+                    ) : heldQty <= 0 ? (
+                      <small>Non détenu actuellement</small>
+                    ) : (
+                      <>
+                        <b>{money(gross, currency)}</b><small>brut</small>
+                        {net !== null && <><b>{money(net, currency)}</b><small>net</small></>}
+                      </>
+                    )}
+                  </div>
+                  <div className="btc-ops-meta"><span>{monthYearLabel(event.ex_date)}</span></div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
       <section className="panel btc-ops-card">
         <h3 className="btc-panel-kicker">DÉTAIL DES DIVIDENDES</h3>

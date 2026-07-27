@@ -587,6 +587,16 @@
 .inv-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .inv-detail-actions .secondary-button { min-height: 38px; font-size: 12px; }
 
+/* ---- Onglet Revenus : badge « Estimé » ----------------------------------------------------
+   Couleurs reprises de .btc-status-prepare (même ton ambre « pas encore confirmé »), mais sous
+   un nom propre plutôt que la classe .btc-status : celle-ci est ciblée par la règle générique
+   « .btc-ops-meta span » (couleur/taille/affichage), qui casserait le badge s'il portait cette
+   classe à cet endroit précis de la liste. */
+.div-estimated-badge {
+  display: inline-flex; align-items: center; padding: 2px 8px; margin-right: 5px;
+  border-radius: 999px; background: #fff2cf; color: #9d6a00; font-size: 9px; font-weight: 800; white-space: nowrap;
+}
+
 /* ---- Largeur de page des écrans PEA / compte-titres --------------------------------------
    Une liste de positions à six zones a besoin de toute la place disponible entre la barre
    latérale (252 px) et le bord droit. Seuls ces deux écrans l'obtiennent, via `workspace-wide`
