@@ -1,6 +1,7 @@
 "use client";
 
 import { useDialogA11y } from "./use-dialog-a11y";
+import { InvestingRulesIllustration } from "./lesson-investing-rules-illustration";
 import "./lesson-investing-rules.css";
 
 const ESSENTIALS = [
@@ -28,6 +29,7 @@ export function InvestingRulesLesson({ onClose, onDefineRhythm, onOpenPeaPortfol
           <button type="button" onClick={onClose} aria-label="Fermer la leçon">×</button>
         </header>
         <div className="investing-rules-body">
+          <InvestingRulesIllustration variant="hero" label="Un escalier de sept marches régulières illustrant la discipline et la régularité nécessaires pour bien investir." />
           <p className="investing-rules-intro">Investir efficacement ne consiste pas à prévoir chaque mouvement de la Bourse. Il s’agit surtout d’appliquer quelques principes simples avec régularité, patience et discipline.</p>
           <div className="investing-rules-meta" aria-label="Informations sur la leçon"><span>Lecture · 5 min</span><span>Niveau · Débutant</span><span>Thème · Bonnes pratiques</span></div>
 

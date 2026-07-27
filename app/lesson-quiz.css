@@ -1,0 +1,47 @@
+/* Mini-quiz réutilisable (app/lesson-quiz.tsx). Tokens de family.css uniquement : --ink, --teal,
+   --teal-soft, --line, --muted, --coral. Aucune couleur inventée, aucune information qui ne
+   reposerait que sur la couleur (icône + texte à chaque état). */
+
+.lesson-quiz { display: grid; gap: 14px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+
+.lesson-quiz-progress { display: flex; gap: 6px; }
+.lesson-quiz-progress span { flex: 1 1 0; height: 4px; border-radius: 999px; background: var(--line); }
+.lesson-quiz-progress span.is-done { background: var(--teal); }
+
+.lesson-quiz-step { margin: 0; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.lesson-quiz-question { margin: 0; color: var(--ink); font-size: 15px; font-weight: 750; line-height: 1.4; }
+
+.lesson-quiz-options { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lesson-quiz-option {
+  width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 12px; background: #fff;
+  color: var(--ink); font-size: 13px; font-weight: 650; text-align: left; cursor: pointer; transition: .15s;
+}
+.lesson-quiz-option:hover:not(:disabled) { border-color: var(--teal); background: var(--teal-soft); }
+.lesson-quiz-option:disabled { cursor: default; }
+.lesson-quiz-option.is-correct { border-color: var(--teal); background: var(--teal-soft); color: var(--teal); }
+.lesson-quiz-option.is-wrong { border-color: var(--coral); background: #fdece6; color: #c9603f; }
+.lesson-quiz-option.is-muted { opacity: .55; }
+.lesson-quiz-option b { font-size: 16px; }
+
+.lesson-quiz-feedback { margin: 0; padding: 12px 14px; border-radius: 12px; font-size: 12px; line-height: 1.55; }
+.lesson-quiz-feedback.is-correct { background: var(--teal-soft); color: #1d5c58; }
+.lesson-quiz-feedback.is-wrong { background: #fdece6; color: #8a4327; }
+.lesson-quiz-feedback b { display: block; margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+
+.lesson-quiz-error { margin: 0; color: #c9603f; font-size: 11px; }
+
+.lesson-quiz .primary-button { justify-self: start; min-height: 44px; }
+
+.lesson-quiz-result { text-align: center; align-items: center; justify-items: center; padding: 28px 20px; }
+.lesson-quiz-result-icon {
+  width: 48px; height: 48px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--teal-soft); color: var(--teal); font-size: 22px; font-weight: 900;
+}
+.lesson-quiz-result-icon-retry { background: var(--amber-soft); color: #9d6a00; }
+.lesson-quiz-result strong { color: var(--ink); font-size: 15px; }
+.lesson-quiz-result p { margin: 0; color: var(--muted); font-size: 12px; max-width: 360px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lesson-quiz-option { transition: none; }
+}

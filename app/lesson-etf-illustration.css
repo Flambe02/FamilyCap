@@ -1,0 +1,12 @@
+/* Illustration de la leçon « Comprendre un ETF en 5 minutes » + son emplacement sur la carte du
+   catalogue. Même structure que lesson-savings-illustration.css (aspect-ratio par variant), fond
+   clair au lieu du mood bleu nuit — cette leçon demande une page « lumineuse et rassurante ». */
+
+.etf-illu { overflow: hidden; border-radius: 14px; background: #f1f4f1; }
+.etf-illu-svg { display: block; width: 100%; height: 100%; }
+.etf-illu-hero { aspect-ratio: 16 / 9; }
+.etf-illu-card { aspect-ratio: 3 / 2; }
+
+@media (max-width: 780px) {
+  .etf-illu-hero { aspect-ratio: 5 / 3; }
+}

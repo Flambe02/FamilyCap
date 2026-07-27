@@ -1,0 +1,161 @@
+/* Leçon « Comprendre un ETF en 5 minutes ». Modale et tokens partagés avec les autres leçons
+   (family.css : .modal-backdrop, .primary-button, .secondary-button, .sr-only). Seule cette leçon
+   remet à zéro le padding de `.modal` pour porter une barre de progression + un en-tête réellement
+   collants (voir le commentaire en tête de lesson-etf-5min.tsx). */
+
+.etf-lesson-modal { position: relative; width: min(760px, 96vw); max-height: 92vh; overflow: auto; padding: 0; }
+
+.etf-lesson-progress { position: sticky; top: 0; z-index: 8; height: 3px; background: #eef2f2; }
+.etf-lesson-progress span { display: block; height: 100%; background: var(--teal); }
+
+.etf-lesson-header {
+  position: sticky; top: 3px; z-index: 7; display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 14px; padding: 22px 28px 16px; background: #fff;
+}
+.etf-lesson-header span:first-child { display: block; color: var(--teal); font-size: 9px; font-weight: 900; letter-spacing: 1.2px; }
+.etf-lesson-header h2 { margin: 5px 0 0; font-family: var(--font-display-stack); font-weight: 500; font-size: 24px; line-height: 1.2; }
+.etf-lesson-header button { flex: 0 0 auto; border: 0; background: #f0f3f3; width: 33px; height: 33px; border-radius: 10px; font-size: 20px; cursor: pointer; }
+.etf-lesson-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.etf-lesson-meta span { padding: 5px 9px; border-radius: 999px; background: var(--surface-subtle, #f7f9f8); color: var(--muted); font-size: 10px; font-weight: 700; }
+.etf-lesson-reward { display: inline-flex; align-items: center; gap: 4px; background: var(--amber-soft) !important; color: #9d6a00 !important; }
+.etf-lesson-reward svg { width: 11px; height: 11px; }
+
+.etf-lesson-body { display: grid; gap: 24px; padding: 0 28px 28px; }
+
+.etf-intro { max-width: 620px; margin: 0; color: var(--ink); font-size: 14px; line-height: 1.65; }
+
+/* L'essentiel en 20 secondes */
+.etf-essential { padding: 16px 18px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface-subtle, #f7f9f8); }
+.etf-essential h3 { margin: 0 0 12px; color: var(--ink); font-size: 13px; font-weight: 750; }
+.etf-keywords { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 18px; }
+.etf-keywords li { display: flex; align-items: center; gap: 7px; color: var(--ink); font-size: 12px; font-weight: 700; }
+.etf-keywords span:first-child { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--teal-soft); color: var(--teal); }
+.etf-keywords svg { width: 14px; height: 14px; }
+
+/* Sections */
+.etf-section { display: grid; gap: 13px; }
+.etf-section + .etf-section { padding-top: 22px; border-top: 1px solid var(--line); }
+.etf-head { display: flex; align-items: center; gap: 13px; }
+.etf-head-icon { flex: 0 0 auto; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; background: var(--teal-soft); color: var(--teal); }
+.etf-head-icon.tone-amber { background: var(--amber-soft); color: #9d6a00; }
+.etf-head-icon svg { width: 21px; height: 21px; }
+.etf-head-number { display: block; color: var(--teal); font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+.etf-head h3 { margin: 3px 0 0; color: var(--ink); font-size: 16px; font-weight: 700; line-height: 1.3; }
+.etf-section > p { max-width: 620px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.etf-caption { margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+
+/* Section 1 — cartes d'indices + diagramme de flux (HTML/CSS, pas une image) */
+.etf-index-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.etf-index-cards li { display: grid; gap: 4px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.etf-index-cards strong { color: var(--ink); font-size: 12.5px; }
+.etf-index-cards span { color: var(--muted); font-size: 10px; line-height: 1.4; }
+
+.etf-flow { display: grid; justify-items: center; gap: 6px; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface-subtle, #f7f9f8); }
+.etf-flow-box { min-width: 110px; padding: 10px 16px; border-radius: 12px; text-align: center; color: var(--ink); font-size: 15px; font-weight: 800; }
+.etf-flow-box small { display: block; color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.etf-flow-money { background: #fff; border: 1px solid var(--line); }
+.etf-flow-etf { background: var(--teal); color: #fff; }
+.etf-flow-arrow { color: var(--muted); font-size: 16px; line-height: 1; }
+.etf-flow-sectors { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; margin-top: 4px; }
+.etf-flow-sectors span { padding: 6px 11px; border-radius: 999px; color: #fff; font-size: 10.5px; font-weight: 800; }
+
+/* Section 2 — répartition illustrative (barre segmentée) */
+.etf-split-bar { display: flex; height: 34px; border-radius: 10px; overflow: hidden; }
+.etf-split-bar span { display: block; min-width: 4px; }
+
+/* Section 3 — pourquoi les ETF sont populaires */
+.etf-why-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.etf-why-grid li { display: grid; gap: 8px; align-content: start; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.etf-why-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--teal-soft); color: var(--teal); }
+.etf-why-icon svg { width: 21px; height: 21px; }
+.etf-why-grid h4 { margin: 0; color: var(--ink); font-size: 13px; font-weight: 750; }
+.etf-why-grid p { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+.etf-ter-example { color: var(--teal) !important; font-weight: 800 !important; }
+
+/* Section 4 — risques */
+.etf-risk-card { display: grid; gap: 12px; padding: 18px; border: 1px solid #f3d9c8; border-radius: 15px; background: #fff8f2; }
+.etf-risk-card p { margin: 0; color: var(--ink); font-size: 13px; }
+.etf-risk-card ul { margin: 0; padding-left: 19px; color: #8a4327; font-size: 12px; line-height: 1.6; }
+.etf-risk-card li::marker { color: #ef8b72; }
+.etf-risk-curve { width: 100%; max-width: 300px; height: auto; justify-self: center; }
+.etf-risk-message { max-width: 620px; margin: 0; color: var(--ink); font-size: 13px; font-weight: 650; line-height: 1.6; }
+
+/* Section 5 — fiche d'identité */
+.etf-glossary { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.etf-glossary li { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.etf-glossary b { color: var(--ink); }
+
+.etf-id-card { border: 1px solid var(--line); border-radius: 15px; overflow: hidden; background: #fff; }
+.etf-id-badge { display: block; padding: 9px 16px; background: var(--amber-soft); color: #9d6a00; font-size: 10px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; text-align: center; }
+.etf-id-card dl { margin: 0; padding: 6px 0; }
+.etf-id-card dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px; border-top: 1px solid #f0f3f3; }
+.etf-id-card dl > div:first-child { border-top: 0; }
+.etf-id-card dt { color: var(--muted); font-size: 11.5px; }
+.etf-id-card dd { margin: 0; color: var(--ink); font-size: 11.5px; font-weight: 700; text-align: right; }
+
+.etf-links { display: grid; gap: 8px; margin: 0; }
+.etf-links a { color: var(--teal); font-size: 12px; font-weight: 700; text-decoration: none; }
+.etf-links a:hover { text-decoration: underline; }
+
+/* Résumé */
+.etf-summary { padding: 19px 20px; border: 1px solid var(--line); border-radius: 15px; background: var(--teal-soft); }
+.etf-summary h3 { margin: 0 0 8px; color: var(--teal); font-size: 14px; font-weight: 750; }
+.etf-summary p { max-width: 620px; margin: 0; color: #1d5c58; font-size: 12.5px; line-height: 1.6; }
+
+/* À retenir — même traitement que les autres leçons */
+.etf-takeaway { padding: 12px 15px; border-left: 3px solid var(--teal); border-radius: 0 11px 11px 0; background: var(--teal-soft); }
+.etf-takeaway b { color: var(--teal); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.etf-takeaway p { max-width: 600px; margin: 4px 0 0; color: #406768; font-size: 12px; line-height: 1.55; }
+
+/* Quiz + défi final */
+.etf-final-challenge { padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-subtle, #f7f9f8); }
+.etf-final-challenge h4 { margin: 0 0 6px; color: var(--ink); font-size: 12.5px; font-weight: 800; }
+.etf-final-challenge p { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+.etf-final-challenge ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+.etf-already-done { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--teal-soft); }
+.etf-already-done span:first-child { flex: 0 0 auto; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: #fff; color: var(--teal); }
+.etf-already-done svg { width: 18px; height: 18px; }
+.etf-already-done strong { color: var(--ink); font-size: 12.5px; }
+.etf-already-done p { margin: 2px 0 0; color: #406768; font-size: 11.5px; }
+
+/* Célébration */
+.etf-celebration { position: relative; display: grid; justify-items: center; gap: 8px; padding: 30px 20px; text-align: center; border: 1px solid var(--line); border-radius: 16px; background: #fff; overflow: hidden; }
+.etf-celebration-trophy { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 50%; background: var(--amber-soft); color: #9d6a00; }
+.etf-celebration-trophy svg { width: 26px; height: 26px; }
+.etf-celebration h4 { margin: 4px 0 0; color: var(--ink); font-size: 16px; font-weight: 750; max-width: 340px; }
+.etf-celebration-points { margin: 0; color: var(--teal); font-size: 20px; font-weight: 900; }
+.etf-celebration-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
+.etf-celebration-actions .primary-button, .etf-celebration-actions .secondary-button { min-height: 42px; }
+
+.etf-confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.etf-confetti span { position: absolute; top: -14px; width: 8px; height: 8px; border-radius: 2px; animation: etf-confetti-fall 1.6s ease-in forwards; }
+@keyframes etf-confetti-fall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(220px) rotate(220deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .etf-confetti span { animation: none; opacity: 0; }
+}
+
+/* Hypothèses / sources */
+.etf-details { border: 1px solid var(--line); border-radius: 13px; background: #fff; }
+.etf-details summary { min-height: 44px; display: flex; align-items: center; padding: 0 16px; color: var(--ink); font-size: 12px; font-weight: 800; cursor: pointer; }
+.etf-details summary::marker { color: var(--teal); }
+.etf-sources { margin: 0; padding: 0 16px 15px; display: grid; gap: 9px; list-style: none; }
+.etf-sources a { color: var(--teal); font-size: 11.5px; font-weight: 700; line-height: 1.5; text-decoration: none; }
+.etf-sources a:hover { text-decoration: underline; }
+
+.etf-disclaimer { margin: 0; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+@media (max-width: 780px) {
+  .etf-lesson-modal { width: 100%; max-height: calc(100vh - 24px); }
+  .etf-lesson-header { padding: 18px 18px 12px; }
+  .etf-lesson-header h2 { font-size: 19px; }
+  .etf-lesson-body { padding: 0 18px 22px; gap: 20px; }
+  .etf-index-cards { grid-template-columns: 1fr; }
+  .etf-why-grid { grid-template-columns: 1fr; }
+  .etf-flow-box { min-width: 92px; font-size: 13px; }
+  .etf-id-card dl > div { flex-direction: column; gap: 2px; }
+  .etf-id-card dd { text-align: left; }
+}
