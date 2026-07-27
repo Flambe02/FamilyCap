@@ -1,5 +1,7 @@
 import { authErrorResponse, requireFamilyMember, viewableInvestmentScope, type MemberShareFlags } from "../../../lib/auth-server";
 import { supabaseRest } from "../../../lib/supabase-rest";
+import { loadPortfolioFxRates } from "../../../lib/fx-rates-server";
+import { getLatestFxRate, type FxRateRow } from "../../../lib/fx-rates";
 
 // Un compte est-il visible pour le viewer, compte tenu des classes que son propriétaire
 // partage ? PEA → flag PEA, compte-titres → flag CTO, wallet Bitcoin → flag BTC. Autres types
@@ -46,7 +48,6 @@ async function fetchAccounts(filter: string): Promise<AccountRow[]> {
 }
 type HoldingRow = { id: string; account_id: string; asset_type: string | null; name: string | null; symbol: string | null; isin: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at: string | null; currency: string; exchange?: string | null; provider_symbol?: string | null; market_symbol?: string | null; mic_code?: string | null; data_provider?: string | null; quote_mode?: string | null; country?: string | null };
 type QuoteRow = { asset_id: string; provider: string; provider_symbol: string; price: number; currency: string; quoted_at: string; market_status: string; data_delay_minutes: number | null; fetched_at: string };
-type FxRow = { base_currency: string; quote_currency: string; rate: number; quoted_at: string };
 type MemberRow = { id: string; name: string };
 type OperationRow = {
   id: string; account_id: string; member_id: string; type: string; operation_date: string;
@@ -109,22 +110,35 @@ export async function GET(request: Request) {
       openingBalance: account.opening_balance === null || account.opening_balance === undefined ? null : Number(account.opening_balance),
       notes: account.notes ?? null,
     }));
-    const [quoteRows, fxRows] = await Promise.all([
-      holdingRows.length ? fetchQuotes(holdingRows.map((holding) => holding.id)) : Promise.resolve<QuoteRow[]>([]),
-      fetchFxRates(),
-    ]);
+    const quoteRows = holdingRows.length ? await fetchQuotes(holdingRows.map((holding) => holding.id)) : [];
     const latestQuoteByAsset = new Map<string, QuoteRow>();
     const latestQuoteBySymbol = new Map<string, QuoteRow>();
     for (const quote of quoteRows) if (!latestQuoteByAsset.has(quote.asset_id)) latestQuoteByAsset.set(quote.asset_id, quote);
     for (const quote of quoteRows) if (!latestQuoteBySymbol.has(`${quote.provider}:${quote.provider_symbol}`)) latestQuoteBySymbol.set(`${quote.provider}:${quote.provider_symbol}`, quote);
-    const fxByPair = new Map<string, FxRow>();
-    for (const rate of fxRows) if (!fxByPair.has(`${rate.base_currency}:${rate.quote_currency}`)) fxByPair.set(`${rate.base_currency}:${rate.quote_currency}`, rate);
     const accountCurrencyById = new Map(accountRows.map((account) => [account.id, account.currency.toUpperCase()]));
+
+    // ---- Taux de change : UNE seule requête pour tout le portefeuille -----------------------
+    // Les devises utiles sont celles réellement cotées (le cours peut différer de la devise du
+    // référentiel) ET celles des opérations (nécessaires au coût historique en euros). Elles
+    // sont collectées d'abord, puis un seul appel charge les taux : jamais une requête par
+    // position.
+    const currenciesInUse = new Set<string>();
+    for (const holding of holdingRows) {
+      const quote = latestQuoteByAsset.get(holding.id) ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined);
+      currenciesInUse.add((quote?.currency ?? holding.currency ?? "EUR").toUpperCase());
+    }
+    for (const operation of operationRows) currenciesInUse.add((operation.currency ?? "EUR").toUpperCase());
+    for (const account of accountRows) currenciesInUse.add(account.currency.toUpperCase());
+    const fxRows: FxRateRow[] = await loadPortfolioFxRates([...currenciesInUse]);
+
     const holdings = holdingRows.map((holding) => {
       const quote = latestQuoteByAsset.get(holding.id) ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined);
       const referenceCurrency = accountCurrencyById.get(holding.account_id) ?? "EUR";
       const nativeCurrency = (quote?.currency ?? holding.currency).toUpperCase();
-      const fx = nativeCurrency === referenceCurrency ? 1 : fxByPair.get(`${nativeCurrency}:${referenceCurrency}`)?.rate ?? null;
+      // Facteur résolu par le SEUL module qui connaît la formule (lib/fx-rates.ts). La route ne
+      // fait qu'appliquer ce qu'il renvoie : c'est ce qui rend une double inversion impossible.
+      const conversion = getLatestFxRate(nativeCurrency, referenceCurrency, fxRows);
+      const fx = conversion?.rate ?? null;
       return ({
       id: holding.id,
       account_id: holding.account_id,
@@ -141,6 +155,11 @@ export async function GET(request: Request) {
       dataProvider: quote?.provider ?? holding.data_provider ?? null, quoteMode: holding.quote_mode ?? (quote ? "eod" : null), country: holding.country ?? null,
       marketStatus: quote?.market_status ?? null, dataDelayMinutes: quote?.data_delay_minutes ?? null, fetchedAt: quote?.fetched_at ?? null,
       fxRateToReference: fx, referenceCurrency,
+      // Traçabilité du change, pour l'infobulle et la mention de bas de tableau. Jamais affichée
+      // ligne à ligne : c'est une justification, pas une donnée de portefeuille.
+      fxRateDate: conversion?.rateDate ?? null,
+      fxStale: conversion?.stale ?? false,
+      fxLegs: conversion?.legs ?? [],
     }); });
     const operations = operationRows.map((op) => ({
       id: op.id,
@@ -163,7 +182,10 @@ export async function GET(request: Request) {
       note: op.note,
     }));
 
-    return Response.json({ accounts, holdings, operations });
+    // Les taux sont renvoyés TELS QUELS (base EUR, datés) plutôt que sous forme de facteurs
+    // pré-calculés : le client en a besoin pour convertir le COÛT HISTORIQUE d'une opération au
+    // taux de SA date, ce qu'un facteur unique « du jour » ne permettrait pas.
+    return Response.json({ accounts, holdings, operations, fxRates: fxRows });
   } catch (error) {
     // Migration des portefeuilles pas encore appliquée → renvoyer un état vide plutôt qu'une
     // erreur : le tableau de bord affiche alors simplement le Bitcoin, sans PEA ni compte-titres.
@@ -199,7 +221,6 @@ async function fetchQuotes(assetIds: string[]): Promise<QuoteRow[]> {
   try { return await supabaseRest<QuoteRow[]>(`market_quotes?select=asset_id,provider,provider_symbol,price,currency,quoted_at,market_status,data_delay_minutes,fetched_at&asset_id=in.(${assetIds.join(",")})&order=fetched_at.desc`); }
   catch { return []; }
 }
-async function fetchFxRates(): Promise<FxRow[]> {
-  try { return await supabaseRest<FxRow[]>("market_fx_rates?select=base_currency,quote_currency,rate,quoted_at&order=quoted_at.desc"); }
-  catch { return []; }
-}
+// Les taux sont désormais chargés par `loadPortfolioFxRates` (lib/fx-rates-server.ts) : une
+// seule requête, filtrée sur les devises réellement présentes, avec repli sur l'ancienne table
+// `market_fx_rates` tant que `fx_rates` n'a pas été alimentée.

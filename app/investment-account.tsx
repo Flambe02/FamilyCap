@@ -23,10 +23,19 @@ import {
   type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice, type PortfolioPosition,
 } from "../lib/portfolio-account";
 import { computeMonthlyPlanProgress, type MonthlyPlanProgress } from "../lib/investment-plan";
+import { FX_FOOTNOTE, getLatestFxRate, shortRateDate, staleRateNotice, type FxRateRow } from "../lib/fx-rates";
+
+/** Le compte a-t-il des opérations antérieures au premier taux connu ? (coût approximé) */
+function operationsStartBefore(startDate: string | null, firstRateDate: string): boolean {
+  return startDate !== null && startDate < firstRateDate;
+}
 // Type SEUL (effacé à la compilation) : `lib/market-quotes` est un module serveur, jamais
 // embarqué dans le bundle client — seule sa forme de données est partagée avec la fiche d'actif.
 import type { InstrumentSnapshot } from "../lib/market-quotes";
 import "./pea-investments.css";
+// Liste « Mes positions » : composant dédié (grille explicite + cartes mobiles), importé APRÈS
+// la feuille PEA pour que ses règles l'emportent sur l'ancien habillage de tableau.
+import { PositionsList, PortfolioSummaryStrip, ASSET_LABEL, money } from "./positions-list";
 
 // ---- Types d'entrée (formes renvoyées par /api/portfolio) --------------------------------
 export type InvestmentAccount = {
@@ -53,7 +62,10 @@ export type PriceRefreshRow = {
   status: "fresh" | "stale" | "unavailable" | "manual";
   message?: string;
 };
-export type PriceRefreshReport = { refreshed: number; skipped: number; cached: number; errors: number; apiLimitReached: boolean; results: PriceRefreshRow[]; error?: string };
+// Compte rendu de la passe de CHANGE, distincte de celle des cours : elle a ses propres
+// fournisseurs (gratuits, sans clé) et son propre cache quotidien.
+export type FxRefreshRow = { pair: string; status: "fresh" | "cached" | "unavailable"; rate?: number; provider?: string; quotedAt?: string; message?: string };
+export type PriceRefreshReport = { refreshed: number; skipped: number; cached: number; errors: number; apiLimitReached: boolean; results: PriceRefreshRow[]; fx?: FxRefreshRow[]; error?: string };
 
 // ---- Config d'enveloppe (PEA / CTO) ------------------------------------------------------
 export type EnvelopeConfig = {
@@ -107,13 +119,20 @@ function tabFromHash(prefix: string): InvestmentTab | null {
 // SHELL
 // ==========================================================================================
 export function InvestmentAccountShell({
-  config, accounts, holdings, operations, marketLoading, viewer, isPreview, canManage,
+  config, accounts, holdings, operations, fxRates = [], marketLoading, viewer, isPreview, canManage,
   memberCanRecord = false, investmentPlan = null, onReload, onConfigure, onOpenRhythm,
 }: {
   config: EnvelopeConfig;
   accounts: InvestmentAccount[];
   holdings: InvestmentHolding[];
   operations: InvestmentOperation[];
+  /**
+   * Taux de référence BCE (base EUR, datés) couvrant les devises du portefeuille, renvoyés par
+   * /api/portfolio en une seule requête. Ils servent à deux choses que le facteur déjà attaché à
+   * chaque position ne couvre pas : convertir le COÛT HISTORIQUE d'une opération au taux de SA
+   * date, et justifier la conversion dans l'infobulle.
+   */
+  fxRates?: FxRateRow[];
   marketLoading: boolean;
   viewer: Viewer;
   isPreview: boolean;
@@ -212,9 +231,24 @@ export function InvestmentAccountShell({
     return map;
   }, [holdings, scopeIds]);
 
+  const referenceCurrencyCode = selectedAccount?.currency ?? "EUR";
+
+  // Résolveur de change du moteur : devise + DATE DE L'OPÉRATION → facteur vers la devise du
+  // compte. Il n'est consulté qu'en dernier recours — un `exchange_rate` enregistré sur
+  // l'opération reste prioritaire, car c'est le change réellement subi ce jour-là.
+  //
+  // `fallbackToEarliest` : la collecte des taux commence aujourd'hui, alors que les achats sont
+  // parfois vieux de deux ans. Sans ce repli, aucune plus-value en euros ne serait calculable
+  // avant des mois. Le coût est alors converti au plus ancien taux connu — approximation
+  // ASSUMÉE et signalée sous le tableau, jamais présentée comme le change réellement subi.
+  const fxRateAt = useMemo(
+    () => (currency: string, date: string) => getLatestFxRate(currency, referenceCurrencyCode, fxRates, { asOf: date, fallbackToEarliest: true })?.rate ?? null,
+    [fxRates, referenceCurrencyCode],
+  );
+
   const model = useMemo(
-    () => (hasScope ? computeAccountModel({ operations: scopeOps, priceByKey, accountType: config.kind, today: todayISO(), referenceCurrency: selectedAccount?.currency ?? "EUR" }) : null),
-    [hasScope, scopeOps, priceByKey, config.kind, selectedAccount?.currency],
+    () => (hasScope ? computeAccountModel({ operations: scopeOps, priceByKey, accountType: config.kind, today: todayISO(), referenceCurrency: referenceCurrencyCode, fxRateAt }) : null),
+    [hasScope, scopeOps, priceByKey, config.kind, referenceCurrencyCode, fxRateAt],
   );
 
   // Compte cible d'une écriture : le compte sélectionné, ou le premier en mode agrégé.
@@ -302,7 +336,7 @@ export function InvestmentAccountShell({
       if (!response.ok) {
         setPriceReport({ refreshed: 0, skipped: 0, cached: 0, errors: 0, apiLimitReached: false, results: [], error: data.error ?? "Mise à jour des cours impossible." });
       } else {
-        setPriceReport({ refreshed: data.refreshed ?? 0, skipped: data.skipped ?? 0, cached: data.cached ?? 0, errors: data.errors ?? 0, apiLimitReached: data.apiLimitReached ?? false, results: data.results ?? [] });
+        setPriceReport({ refreshed: data.refreshed ?? 0, skipped: data.skipped ?? 0, cached: data.cached ?? 0, errors: data.errors ?? 0, apiLimitReached: data.apiLimitReached ?? false, results: data.results ?? [], fx: data.fx ?? [] });
         onReload();
       }
     } catch {
@@ -434,7 +468,7 @@ export function InvestmentAccountShell({
               onReport={() => setNotice("Le report sera enregistré dans une prochaine version. Saisissez le versement le moment venu.")} recent={scopeOps} />
           )}
           {tab === "positions" && (
-            <PositionsTab model={model!} canManage={canManage}
+            <PositionsTab model={model!} canManage={canManage} fxRates={fxRates}
               canRefreshPrices={canManage && selectedAccount !== null} pricesBusy={pricesBusy} onRefreshPrices={refreshPrices}
               priceReport={priceReport} onDismissPriceReport={() => setPriceReport(null)}
               onOpenPosition={setDetailPosition} />
@@ -509,6 +543,7 @@ export function InvestmentAccountShell({
           operations={operationsOfPosition(detailPosition.key)}
           canManage={canManage}
           onClassified={onReload}
+          onPrepareReference={canManage && selectedAccount ? async () => { await refreshPrices(); } : undefined}
           onViewOperations={() => { setDetailPosition(null); setTab("historique"); }}
           onAddRelated={canManage ? () => { setDetailPosition(null); setModal({ open: true, type: "achat", mode: "admin" }); } : undefined}
           onViewDividends={() => { setDetailPosition(null); setTab("revenus"); }}
@@ -757,8 +792,6 @@ export function OperationList({ operations, subtitle }: { operations: Investment
 // ==========================================================================================
 // MES POSITIONS
 // ==========================================================================================
-const ASSET_LABEL: Record<PortfolioPosition["assetType"], string> = { stock: "Action", etf: "ETF", fund: "Fonds", bond: "Obligation", reit: "Immobilier coté", gold: "Or", crypto: "Crypto", cash: "Liquidités", other: "À classifier" };
-
 // Fraîcheur d'un cours, telle quelle (jamais arrondie à l'avantage de l'affichage).
 function priceAge(lastPriceAt: string | null): string | null {
   if (!lastPriceAt) return null;
@@ -769,27 +802,16 @@ function priceAge(lastPriceAt: string | null): string | null {
   if (days === 1) return "hier";
   return `il y a ${days} j`;
 }
-function shortQuoteDate(lastPriceAt: string | null): string | null {
-  if (!lastPriceAt) return null;
-  const date = new Date(lastPriceAt);
-  if (!Number.isFinite(date.getTime())) return null;
-  return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(date).replace(/\.$/, "");
-}
-
-function isQuoteStale(position: PortfolioPosition): boolean {
-  if (!position.lastPriceAt || position.lastPrice === null || position.quoteMode === "manual") return false;
-  const stamp = new Date(position.lastPriceAt).getTime();
-  return Number.isFinite(stamp) && Date.now() - stamp > 2 * 86_400_000;
-}
 
 function PositionsTab({
   model, canManage, canRefreshPrices, pricesBusy, onRefreshPrices, priceReport, onDismissPriceReport,
-  onOpenPosition,
+  onOpenPosition, fxRates = [],
 }: {
   model: AccountModel; canManage: boolean;
   canRefreshPrices: boolean; pricesBusy: boolean; onRefreshPrices: () => void;
   priceReport: PriceRefreshReport | null; onDismissPriceReport: () => void;
   onOpenPosition: (position: PortfolioPosition) => void;
+  fxRates?: FxRateRow[];
 }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -827,10 +849,61 @@ function PositionsTab({
     setSearch(""); setTypeFilter("all"); setCurrencyFilter("all"); setAccountFilter("all"); setSort("value"); setVisibleCount(15);
   };
 
+  // Devise de référence du périmètre + présence d'une position cotée dans une autre devise :
+  // c'est ce qui justifie (ou non) la note de bas de liste sur la conversion.
+  const referenceCurrency = model.positions[0]?.referenceCurrency ?? "EUR";
+  const hasForeignCurrency = model.positions.some((position) => position.currency !== position.referenceCurrency);
+  const countLabel = `${filtered.length} position${filtered.length > 1 ? "s" : ""}`;
+  // Ventilation des positions non valorisées (simple comptage d'un état déjà calculé par le
+  // moteur : `model.unpricedPositions` les additionne sans dire laquelle relève de quelle cause).
+  const noQuote = model.positions.filter((position) => position.lastPrice === null).length;
+  const noFxRate = model.positions.filter((position) => position.lastPrice !== null && position.currentValueEur === null).length;
+
+  // Justification du change : un taux par devise étrangère réellement présente, avec sa date.
+  // Calculé ici, affiché une seule fois sous le tableau — jamais ligne à ligne.
+  const foreignCurrencies = useMemo(
+    () => [...new Set(model.positions.filter((position) => position.currency !== position.referenceCurrency).map((position) => position.currency))],
+    [model.positions],
+  );
+  const fxConversions = useMemo(
+    () => foreignCurrencies.map((currency) => ({ currency, conversion: getLatestFxRate(currency, referenceCurrency, fxRates) })),
+    [foreignCurrencies, referenceCurrency, fxRates],
+  );
+  const fxTooltip = useMemo(() => {
+    const legs = fxConversions.flatMap((entry) => entry.conversion?.legs ?? []);
+    return legs.length > 0 ? legs.join("\n") : null;
+  }, [fxConversions]);
+  const fxStaleNotices = useMemo(
+    () => fxConversions.map((entry) => {
+      const notice = staleRateNotice(entry.conversion);
+      return notice ? `${entry.currency} : ${notice}` : null;
+    }).filter((notice): notice is string => notice !== null),
+    [fxConversions],
+  );
+  // Date du plus ancien taux connu : au-delà, les coûts d'achat sont convertis par approximation.
+  // On le dit une fois, sous le tableau — plutôt que de laisser croire à un change réellement subi.
+  const firstRateDate = useMemo(
+    () => fxRates.reduce<string | null>((best, row) => (best === null || row.rateDate < best ? row.rateDate : best), null),
+    [fxRates],
+  );
+  const hasOlderPurchases = useMemo(
+    () => firstRateDate !== null && model.positions.some((position) => position.currency !== position.referenceCurrency)
+      && operationsStartBefore(model.startDate, firstRateDate),
+    [firstRateDate, model.positions, model.startDate],
+  );
+
   return (
     <section className="panel table-panel btc-table-card inv-positions-panel">
       <div className="inv-positions-head">
-        <div><h2>Positions</h2><p className="inv-positions-subtitle">Composition actuelle calculée à partir des opérations</p></div>
+        <div>
+          <h2>Mes positions</h2>
+          {/* Valeur DES POSITIONS, pas du compte : les espèces n'ont rien à faire dans un
+              décompte de lignes détenues. */}
+          <p className="inv-positions-subtitle">
+            {countLabel}
+            {model.positionsValueEur !== null && ` · ${money(model.positionsValueEur, referenceCurrency)}`}
+          </p>
+        </div>
         <div className="inv-quote-actions">
           <span className="inv-quote-asof">{latestQuoteAt ? `Cours au ${dayOf(latestQuoteAt)}` : "Cours indisponibles"}</span>
           {canManage && canRefreshPrices && (
@@ -870,65 +943,51 @@ function PositionsTab({
           </div>
         )}
       </div>
-      <div className="inv-position-kpis" aria-label="Synthèse des positions">
-        <div><small>Valeur du portefeuille</small><strong>{model.totalValueEur === null ? "Indisponible" : money(model.totalValueEur, model.positions[0]?.referenceCurrency ?? "EUR")}</strong></div>
-        <div><small>Montant investi</small><strong>{money(model.investedInAssetsEur, model.positions[0]?.referenceCurrency ?? "EUR")}</strong></div>
-        <div><small>Plus ou moins-value</small><strong className={model.unrealizedGainEur === null ? "" : model.unrealizedGainEur >= 0 ? "up" : "down"}>{model.unrealizedGainEur === null ? "Indisponible" : `${model.unrealizedGainEur >= 0 ? "+" : "−"}${money(Math.abs(model.unrealizedGainEur), model.positions[0]?.referenceCurrency ?? "EUR")}`}</strong></div>
-        <div><small>Dividendes encaissés</small><strong>{money(model.dividendsNetEur, model.positions[0]?.referenceCurrency ?? "EUR")}</strong></div>
-      </div>
+      <PortfolioSummaryStrip
+        totalValue={model.totalValueEur}
+        invested={model.investedInAssetsEur}
+        gainEur={model.unrealizedGainEur}
+        gainPct={model.unrealizedGainPct}
+        dividends={model.dividendsNetEur}
+        currency={referenceCurrency}
+      />
       {priceReport && <PriceRefreshPanel report={priceReport} onDismiss={onDismissPriceReport} />}
       {model.positions.length === 0 ? (
         <EmptyState title="Aucune position" description="Aucune position détenue à ce jour." />
       ) : filtered.length === 0 ? (
         <EmptyState title="Aucun résultat" description="Aucune position ne correspond à ces filtres." />
       ) : (
-        <div className="responsive-table">
-          {/* Tableau volontairement RESSERRÉ : le nom, le ticker, l'ISIN et le type vivent dans
-              une seule cellule « Actif », et la colonne « Compte » a disparu (l'onglet ne montre
-              qu'un périmètre, et le détail d'une position rappelle ses comptes). Résultat : 8
-              colonnes au lieu de 11, plus de débordement horizontal ni de ligne coupée. */}
-          <table className="btc-table inv-table">
-            <thead><tr><th>Actif</th><th>Type</th><th className="num">Quantité</th><th className="num">PRU</th><th className="num">Cours</th><th className="num">Valeur</th><th className="num">Performance</th><th className="num">Poids</th><th>Action</th></tr></thead>
-            <tbody>
-              {visiblePositions.map((position) => {
-                const quoteDate = shortQuoteDate(position.lastPriceAt);
-                const stale = isQuoteStale(position);
-                return (
-                <tr key={position.key}>
-                  <td data-label="Actif" className="inv-asset-cell">
-                    {/* Le nom entier ouvre la fiche de l'actif : identité, ma position, marché. */}
-                    <button type="button" className="inv-asset-btn" onClick={() => onOpenPosition(position)}
-                      title={`Voir la fiche de ${position.name}`}>
-                      <span className="inv-asset-name">{position.name}</span>
-                      <span className="inv-asset-meta">
-                        {[position.ticker, position.exchange, position.isin].filter(Boolean).join(" · ") || position.currency}
-                      </span>
-                    </button>
-                  </td>
-                  <td data-label="Type"><span className={`inv-tag inv-tag-class${position.assetType === "other" ? " inv-tag-warning" : ""}`}>{ASSET_LABEL[position.assetType]}</span></td>
-                  <td data-label="Quantité" className="num">{qty.format(position.quantity)}</td>
-                  <td data-label="PRU" className="num">{position.averageCost === null ? "—" : money(position.averageCost, position.currency)}</td>
-                  <td data-label="Cours" className="num">
-                    {position.lastPrice === null ? <span className="inv-quote-unavailable">Indisponible</span> : <><span>{money(position.lastPrice, position.currency)}</span><small className={`inv-quote-date${stale ? " is-stale" : ""}`} title={stale ? "Cours possiblement périmé" : undefined}>{quoteDate ?? "Date indisponible"}</small></>}
-                  </td>
-                  <td data-label="Valeur" className="num">{position.currentValueEur === null ? "Indisponible" : money(position.currentValueEur, position.referenceCurrency)}</td>
-                  <td data-label="Performance" className="num">{position.gainEur === null ? "—" : <span className={position.gainEur === 0 ? "" : position.gainEur > 0 ? "up" : "down"}>{position.gainEur === 0 ? money(0, position.referenceCurrency) : `${position.gainEur > 0 ? "+" : "−"}${money(Math.abs(position.gainEur), position.referenceCurrency)}`}{position.gainPct === null ? "" : <small>{position.gainPct === 0 ? "0,0 %" : `${position.gainPct > 0 ? "+" : ""}${position.gainPct.toFixed(1)} %`}</small>}</span>}</td>
-                  <td data-label="Poids" className="num">{position.currentValueEur === null ? "—" : <><span>{position.weightPct.toFixed(1)} %</span><span className="inv-weight-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, position.weightPct)}%` }} /></span></>}</td>
-                  <td data-label="Action"><div className="inv-row-actions"><button type="button" className="inv-view-button" onClick={() => onOpenPosition(position)}>Voir</button></div></td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <PositionsList positions={visiblePositions} onOpen={onOpenPosition} />
       )}
       {filtered.length > visiblePositions.length && (
         <div className="inv-show-more"><button type="button" className="secondary-button" onClick={() => setVisibleCount((count) => count + 15)}>Afficher plus ({filtered.length - visiblePositions.length})</button></div>
       )}
-      {model.unpricedPositions > 0 && (
+      {hasForeignCurrency && (
+        <p className="btc-chart-source" title={fxTooltip ?? undefined}>
+          Valeurs et performances exprimées en {referenceCurrency}. Les cours et le prix de revient restent affichés dans la devise de cotation de l’actif.
+          {" "}{FX_FOOTNOTE}
+          {/* Le taux n'apparaît PAS sur chaque ligne : il serait répété dix fois pour dire dix
+              fois la même chose. Il est ici, en infobulle, et dans la fiche de la position. */}
+          {fxStaleNotices.length > 0 && <em> {fxStaleNotices.join(" · ")}.</em>}
+          {hasOlderPurchases && (
+            <em> Les achats antérieurs au {shortRateDate(firstRateDate!)} sont convertis au plus ancien taux enregistré : leur prix de revient en {referenceCurrency} est une approximation.</em>
+          )}
+        </p>
+      )}
+      {/* Deux causes DISTINCTES d'absence de valeur, deux messages distincts : les confondre
+          sous « sans cours » envoyait vers « Actualiser les cours » une position qui a un cours
+          et à laquelle il manque seulement un taux de change — action sans effet. */}
+      {/* Chaînes assemblées en JS, pas en JSX multiligne : une expression suivie d'un retour à
+          la ligne perd l'espace qui la sépare du texte suivant (« 6position(s) sans cours »). */}
+      {noQuote > 0 && (
         <p className="btc-chart-source">
-          {model.unpricedPositions} position(s) sans cours&nbsp;: leur valeur n’est pas comptée dans le total.
-          {canManage ? " Utilisez « Actualiser les cours » pour les relire auprès d’un fournisseur de marché, ou saisissez le cours dans Administration › Comptes & positions." : ""}
+          {`${noQuote} position(s) sans cours : leur valeur n’est pas comptée dans le total.`}
+          {canManage ? " Utilisez « Actualiser » pour les relire auprès du fournisseur de marché, ou saisissez le cours dans Administration › Comptes & positions." : ""}
+        </p>
+      )}
+      {noFxRate > 0 && (
+        <p className="btc-chart-source">
+          {`${noFxRate} position(s) cotée(s) dans une autre devise que ${referenceCurrency}, sans taux de change enregistré : leur valeur n’est pas convertie et n’est pas comptée dans le total. Aucune conversion n’est estimée tant qu’un taux fiable n’a pas été relevé.`}
         </p>
       )}
     </section>
@@ -939,23 +998,34 @@ function PositionsTab({
 // n'est masqué — une position sans cours doit se voir, pas disparaître du total en silence.
 function PriceRefreshPanel({ report, onDismiss }: { report: PriceRefreshReport; onDismiss: () => void }) {
   const failures = report.results.filter((row) => row.status === "unavailable");
+  const fx = report.fx ?? [];
+  const fxFailures = fx.filter((row) => row.status === "unavailable");
+  const fxDone = fx.filter((row) => row.status !== "unavailable");
   return (
-    <div className={`inv-price-report${report.error || failures.length > 0 ? " warn" : ""}`} role="status">
+    <div className={`inv-price-report${report.error || failures.length > 0 || fxFailures.length > 0 ? " warn" : ""}`} role="status">
       <button type="button" className="inv-price-report-close" onClick={onDismiss} aria-label="Fermer">×</button>
       {report.error ? (
         <strong>{report.error}</strong>
       ) : (
         <>
-          <strong>{report.refreshed} cours actualisé(s), {report.cached} servi(s) depuis le cache{failures.length > 0 ? `, ${failures.length} indisponible(s)` : ""}.</strong>
+          <strong>{`${report.refreshed} cours actualisé(s), ${report.cached} servi(s) depuis le cache${failures.length > 0 ? `, ${failures.length} indisponible(s)` : ""}.`}</strong>
           {report.apiLimitReached && <small> Limite quotidienne EODHD atteinte : les derniers cours valides sont conservés.</small>}
-          {failures.length > 0 && (
-            <>
-              <ul className="inv-price-report-list">
-                {failures.map((row) => (
-                  <li key={row.assetId}><b>{row.name}</b> — {row.message ?? "Cours indisponible."}</li>
-                ))}
-              </ul>
-            </>
+          {/* Le change est rapporté À PART : il a ses propres fournisseurs et son propre cache,
+              et c'est lui qui décide si une position en devise étrangère entre dans le total. */}
+          {fxDone.length > 0 && (
+            <small>
+              {` Change : ${fxDone.map((row) => `${row.pair.replace(":", "→")} ${row.rate !== undefined ? row.rate.toFixed(4).replace(".", ",") : "à jour"}${row.provider ? ` (${row.provider})` : ""}`).join(" · ")}.`}
+            </small>
+          )}
+          {(failures.length > 0 || fxFailures.length > 0) && (
+            <ul className="inv-price-report-list">
+              {failures.map((row) => (
+                <li key={row.assetId}><b>{row.name}</b> — {row.message ?? "Cours indisponible."}</li>
+              ))}
+              {fxFailures.map((row) => (
+                <li key={`fx-${row.pair}`}><b>{row.pair.replace(":", " → ")}</b> — {row.message ?? "Taux de change indisponible."}</li>
+              ))}
+            </ul>
           )}
         </>
       )}
@@ -1008,13 +1078,17 @@ type MarketState =
   | { status: "ok"; instrument: InstrumentSnapshot; currencyMismatch: boolean }
   | { status: "error"; message: string };
 
-function PositionDetailModal({ position, envLabel, operations, canManage, onClassified, onViewOperations, onAddRelated, onViewDividends, onClose }: {
+function PositionDetailModal({ position, envLabel, operations, canManage, onClassified, onPrepareReference, onViewOperations, onAddRelated, onViewDividends, onClose }: {
   position: PortfolioPosition; envLabel: string; operations: InvestmentOperation[]; canManage: boolean; onClassified: () => void;
+  // Crée la fiche d'actif manquante (via le rafraîchissement des cours du compte). Absent en vue
+  // agrégée : la création vise un compte précis.
+  onPrepareReference?: () => Promise<void>;
   onViewOperations: () => void; onAddRelated?: () => void; onViewDividends: () => void; onClose: () => void;
 }) {
   const dialogRef = useDialogA11y(true, onClose);
   const [market, setMarket] = useState<MarketState>({ status: "loading" });
   const [classificationStatus, setClassificationStatus] = useState("");
+  const [preparingReference, setPreparingReference] = useState(false);
   const { isin, ticker, name, currency } = position;
 
   // Pas de remise à « loading » ici : la modale est montée avec `key={position.key}`, donc
@@ -1093,6 +1167,32 @@ function PositionDetailModal({ position, envLabel, operations, canManage, onClas
               <button type="button" className="secondary-button" onClick={onViewDividends}>Voir les dividendes</button>
             </div>
           </section>
+
+          {/* Une position DÉRIVÉE des opérations n'a pas forcément de fiche d'actif en base : son
+              `assetId` est alors null. Masquer le bloc dans ce cas (comportement précédent) rendait
+              la classification impossible ET inexplicable — l'utilisateur ne voyait rien du tout.
+              On montre donc le blocage et l'action qui le lève. */}
+          {canManage && position.assetType === "other" && !position.assetId && (
+            <section className="inv-detail-block inv-classify">
+              <h3 className="btc-panel-kicker">À CLASSIFIER</h3>
+              <p>
+                Cette position est calculée à partir de vos opérations, mais aucune <b>fiche d’actif</b> ne lui correspond encore en base :
+                il n’y a donc pas encore de champ à renseigner. La fiche est créée automatiquement au premier rafraîchissement des cours de ce compte.
+              </p>
+              {onPrepareReference ? (
+                <button type="button" className="secondary-button" disabled={preparingReference} onClick={async () => {
+                  setPreparingReference(true);
+                  await onPrepareReference();
+                  setPreparingReference(false);
+                }}>{preparingReference ? "Création de la fiche…" : "Créer la fiche et actualiser les cours"}</button>
+              ) : (
+                <p className="inv-detail-note">Choisissez un compte précis dans l’en-tête (au lieu de « Tous les comptes ») pour lancer cette création.</p>
+              )}
+              <p className="inv-detail-note">
+                Pour corriger la quantité ou le prix de revient, passez par les opérations : ils en sont <b>dérivés</b> et ne se saisissent jamais directement.
+              </p>
+            </section>
+          )}
 
           {canManage && position.assetType === "other" && position.assetId && (
             <section className="inv-detail-block inv-classify">
@@ -1470,14 +1570,6 @@ function ComprendreTab({ config }: { config: EnvelopeConfig }) {
 // ==========================================================================================
 // INFOS (informations du compte — lecture seule ; édition dans Paramètres › Mes comptes)
 // ==========================================================================================
-function money(value: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat("fr-FR", { style: "currency", currency: (currency || "EUR").toUpperCase() }).format(value);
-  } catch {
-    return `${qty.format(value)} ${currency || "EUR"}`;
-  }
-}
-
 function AccountInfoCard({ account, envLabel }: { account: InvestmentAccount; envLabel: string }) {
   const rows: { label: string; value: string }[] = [
     { label: "Titulaire", value: account.memberName ?? "—" },

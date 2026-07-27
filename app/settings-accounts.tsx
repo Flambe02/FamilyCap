@@ -5,6 +5,7 @@ import type { Viewer } from "../lib/auth-types";
 import type { View } from "../lib/navigation";
 import { authHeader } from "../lib/supabase-session";
 import { computeAccountModel, priceKeyOf, type AccountOperation, type InstrumentPrice } from "../lib/portfolio-account";
+import { getLatestFxRate, type FxRateRow } from "../lib/fx-rates";
 import { SettingsSection, SettingsModal, SettingsMessage } from "./settings-ui";
 
 // Écran « Mes comptes » : vue simple des comptes appartenant au membre (Bitcoin cadeaux réels +
@@ -55,7 +56,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
     if (!giftsRes.ok) throw new Error(giftsBody.error ?? "Comptes indisponibles.");
     const ledgerBody = ledgerRes.ok ? await ledgerRes.json() as { bitcoinEur?: number | null } : null;
     const price = ledgerBody && Number(ledgerBody.bitcoinEur) > 0 ? Number(ledgerBody.bitcoinEur) : null;
-    const portfolioBody = portfolioRes.ok ? await portfolioRes.json() as { accounts?: PortfolioAccount[]; holdings?: PortfolioHolding[]; operations?: PortfolioOperation[] } : { accounts: [], holdings: [], operations: [] };
+    const portfolioBody = portfolioRes.ok ? await portfolioRes.json() as { accounts?: PortfolioAccount[]; holdings?: PortfolioHolding[]; operations?: PortfolioOperation[]; fxRates?: FxRateRow[] } : { accounts: [], holdings: [], operations: [], fxRates: [] };
     if (scopeOverride) {
       setVisible(scopeOverride === "family");
     } else {
@@ -84,6 +85,10 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
     // holdings.quantity (uniquement les achats de account_operations).
     const holdings = portfolioBody.holdings ?? [];
     const operations = portfolioBody.operations ?? [];
+    // Mêmes taux que l'écran PEA/CTO : sans eux, un compte-titres en dollars serait valorisé
+    // ici à zéro alors qu'il affiche sa vraie valeur ailleurs — deux chiffres contradictoires.
+    const fxRates = portfolioBody.fxRates ?? [];
+    const fxRateAt = (currency: string, date: string) => getLatestFxRate(currency, "EUR", fxRates, { asOf: date, fallbackToEarliest: true })?.rate ?? null;
     const holdingsValueByAccount = new Map<string, number>();
     for (const holding of holdings) {
       holdingsValueByAccount.set(holding.account_id, (holdingsValueByAccount.get(holding.account_id) ?? 0) + holding.quantity * (holding.last_price ?? 0));
@@ -95,7 +100,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride }: { viewer
         for (const holding of holdings.filter((item) => item.account_id === account.id)) {
           priceByKey.set(priceKeyOf({ isin: holding.isin ?? null, symbol: holding.symbol ?? null, name: holding.name ?? null }), { lastPrice: holding.last_price, lastPriceAt: null, assetType: holding.asset_type ?? null, name: holding.name ?? null });
         }
-        return computeAccountModel({ operations: accountOps, priceByKey, accountType: account.accountType === "pea" ? "PEA" : "CTO" }).totalValueEur;
+        return computeAccountModel({ operations: accountOps, priceByKey, accountType: account.accountType === "pea" ? "PEA" : "CTO", referenceCurrency: account.currency, fxRateAt }).totalValueEur;
       }
       return holdingsValueByAccount.has(account.id) ? (holdingsValueByAccount.get(account.id) as number) : null;
     }

@@ -6,6 +6,7 @@
 // identique à l'ancienne page PEA (même moteur, même route, même hash #pea/…).
 
 import type { Viewer } from "../lib/auth-types";
+import type { FxRateRow } from "../lib/fx-rates";
 import {
   InvestmentAccountShell,
   type EnvelopeConfig, type InvestmentAccount, type InvestmentHolding, type InvestmentOperation, type ShellInvestmentPlan,
@@ -58,6 +59,8 @@ export function PeaInvestmentPage(props: {
   accounts: InvestmentAccount[];
   holdings: InvestmentHolding[];
   operations: InvestmentOperation[];
+  // Taux de change du portefeuille (base EUR, datés) : simple passe-plat vers le shell.
+  fxRates?: FxRateRow[];
   marketLoading: boolean;
   viewer: Viewer;
   isPreview: boolean;

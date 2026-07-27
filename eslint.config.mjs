@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Fonctions Edge Supabase : code DENO, hors du projet Next. Les règles Next (et la
+    // résolution des types) n'y ont pas de sens — `Deno.serve` y est un global légitime.
+    "supabase/functions/**",
   ]),
 ]);
 

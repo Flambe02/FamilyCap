@@ -7,6 +7,7 @@
 // de titres, FAQ dédiée. Aucune donnée fictive ; les manques sont signalés honnêtement.
 
 import type { Viewer } from "../lib/auth-types";
+import type { FxRateRow } from "../lib/fx-rates";
 import {
   InvestmentAccountShell,
   type EnvelopeConfig, type InvestmentAccount, type InvestmentHolding, type InvestmentOperation, type ShellInvestmentPlan,
@@ -59,6 +60,8 @@ export function CtoInvestmentPage(props: {
   accounts: InvestmentAccount[];
   holdings: InvestmentHolding[];
   operations: InvestmentOperation[];
+  // Taux de change du portefeuille (base EUR, datés) : simple passe-plat vers le shell.
+  fxRates?: FxRateRow[];
   marketLoading: boolean;
   viewer: Viewer;
   isPreview: boolean;

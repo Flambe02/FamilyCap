@@ -238,10 +238,36 @@ function cashDelta(op: AccountOperation): number {
   }
 }
 
-function amountInReference(amount: number, currency: string, referenceCurrency: string, exchangeRate?: number | null): number | null {
+/**
+ * Résolveur de change injecté par l'appelant : devise native + date → facteur MULTIPLICATIF vers
+ * la devise de référence, ou null si aucun taux n'est connu à cette date.
+ *
+ * Le moteur ne va JAMAIS chercher un taux lui-même : il reste pur et testable, et la formule de
+ * conversion demeure au seul endroit qui la connaît (lib/fx-rates.ts).
+ */
+export type FxRateResolver = (currency: string, date: string) => number | null;
+
+/**
+ * Montant exprimé dans la devise de référence.
+ *
+ * Ordre de priorité, et il compte :
+ *   1. le taux ENREGISTRÉ SUR L'OPÉRATION (`exchange_rate`) — c'est le change réellement subi le
+ *      jour de l'opération, une donnée historique qu'aucun taux de marché ne doit écraser ;
+ *   2. à défaut, le taux de référence à la DATE DE L'OPÉRATION, fourni par le résolveur ;
+ *   3. à défaut, null — la valeur n'est pas calculable et ne sera pas comptée. Jamais de 1:1.
+ */
+function amountInReference(
+  amount: number,
+  currency: string,
+  referenceCurrency: string,
+  exchangeRate?: number | null,
+  fallback?: { date: string; resolve?: FxRateResolver },
+): number | null {
   if ((currency || "EUR").toUpperCase() === referenceCurrency) return amount;
-  const rate = Number(exchangeRate);
-  return Number.isFinite(rate) && rate > 0 ? amount * rate : null;
+  const recorded = Number(exchangeRate);
+  if (Number.isFinite(recorded) && recorded > 0) return amount * recorded;
+  const resolved = fallback?.resolve?.((currency || "EUR").toUpperCase(), fallback.date) ?? null;
+  return resolved !== null && Number.isFinite(resolved) && resolved > 0 ? amount * resolved : null;
 }
 
 // Coût d'un achat porté au prix de revient (frais inclus, comme pour un PEA réel).
@@ -263,11 +289,26 @@ export function computeAccountModel(params: {
   accountType: AccountType;
   today?: string; // injectable pour les tests
   referenceCurrency?: string;
+  /**
+   * Taux de change de repli, utilisé UNIQUEMENT quand l'opération n'en porte pas. Facultatif :
+   * sans lui, le comportement est celui d'avant (une opération en devise sans `exchange_rate`
+   * n'est pas convertie et n'entre pas dans les totaux).
+   */
+  fxRateAt?: FxRateResolver;
 }): AccountModel {
   const { operations, priceByKey, accountType } = params;
   const referenceCurrency = (params.referenceCurrency || "EUR").toUpperCase();
   const today = params.today ?? new Date().toISOString().slice(0, 10);
+  const fxRateAt = params.fxRateAt;
   const ops = [...operations].sort((a, b) => a.date.localeCompare(b.date));
+  /** Facteur natif → référence pour une opération : taux enregistré d'abord, sinon taux du jour de l'opération. */
+  const rateForOperation = (op: AccountOperation): number | null => {
+    if ((op.currency || "EUR").toUpperCase() === referenceCurrency) return 1;
+    const recorded = Number(op.exchangeRate);
+    if (Number.isFinite(recorded) && recorded > 0) return recorded;
+    const resolved = fxRateAt?.((op.currency || "EUR").toUpperCase(), op.date) ?? null;
+    return resolved !== null && Number.isFinite(resolved) && resolved > 0 ? resolved : null;
+  };
 
   // ---- Trésorerie, versements, dividendes, frais ----
   let netInvested = 0;
@@ -277,10 +318,11 @@ export function computeAccountModel(params: {
   let feesTotal = 0;
   let hasUnconvertedCash = false;
   for (const op of ops) {
-    const movement = amountInReference(cashDelta(op), op.currency, referenceCurrency, op.exchangeRate);
+    const fallback = { date: op.date, resolve: fxRateAt };
+    const movement = amountInReference(cashDelta(op), op.currency, referenceCurrency, op.exchangeRate, fallback);
     if (movement === null && Math.abs(cashDelta(op)) > EPS) hasUnconvertedCash = true;
     else cash += movement ?? 0;
-    const operationAmount = amountInReference(magnitude(op), op.currency, referenceCurrency, op.exchangeRate);
+    const operationAmount = amountInReference(magnitude(op), op.currency, referenceCurrency, op.exchangeRate, fallback);
     if (op.type === "versement" && operationAmount !== null) netInvested += operationAmount;
     else if (op.type === "retrait" && operationAmount !== null) netInvested -= operationAmount;
     else if ((op.type === "versement" || op.type === "retrait") && operationAmount === null) hasUnconvertedCash = true;
@@ -288,10 +330,10 @@ export function computeAccountModel(params: {
       if (operationAmount !== null) {
         dividendsNet += operationAmount;
         const gross = op.grossAmount !== null && op.grossAmount !== undefined ? Math.abs(num(op.grossAmount)) : magnitude(op);
-        dividendsGross += amountInReference(gross, op.currency, referenceCurrency, op.exchangeRate) ?? 0;
+        dividendsGross += amountInReference(gross, op.currency, referenceCurrency, op.exchangeRate, fallback) ?? 0;
       } else hasUnconvertedCash = true;
     } else if (op.type === "frais" && operationAmount !== null) feesTotal += operationAmount;
-    const feesRef = amountInReference(Math.abs(num(op.fees)), op.currency, referenceCurrency, op.exchangeRate);
+    const feesRef = amountInReference(Math.abs(num(op.fees)), op.currency, referenceCurrency, op.exchangeRate, fallback);
     if (feesRef !== null) feesTotal += feesRef; // frais embarqués dans achats/ventes
   }
 
@@ -318,7 +360,7 @@ export function computeAccountModel(params: {
       const acc = getAcc(op);
       acc.qty += num(op.quantity);
       const nativeCost = buyCost(op);
-      const rate = (op.currency || "EUR").toUpperCase() === referenceCurrency ? 1 : (op.exchangeRate ?? null);
+      const rate = rateForOperation(op);
       acc.cost += nativeCost; // un transfert entrant reprend le prix de revient (prix unitaire × qté + frais)
       acc.costReference = acc.costReference === null || !rate || rate <= 0 ? null : acc.costReference + nativeCost * rate;
     } else if (op.type === "vente" || op.type === "transfer_out") {
@@ -339,7 +381,7 @@ export function computeAccountModel(params: {
       acc.qty += q;
       if (q > 0) {
         const nativeCost = buyCost(op);
-        const rate = (op.currency || "EUR").toUpperCase() === referenceCurrency ? 1 : (op.exchangeRate ?? null);
+        const rate = rateForOperation(op);
         acc.cost += nativeCost;
         acc.costReference = acc.costReference === null || !rate || rate <= 0 ? null : acc.costReference + nativeCost * rate;
       } // une correction positive avec valeur ajuste le coût
@@ -357,7 +399,11 @@ export function computeAccountModel(params: {
     .map(([key, acc]) => {
       const price = priceByKey.get(key) ?? null;
       const lastPrice = price && price.lastPrice !== null && Number.isFinite(price.lastPrice) ? Number(price.lastPrice) : null;
-      const fxRateToReference = price?.fxRateToReference ?? (acc.currency === referenceCurrency ? 1 : null);
+      // Facteur de valorisation : celui fourni avec le cours s'il existe, sinon le taux de
+      // référence du jour. Ce repli est ce qui évite qu'une position reste « Conversion
+      // indisponible » alors qu'un taux BCE parfaitement valide est enregistré en base.
+      const fxRateToReference = price?.fxRateToReference
+        ?? (acc.currency === referenceCurrency ? 1 : fxRateAt?.(acc.currency, today) ?? null);
       const currentValueEur = lastPrice !== null && fxRateToReference !== null ? acc.qty * lastPrice * fxRateToReference : null;
       const gainEur = currentValueEur === null || acc.costReference === null ? null : currentValueEur - acc.costReference;
       const gainPct = gainEur === null || !acc.costReference || acc.costReference <= EPS ? null : (gainEur / acc.costReference) * 100;
