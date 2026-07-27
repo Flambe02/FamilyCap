@@ -145,8 +145,11 @@ test("le deep link Paramètres > Mes comptes > PEA survit au rechargement", () =
   assert.match(settingsPage, /new URLSearchParams\(window\.location\.search\)/);
   assert.match(settingsPage, /params\.get\("settings"\)/);
   assert.match(settingsPage, /params\.get\("challenge"\)/);
-  assert.match(challengesPage, /settings", "comptes"/);
-  assert.match(challengesPage, /accountType", "pea"/);
+  // La pose de l'ancre est désormais CENTRALISÉE dans openSettingsSection() : toute navigation
+  // vers les Paramètres passe par elle, sinon on retombe sur « Mon compte » (c'est ce qui faisait
+  // atterrir « Configurer mon rythme » sur le profil).
+  assert.match(challengesPage, /url\.searchParams\.set\("settings", section\)/);
+  assert.match(challengesPage, /openSettingsSection\("comptes", onNavigate, \{ challenge: mission\.slug, accountType: "pea" \}\)/);
   assert.match(settingsAccounts, /guidedChallenge === "onboarding_account_setup"/);
 });
 

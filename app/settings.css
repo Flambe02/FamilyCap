@@ -246,3 +246,8 @@ button.set-account-row:focus-visible{outline:3px solid rgba(29,112,107,.35);outl
 @media(prefers-reduced-motion:reduce){
   .set-switch,.set-switch-thumb,.set-btn,.set-btn-primary,.set-btn-danger,.set-account-row,.settings-nav-item{transition:none}
 }
+
+/* Création self-service d'un PEA / compte-titres par le membre (settings-accounts.tsx).
+   `.set-actions` est déjà un flex à gauche : dans un état vide centré, on recentre le groupe. */
+.set-empty .set-actions{justify-content:center}
+.set-account-add{margin-top:18px}

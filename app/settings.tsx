@@ -26,13 +26,17 @@ type NavSection = { id: SectionId; label: string; icon: NavIconId };
 type NavGroup = { title: string; adminOnly?: boolean; items: NavSection[] };
 type GuidedChallenge = "onboarding_account_setup" | null;
 
-function settingsIntentFromUrl(): { section: SectionId; challenge: GuidedChallenge } {
-  if (typeof window === "undefined") return { section: "compte", challenge: null };
+function settingsIntentFromUrl(): { section: SectionId; challenge: GuidedChallenge; accountType: "pea" | "securities" | undefined } {
+  if (typeof window === "undefined") return { section: "compte", challenge: null, accountType: undefined };
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("settings");
   const section: SectionId = requested === "comptes" || requested === "rythme" ? requested : "compte";
   const challenge = params.get("challenge") === "onboarding_account_setup" ? "onboarding_account_setup" : null;
-  return { section, challenge };
+  // `accountType` était déjà posé dans l'URL par les défis, mais n'était lu nulle part : le
+  // formulaire guidé retombait donc toujours sur le PEA.
+  const rawType = params.get("accountType");
+  const accountType = rawType === "pea" || rawType === "securities" ? rawType : undefined;
+  return { section, challenge, accountType };
 }
 
 // Navigation secondaire des Paramètres. Le menu principal de l'application (sidebar) reste
@@ -78,7 +82,8 @@ export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboardi
   const [active, setActive] = useState<SectionId>(() => settingsIntentFromUrl().section);
   const [mobileView, setMobileView] = useState<"index" | "detail">("index");
   const activeSection: SectionId = allowed.includes(active) ? active : "compte";
-  const guidedChallenge = settingsIntentFromUrl().challenge;
+  const guidedIntent = settingsIntentFromUrl();
+  const guidedChallenge = guidedIntent.challenge;
 
   function selectSection(id: string) {
     if ((allowed as string[]).includes(id)) { setActive(id as SectionId); setMobileView("detail"); }
@@ -118,8 +123,8 @@ export function Settings({ viewer, onSignOut, publishedVersion, onReplayOnboardi
 
           {activeSection === "compte" && <AccountSettings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onViewerChanged={onViewerChanged} />}
           {activeSection === "securite" && <SecuritySettings viewer={viewer} />}
-          {activeSection === "comptes" && <AccountsSettings viewer={viewer} onNavigate={onNavigate} guidedChallenge={guidedChallenge} />}
-          {activeSection === "rythme" && <InvestmentRhythmSettings viewer={viewer} />}
+          {activeSection === "comptes" && <AccountsSettings viewer={viewer} onNavigate={onNavigate} guidedChallenge={guidedChallenge} guidedAccountType={guidedIntent.accountType} />}
+          {activeSection === "rythme" && <InvestmentRhythmSettings viewer={viewer} onCreateAccount={() => selectSection("comptes")} />}
           {activeSection === "ledger" && <LedgerSettings viewer={viewer} />}
           {activeSection === "partage" && <InvestmentAccessSettings />}
           {activeSection === "notifications" && <NotificationsSettings />}

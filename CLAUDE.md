@@ -155,7 +155,13 @@ All routes under `app/api/`:
 
 - **Admin**: create / edit / archive accounts; add / edit / delete / import operations; cancel an import; empty a portfolio; refresh quotes. Enforced in UI **and** in every write route (`requireAdmin`).
   - A **position is never edited directly** — it is derived. "Modify a position" means editing its operations (Positions tab › *Lignes*, or Historique › ✏️); "delete a position" deletes the operations that produced it. Destructive actions (delete a position, empty an account, replace a portfolio) require a confirmation the server re-checks.
-- **Non-admin member**: read-only on the accounts they may see. Cannot create an account, record an operation, import a file, or cancel an import — enforced in the UI, the API routes, the server validations, and (as a safety net) the RLS policies. Accounts are **not** member-editable in this version.
+- **Non-admin member**: read-only on the accounts they may see, with **two self-service exceptions**, each behind its own `requireFamilyMember` route (never a relaxation of an admin route):
+  - **Record a purchase** on their own PEA/CTO — `POST /api/investment-operations`.
+  - **Create their own PEA or compte-titres** — `POST /api/investment-accounts` (migration-free). `member_id` is **forced from the session**, never read from the body; `account_type` is limited to `pea`\|`securities`; it is **creation only** (no edit / archive / delete, which stay admin), rejects sensitive fields (IBAN, account number, wallet, opening balance), and refuses a second empty account of the same type. Points are never written here — `reconcileOnboardingForMember` re-reads the real rows.
+  - This exception exists because the « Bien démarrer » challenge asks the member to configure their PEA: with creation admin-only, the challenge was **impossible to complete** (those who saw it — `adult`/`child` per `isChallengeEligible` — could not act, and the admin who could act never saw it).
+  - Everything else stays admin: import a file, cancel an import, edit/delete an operation, archive or delete an account. `POST /api/admin/accounts` is unchanged and still `requireAdmin` on all four verbs.
+  - **Admin preview writes nothing**: `AccountsSettings` sets `canWrite = !isAdminPreview` (detected via `scopeOverride`). Saving from the preview would create the account under the *admin's* `member_id`, not the previewed member's.
+- **Deep links into Paramètres**: always go through `openSettingsSection()` (`app/challenges-page.tsx`). A bare `onNavigate("parametres")` lands on « Mon compte », because `settingsIntentFromUrl()` only honours `?settings=comptes|rythme` and defaults to `compte` — that is exactly what made « Configurer mon rythme » appear to lead nowhere.
 
 ## Known Dead Code
 

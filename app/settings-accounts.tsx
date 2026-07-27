@@ -33,11 +33,24 @@ async function authHeaders(): Promise<Record<string, string>> {
   return authHeader();
 }
 
-function PeaChallengeSetup({ viewer, canEdit, onSaved, onNavigate }: { viewer: Viewer; canEdit: boolean; onSaved: () => void; onNavigate?: (view: View) => void }) {
+/**
+ * Formulaire guidé de création d'un PEA / compte-titres par LE MEMBRE lui-même.
+ *
+ * `canWrite` (et non plus `canEdit === admin`) : le membre écrit via /api/investment-accounts,
+ * la route self-service qui force `member_id` sur l'appelant. L'admin, lui, continue d'écrire par
+ * /api/admin/accounts (il peut créer le compte de n'importe qui). Auparavant tout le formulaire
+ * était `disabled` dès que le rôle n'était pas admin — or l'admin ne voit JAMAIS ces défis
+ * (isChallengeEligible n'accepte que adult/child), donc personne ne pouvait terminer l'étape.
+ */
+function PeaChallengeSetup({ viewer, canWrite, isAdmin, accountType, onSaved, onNavigate }: {
+  viewer: Viewer; canWrite: boolean; isAdmin: boolean; accountType: "pea" | "securities";
+  onSaved: () => void; onNavigate?: (view: View) => void;
+}) {
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const label = accountType === "pea" ? "PEA" : "compte-titres";
   const [situation, setSituation] = useState<"existing" | "opening">("existing");
   const [institution, setInstitution] = useState("");
-  const [name, setName] = useState("Mon PEA");
+  const [name, setName] = useState(accountType === "pea" ? "Mon PEA" : "Mon compte-titres");
   const [openedAt, setOpenedAt] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -47,15 +60,22 @@ function PeaChallengeSetup({ viewer, canEdit, onSaved, onNavigate }: { viewer: V
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!canEdit || saving || situation !== "existing") return;
+    if (!canWrite || saving || situation !== "existing") return;
     if (!institution.trim()) { setError("Indiquez l'établissement financier."); return; }
     setSaving(true); setError("");
     try {
       const headers = await authHeaders();
-      const response = await fetch("/api/admin/accounts", {
-        method: "POST", headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ memberId: viewer.id, name: name.trim() || "Mon PEA", accountType: "pea", institution: institution.trim(), currency: "EUR", openedAt: openedAt || undefined }),
-      });
+      // Le membre passe par la route self-service (member_id forcé côté serveur) ; l'admin garde
+      // sa route, qui seule permet de créer le compte d'un AUTRE membre.
+      const response = isAdmin
+        ? await fetch("/api/admin/accounts", {
+            method: "POST", headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ memberId: viewer.id, name: name.trim() || `Mon ${label}`, accountType, institution: institution.trim(), currency: "EUR", openedAt: openedAt || undefined }),
+          })
+        : await fetch("/api/investment-accounts", {
+            method: "POST", headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ name: name.trim() || `Mon ${label}`, accountType, institution: institution.trim(), openedAt: openedAt || undefined }),
+          });
       const body = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Enregistrement impossible.");
       const [pointsResponse, onboardingResponse] = await Promise.all([
@@ -94,7 +114,7 @@ function PeaChallengeSetup({ viewer, canEdit, onSaved, onNavigate }: { viewer: V
   if (success) return (
     <section className="set-challenge-success" aria-live="polite">
       <span aria-hidden="true">🎉</span>
-      <h3 tabIndex={-1} ref={titleRef}>Ton PEA est configuré !</h3>
+      <h3 tabIndex={-1} ref={titleRef}>Ton {label} est configuré !</h3>
       <p>Bravo, tu viens de terminer ton premier défi d’investissement.</p>
       <strong>+{success.points} points</strong>
       {success.totalPoints !== null && <small>Nouveau total : {success.totalPoints} points.</small>}
@@ -105,31 +125,42 @@ function PeaChallengeSetup({ viewer, canEdit, onSaved, onNavigate }: { viewer: V
 
   return (
     <section className="set-challenge-guide" aria-labelledby="pea-challenge-title">
-      <p className="set-challenge-kicker">Défi · Configure ton PEA</p>
+      <p className="set-challenge-kicker">Défi · Configure ton {label}</p>
       <h3 id="pea-challenge-title" tabIndex={-1} ref={titleRef}>Complète cette étape pour gagner 300 points.</h3>
-      {canEdit && <p className="set-hint">Vous configurez le PEA de {viewer.name}.</p>}
-      {!canEdit && <p className="set-message info">Lecture seule : seul l’administrateur peut enregistrer un compte. Aucun défi ne sera validé depuis cet aperçu.</p>}
+      {canWrite && !isAdmin && <p className="set-hint">Renseigne ton {label} : tu pourras ensuite suivre tes investissements et définir ton rythme.</p>}
+      {canWrite && isAdmin && <p className="set-hint">Vous configurez le {label} de {viewer.name}.</p>}
+      {!canWrite && <p className="set-message info">Lecture seule : cet aperçu n’enregistre rien. Le membre configure son {label} depuis son propre espace.</p>}
       <form className="set-fields" onSubmit={submit}>
-        <label className="set-field"><span>Situation</span><select value={situation} onChange={(event) => setSituation(event.target.value as "existing" | "opening")} disabled={!canEdit || saving}><option value="existing">J’ai déjà un PEA</option><option value="opening">Je souhaite ouvrir un PEA</option></select></label>
+        <label className="set-field"><span>Situation</span><select value={situation} onChange={(event) => setSituation(event.target.value as "existing" | "opening")} disabled={!canWrite || saving}><option value="existing">J’ai déjà un {label}</option><option value="opening">Je souhaite en ouvrir un</option></select></label>
         {situation === "existing" ? <>
-          <label className="set-field"><span>Établissement financier</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="ex. Boursorama Banque" disabled={!canEdit || saving} required /></label>
-          <label className="set-field"><span>Nom du compte</span><input value={name} onChange={(event) => setName(event.target.value)} disabled={!canEdit || saving} /></label>
-          <label className="set-field"><span>Date d’ouverture (facultative)</span><input type="date" value={openedAt} onChange={(event) => setOpenedAt(event.target.value)} disabled={!canEdit || saving} /></label>
-        </> : <p className="set-hint">Un projet d’ouverture ne crée pas de compte actif et ne valide pas le défi. Revenez ici lorsque votre PEA sera réellement ouvert.</p>}
+          <label className="set-field"><span>Établissement financier</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="ex. Boursorama Banque" disabled={!canWrite || saving} required /></label>
+          <label className="set-field"><span>Nom du compte</span><input value={name} onChange={(event) => setName(event.target.value)} disabled={!canWrite || saving} /></label>
+          <label className="set-field"><span>Date d’ouverture (facultative)</span><input type="date" value={openedAt} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setOpenedAt(event.target.value)} disabled={!canWrite || saving} /></label>
+        </> : <p className="set-hint">Un projet d’ouverture ne crée pas de compte actif et ne valide pas le défi. Reviens ici lorsque ton {label} sera réellement ouvert.</p>}
         {error && <p className="set-message error" role="alert">{error}</p>}
-        <div className="set-actions"><button type="button" className="set-btn" onClick={() => onNavigate?.("investissements-suggestions")} disabled={saving}>Je le ferai plus tard</button>{situation === "existing" && <button type="submit" className="set-btn-primary" disabled={!canEdit || saving}>{saving ? "Enregistrement…" : "Enregistrer mon PEA et terminer le défi"}</button>}</div>
+        <div className="set-actions"><button type="button" className="set-btn" onClick={() => onNavigate?.("investissements-suggestions")} disabled={saving}>Je le ferai plus tard</button>{situation === "existing" && <button type="submit" className="set-btn-primary" disabled={!canWrite || saving}>{saving ? "Enregistrement…" : `Enregistrer mon ${label} et terminer le défi`}</button>}</div>
       </form>
     </section>
   );
 }
 
-export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChallenge }: { viewer: Viewer; onNavigate?: (view: View) => void; scopeOverride?: "family" | "selected"; guidedChallenge?: "onboarding_account_setup" | null }) {
+export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChallenge, guidedAccountType }: { viewer: Viewer; onNavigate?: (view: View) => void; scopeOverride?: "family" | "selected"; guidedChallenge?: "onboarding_account_setup" | null; guidedAccountType?: "pea" | "securities" }) {
   const [lines, setLines] = useState<AccountLine[] | null>(null);
   const [visible, setVisible] = useState(true);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<{ account: PortfolioAccount; valueEur: number | null } | null>(null);
   const [message, setMessage] = useState<{ text: string; tone: "success" | "error" | "info" } | null>(null);
+  const [creating, setCreating] = useState<"pea" | "securities" | null>(null);
+  // `canEdit` = édition d'un compte EXISTANT (nom, établissement, objectif…) : reste admin.
   const canEdit = viewer.role === "admin";
+
+  // APERÇU ADMIN (AdminMemberSettings passe toujours `scopeOverride`) : aucune écriture. C'est un
+  // garde-fou de correction, pas de confort — la route self-service force `member_id` sur la
+  // SESSION appelante, donc un enregistrement depuis l'aperçu créerait le compte au nom de
+  // l'administrateur et non du membre affiché.
+  const isAdminPreview = scopeOverride !== undefined;
+  const canWrite = !isAdminPreview;
+  const isAdmin = viewer.role === "admin";
 
   const load = useCallback(async () => {
     const headers = await authHeaders();
@@ -218,7 +249,18 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
 
   return (
     <SettingsSection title="Mes comptes" subtitle="Suivez vos comptes et la valeur de vos investissements.">
-      {guidedChallenge === "onboarding_account_setup" && <PeaChallengeSetup viewer={viewer} canEdit={canEdit} onSaved={() => void load()} onNavigate={onNavigate} />}
+      {/* Formulaire guidé : ouvert par un défi (?challenge=…) OU par le bouton « Ajouter » ci-dessous. */}
+      {(guidedChallenge === "onboarding_account_setup" || creating) && (
+        <PeaChallengeSetup
+          key={creating ?? guidedAccountType ?? "pea"}
+          viewer={viewer}
+          canWrite={canWrite}
+          isAdmin={isAdmin}
+          accountType={creating ?? guidedAccountType ?? "pea"}
+          onSaved={() => { setCreating(null); void load(); }}
+          onNavigate={onNavigate}
+        />
+      )}
       {error && <p className="set-message error" role="status">{error}</p>}
       <SettingsMessage message={message} />
       {lines === null ? (
@@ -226,7 +268,9 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
       ) : lines.length === 0 ? (
         <div className="set-empty">
           <p>Aucun compte d’investissement n’est encore associé à votre profil.</p>
-          <span>Vos comptes (Bitcoin, PEA, compte-titres) apparaîtront ici dès leur saisie par un administrateur.</span>
+          {canWrite
+            ? <span>Enregistrez votre PEA ou votre compte-titres pour suivre vos investissements.</span>
+            : <span>Vos comptes (Bitcoin, PEA, compte-titres) apparaîtront ici dès leur saisie.</span>}
         </div>
       ) : (
         <ul className="set-account-list">
@@ -250,6 +294,14 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
             );
           })}
         </ul>
+      )}
+      {/* Création permanente : ne dépend plus d'un défi. Un membre qui arrive ici de lui-même doit
+          pouvoir enregistrer son compte, sans attendre qu'un administrateur le fasse pour lui. */}
+      {canWrite && !creating && guidedChallenge !== "onboarding_account_setup" && (
+        <div className="set-actions set-account-add">
+          <button type="button" className="set-btn-primary" onClick={() => setCreating("pea")}>Ajouter un PEA</button>
+          <button type="button" className="set-btn" onClick={() => setCreating("securities")}>Ajouter un compte-titres</button>
+        </div>
       )}
       <p className="set-note">Seuls les comptes qui vous appartiennent ou qui ont été partagés avec vous sont affichés ici.</p>
       {detail && (

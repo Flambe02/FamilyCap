@@ -21,7 +21,7 @@ import {
 type Message = { text: string; tone: "success" | "error" | "info" };
 const INSTRUMENT_LABELS: Record<InstrumentPreference, string> = { etf: "ETF", stocks: "Actions", both: "Les deux" };
 
-export function InvestmentRhythmSettings({ viewer, memberId, readOnly = false }: { viewer: Viewer; memberId?: string; readOnly?: boolean }) {
+export function InvestmentRhythmSettings({ viewer, memberId, readOnly = false, onCreateAccount }: { viewer: Viewer; memberId?: string; readOnly?: boolean; onCreateAccount?: () => void }) {
   const [loading, setLoading] = useState<boolean>(true);
   const [available, setAvailable] = useState(true);
   const [accounts, setAccounts] = useState<InvestmentAccountLite[]>([]);
@@ -126,7 +126,15 @@ export function InvestmentRhythmSettings({ viewer, memberId, readOnly = false }:
           </div>
 
           {accounts.length === 0 && (
-            <p className="set-hint">Aucun PEA ou compte-titres n’est encore configuré à ton nom. Demande à l’administrateur d’en créer un pour suivre ton rythme sur un compte précis.</p>
+            // Cul-de-sac corrigé : sans compte, cet écran renvoyait vers l'administrateur alors
+            // que le membre peut désormais enregistrer le sien (route self-service).
+            !readOnly && onCreateAccount
+              ? <div className="set-empty">
+                  <p>Aucun PEA ou compte-titres n’est encore enregistré à ton nom.</p>
+                  <span>Enregistre-le pour rattacher ton rythme d’investissement à un compte précis.</span>
+                  <div className="set-actions"><button type="button" className="set-btn-primary" onClick={onCreateAccount}>Enregistrer mon compte</button></div>
+                </div>
+              : <p className="set-hint">Aucun PEA ou compte-titres n’est encore configuré à ce nom.</p>
           )}
 
           <ul className="set-rows">
