@@ -17,12 +17,14 @@
 
 /* ============ Bande de synthèse (remplace les quatre tuiles) ============ */
 .pf-strip {
-  display: grid; grid-template-columns: 1.25fr 1fr 1.15fr 1fr; align-items: center;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch;
   margin: 18px 0 20px; border: 1px solid #e2e8e6; border-radius: 14px; background: #fff;
   box-shadow: 0 1px 2px rgba(17, 47, 43, .03); overflow: hidden;
 }
 .pf-cell { min-width: 0; padding: 15px 20px; border-left: 1px solid #edf2f0; }
 .pf-cell:first-child { border-left: 0; }
+.pf-cell:nth-child(4) { border-left: 0; }
+.pf-cell:nth-child(n + 4) { border-top: 1px solid #edf2f0; }
 .pf-cell small { display: block; color: #6c7d7b; font-size: 11.5px; font-weight: 600; line-height: 1.2; }
 .pf-cell strong {
   display: block; margin-top: 6px; color: var(--ink); font-size: 20px; font-weight: 700;
@@ -32,6 +34,7 @@
 .pf-perf.is-up { color: var(--btc-up, #1d7a5f); }
 .pf-perf.is-down { color: var(--btc-down, #d9544d); }
 .pf-perf em { font-size: 14px; font-style: normal; font-weight: 650; opacity: .9; white-space: nowrap; }
+.pf-cell > em { display: block; margin-top: 4px; color: #6c7d7b; font-size: 11px; font-style: normal; line-height: 1.3; }
 
 /* ============ En-tête de liste ============ */
 .pos-listing { margin-top: 4px; }
@@ -194,8 +197,9 @@
 }
 @container pos (max-width: 659px) {
   .pf-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .pf-cell:nth-child(3) { border-left: 0; }
+  .pf-cell:nth-child(odd) { border-left: 0; }
   .pf-cell:nth-child(n + 3) { border-top: 1px solid #edf2f0; }
+  .pf-cell:nth-child(4) { border-left: 1px solid #edf2f0; }
 }
 
 /* ============ Cartes (conteneur < 660 px) ============ */
@@ -245,8 +249,9 @@
   .pf-cell strong { font-size: 17px; }
   .pf-cell-lead strong { font-size: 20px; }
   .pf-perf em { display: block; margin-top: 2px; font-size: 12px; }
-  .pf-cell:nth-child(3) { border-left: 0; }
+  .pf-cell:nth-child(odd) { border-left: 0; }
   .pf-cell:nth-child(n + 3) { border-top: 1px solid #edf2f0; }
+  .pf-cell:nth-child(4) { border-left: 1px solid #edf2f0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

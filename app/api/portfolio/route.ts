@@ -60,6 +60,24 @@ function isMissingTable(message: string) {
   return message.includes("financial_accounts") || message.includes("holdings") || message.includes("PGRST205") || message.includes("PGRST200");
 }
 
+function isValidTimestamp(value: string | null | undefined) {
+  return !value || Number.isFinite(new Date(value).getTime());
+}
+
+function usableQuote(row: QuoteRow | undefined, expectedCurrency: string | null | undefined) {
+  if (!row || !Number.isFinite(Number(row.price)) || Number(row.price) <= 0) return null;
+  const currency = String(row.currency ?? "").toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency) || !isValidTimestamp(row.quoted_at)) return null;
+  if (expectedCurrency && currency !== expectedCurrency.toUpperCase()) return null;
+  return row;
+}
+
+function usableManualPrice(holding: HoldingRow) {
+  const price = Number(holding.last_price);
+  if (!Number.isFinite(price) || price <= 0 || !isValidTimestamp(holding.last_price_at)) return null;
+  return price;
+}
+
 export async function GET(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
@@ -124,9 +142,9 @@ export async function GET(request: Request) {
     // position.
     const currenciesInUse = new Set<string>();
     for (const holding of holdingRows) {
-      const quote = latestQuoteByAsset.get(holding.id)
+      const quote = usableQuote(latestQuoteByAsset.get(holding.id)
         ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined)
-        ?? (holding.yahoo_symbol ? latestQuoteBySymbol.get(`yahoo:${holding.yahoo_symbol}`) : undefined);
+        ?? (holding.yahoo_symbol ? latestQuoteBySymbol.get(`yahoo:${holding.yahoo_symbol}`) : undefined), holding.currency);
       currenciesInUse.add((quote?.currency ?? holding.currency ?? "EUR").toUpperCase());
     }
     for (const operation of operationRows) currenciesInUse.add((operation.currency ?? "EUR").toUpperCase());
@@ -134,9 +152,10 @@ export async function GET(request: Request) {
     const fxRows: FxRateRow[] = await loadPortfolioFxRates([...currenciesInUse]);
 
     const holdings = holdingRows.map((holding) => {
-      const quote = latestQuoteByAsset.get(holding.id)
+      const quote = usableQuote(latestQuoteByAsset.get(holding.id)
         ?? (holding.provider_symbol ? latestQuoteBySymbol.get(`eodhd:${holding.provider_symbol}`) : undefined)
-        ?? (holding.yahoo_symbol ? latestQuoteBySymbol.get(`yahoo:${holding.yahoo_symbol}`) : undefined);
+        ?? (holding.yahoo_symbol ? latestQuoteBySymbol.get(`yahoo:${holding.yahoo_symbol}`) : undefined), holding.currency);
+      const manualPrice = usableManualPrice(holding);
       const referenceCurrency = accountCurrencyById.get(holding.account_id) ?? "EUR";
       const nativeCurrency = (quote?.currency ?? holding.currency).toUpperCase();
       // Facteur résolu par le SEUL module qui connaît la formule (lib/fx-rates.ts). La route ne
@@ -152,8 +171,8 @@ export async function GET(request: Request) {
       isin: holding.isin,
       quantity: Number(holding.quantity) || 0,
       average_cost: holding.average_cost === null || holding.average_cost === undefined ? null : Number(holding.average_cost),
-      last_price: quote ? Number(quote.price) : (holding.last_price === null || holding.last_price === undefined ? null : Number(holding.last_price)),
-      last_price_at: quote?.quoted_at ?? holding.last_price_at ?? null,
+      last_price: quote ? Number(quote.price) : manualPrice,
+      last_price_at: quote?.quoted_at ?? (manualPrice === null ? null : holding.last_price_at ?? null),
       currency: holding.currency,
       exchange: holding.exchange ?? null, providerSymbol: holding.provider_symbol ?? holding.market_symbol ?? null, yahooSymbol: holding.yahoo_symbol ?? null, micCode: holding.mic_code ?? null,
       dataProvider: quote?.provider ?? holding.data_provider ?? null, quoteMode: holding.quote_mode ?? (quote ? "eod" : null), country: holding.country ?? null,

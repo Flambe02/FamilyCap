@@ -118,14 +118,23 @@ function Chevron() {
 // BANDE DE SYNTHÈSE
 // ==========================================================================================
 /** Une seule bande blanche, quatre zones séparées par de fines bordures — pas quatre cartes. */
-export function PortfolioSummaryStrip({ totalValue, invested, gainEur, gainPct, dividends, currency }: {
+export function PortfolioSummaryStrip({ positionsValue, cash, totalValue, invested, gainEur, gainPct, dividends, currency, unvaluedPositions, unvaluedCost }: {
+  positionsValue: number | null; cash: number;
   totalValue: number | null; invested: number; gainEur: number | null; gainPct: number | null;
-  dividends: number; currency: string;
+  dividends: number; currency: string; unvaluedPositions: number; unvaluedCost: number;
 }) {
   return (
     <div className="pf-strip" aria-label="Synthèse du portefeuille">
       <div className="pf-cell pf-cell-lead">
-        <small>Valeur du portefeuille</small>
+        <small>Valeur des positions</small>
+        <strong>{positionsValue === null ? "Indisponible" : money(positionsValue, currency)}</strong>
+      </div>
+      <div className="pf-cell">
+        <small>Trésorerie</small>
+        <strong className={cash < 0 ? "pf-perf is-down" : undefined}>{money(cash, currency)}</strong>
+      </div>
+      <div className="pf-cell">
+        <small>Valeur totale du compte</small>
         <strong>{totalValue === null ? "Indisponible" : money(totalValue, currency)}</strong>
       </div>
       <div className="pf-cell">
@@ -133,11 +142,12 @@ export function PortfolioSummaryStrip({ totalValue, invested, gainEur, gainPct, 
         <strong>{money(invested, currency)}</strong>
       </div>
       <div className="pf-cell">
-        <small>Performance totale</small>
+        <small>{unvaluedPositions > 0 ? "Performance partielle" : "Performance des positions"}</small>
         <strong className={`pf-perf${toneOf(gainEur)}`}>
           {gainEur === null ? "Indisponible" : signedMoney(gainEur, currency)}
           {gainPct !== null && <em> · {signedPct(gainPct)}</em>}
         </strong>
+        {unvaluedPositions > 0 && <em>{unvaluedPositions} position(s), coût {money(unvaluedCost, currency)}, exclue(s)</em>}
       </div>
       <div className="pf-cell">
         {/* Le moteur ne ventile pas les dividendes par année civile : on ne datera pas ce

@@ -42,6 +42,16 @@ export type QuoteOutcome =
   | { ok: true; quote: Quote }
   | { ok: false; reason: "not_found" | "currency_mismatch" | "provider_error"; message: string; quote?: Quote };
 
+export type YahooQuoteFailureCode = "disabled" | "not_found" | "http_error" | "timeout" | "parse_error" | "invalid_quote";
+export class YahooQuoteError extends Error {
+  readonly code: YahooQuoteFailureCode;
+  constructor(code: YahooQuoteFailureCode, message: string) {
+    super(message);
+    this.name = "YahooQuoteError";
+    this.code = code;
+  }
+}
+
 const YAHOO_SEARCH = "https://query1.finance.yahoo.com/v1/finance/search";
 const YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
 const STOOQ = "https://stooq.com/q/l/";
@@ -154,20 +164,30 @@ export async function resolveSymbols(target: QuoteTarget): Promise<string[]> {
   return [];
 }
 
-/** Cours d'un symbole Yahoo (prix, devise, horodatage). null si indisponible. */
-export async function yahooQuote(symbol: string): Promise<Quote | null> {
-  if (process.env.ENABLE_EXPERIMENTAL_YAHOO_PROVIDER !== "true") return null;
+/** Variante diagnostique utilisée par le pipeline serveur EODHD → Yahoo. */
+export async function yahooQuoteDetailed(symbol: string): Promise<Quote> {
+  if (process.env.ENABLE_EXPERIMENTAL_YAHOO_PROVIDER !== "true") {
+    throw new YahooQuoteError("disabled", "Yahoo fallback is disabled.");
+  }
   try {
     const response = await fetchWithTimeout(`${YAHOO_CHART}/${encodeURIComponent(symbol)}?range=5d&interval=1d`);
-    if (!response.ok) return null;
-    const data = (await response.json()) as {
+    if (response.status === 404) throw new YahooQuoteError("not_found", "Yahoo symbol was not found.");
+    if (!response.ok) throw new YahooQuoteError("http_error", `Yahoo HTTP ${response.status}.`);
+    let data: {
       chart?: { result?: Array<{ meta?: Record<string, unknown> }>; error?: unknown };
     };
+    try {
+      data = (await response.json()) as typeof data;
+    } catch {
+      throw new YahooQuoteError("parse_error", "Yahoo returned invalid JSON.");
+    }
     const meta = data.chart?.result?.[0]?.meta;
-    if (!meta) return null;
+    if (!meta) throw new YahooQuoteError("not_found", "Yahoo returned no result for this symbol.");
     const rawPrice = Number(meta.regularMarketPrice);
     const rawCurrency = String(meta.currency ?? "");
-    if (!Number.isFinite(rawPrice) || rawPrice <= 0 || !rawCurrency) return null;
+    if (!Number.isFinite(rawPrice) || rawPrice <= 0 || !rawCurrency) {
+      throw new YahooQuoteError("invalid_quote", "Yahoo returned no usable price.");
+    }
     // Londres cote en pence (« GBp » / « GBX ») : ramené en livres pour rester homogène.
     const isPence = rawCurrency === "GBp" || rawCurrency.toUpperCase() === "GBX";
     const stamp = Number(meta.regularMarketTime);
@@ -180,6 +200,19 @@ export async function yahooQuote(symbol: string): Promise<Quote | null> {
       name: (meta.longName as string) ?? (meta.shortName as string) ?? null,
       exchange: (meta.fullExchangeName as string) ?? (meta.exchangeName as string) ?? null,
     };
+  } catch (error) {
+    if (error instanceof YahooQuoteError) throw error;
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+      throw new YahooQuoteError("timeout", "Yahoo request timed out.");
+    }
+    throw new YahooQuoteError("http_error", "Yahoo did not respond.");
+  }
+}
+
+/** Compatibilité des anciens lecteurs : null si indisponible, sans diagnostic détaillé. */
+export async function yahooQuote(symbol: string): Promise<Quote | null> {
+  try {
+    return await yahooQuoteDetailed(symbol);
   } catch {
     return null;
   }
@@ -426,6 +459,10 @@ function sameInstrument(reference: { name: string | null; price: number | null }
 }
 
 /**
+ * @deprecated Ancien moteur Yahoo/Stooq sans appelant dans le refresh PEA/CTO.
+ * Conservé pour compatibilité jusqu'à décision sur les anciennes routes admin.
+ * Le pipeline canonique est `syncMarketData` (EODHD puis Yahoo uniquement).
+ *
  * Cherche le cours d'un instrument. Essaie les symboles candidats et retient EN PRIORITÉ celui
  * dont la devise correspond à celle de la position (une même valeur est souvent cotée sur
  * plusieurs places, dans plusieurs devises). Si aucun candidat ne correspond, renvoie le

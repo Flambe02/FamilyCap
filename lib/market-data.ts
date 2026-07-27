@@ -1,11 +1,19 @@
 // Couche serveur indépendante des fournisseurs. Les composants et le moteur de portefeuille
 // ne connaissent que ces structures normalisées, jamais le JSON d'un fournisseur.
-import { resolveSymbols, yahooQuote } from "./market-quotes.ts";
+import { resolveSymbols, yahooQuoteDetailed, YahooQuoteError } from "./market-quotes.ts";
 
 export type MarketAssetType = "stock" | "etf" | "fund" | "bond" | "reit" | "gold" | "crypto" | "cash" | "other";
 export type QuoteMode = "eod" | "delayed" | "realtime" | "manual";
 export type QuoteFreshness = "fresh" | "stale" | "unavailable" | "manual";
-export type ProviderFailureCode = "rate_limited" | "not_found" | "unavailable" | "invalid_quote" | "disabled";
+export type ProviderFailureCode =
+  | "rate_limited"
+  | "not_found"
+  | "http_error"
+  | "timeout"
+  | "parse_error"
+  | "unavailable"
+  | "invalid_quote"
+  | "disabled";
 
 export class MarketProviderError extends Error {
   readonly code: ProviderFailureCode;
@@ -14,6 +22,8 @@ export class MarketProviderError extends Error {
 
 export type MarketAsset = {
   id?: string;
+  assetId?: string | null;
+  listingId?: string | null;
   name: string;
   isin?: string | null;
   ticker?: string | null;
@@ -58,6 +68,10 @@ export interface MarketDataProvider {
 const EODHD_BASE = "https://eodhd.com/api";
 const TIMEOUT_MS = 9_000;
 
+export function isEodhdConfigured() {
+  return Boolean(process.env.EODHD_API_TOKEN?.trim());
+}
+
 function requiredToken() {
   const token = process.env.EODHD_API_TOKEN?.trim();
   if (!token) throw new MarketProviderError("disabled", "EODHD is not configured on the server.");
@@ -69,13 +83,21 @@ async function fetchJson(path: string, params: Record<string, string>) {
   let response: Response;
   try {
     response = await fetch(`${EODHD_BASE}${path}?${query.toString()}`, { signal: AbortSignal.timeout(TIMEOUT_MS), cache: "no-store" });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new MarketProviderError("timeout", "EODHD request timed out.");
+    }
     throw new MarketProviderError("unavailable", "EODHD did not respond.");
   }
   if (response.status === 429) throw new MarketProviderError("rate_limited", "EODHD daily limit reached.");
   if (response.status === 404) throw new MarketProviderError("not_found", "EODHD symbol was not found.");
-  if (!response.ok) throw new MarketProviderError("unavailable", `EODHD HTTP ${response.status}.`);
-  const payload = await response.json() as unknown;
+  if (!response.ok) throw new MarketProviderError("http_error", `EODHD HTTP ${response.status}.`);
+  let payload: unknown;
+  try {
+    payload = await response.json() as unknown;
+  } catch {
+    throw new MarketProviderError("parse_error", "EODHD returned invalid JSON.");
+  }
   const message = typeof payload === "object" && payload ? String((payload as Record<string, unknown>).message ?? (payload as Record<string, unknown>).error ?? "") : "";
   if (/limit|quota|too many/i.test(message)) throw new MarketProviderError("rate_limited", "EODHD daily limit reached.");
   return payload;
@@ -126,8 +148,16 @@ export class YahooFinanceProvider implements MarketDataProvider {
     const candidates = [asset.yahooSymbol, asset.providerSymbol].map((value) => value?.trim()).filter((value): value is string => Boolean(value));
     if (candidates.length === 0) candidates.push(...await resolveSymbols({ isin: asset.isin, ticker: asset.ticker, name: asset.name, currency: asset.currency }));
     for (const candidate of candidates.slice(0, 3)) {
-      const quote = await yahooQuote(candidate);
-      if (!quote) continue;
+      let quote;
+      try {
+        quote = await yahooQuoteDetailed(candidate);
+      } catch (error) {
+        if (error instanceof YahooQuoteError && error.code === "not_found") continue;
+        if (error instanceof YahooQuoteError) {
+          throw new MarketProviderError(error.code, error.message);
+        }
+        throw new MarketProviderError("unavailable", "Yahoo did not respond.");
+      }
       if (asset.currency && quote.currency !== asset.currency.toUpperCase()) throw new MarketProviderError("invalid_quote", "Yahoo currency does not match the asset.");
       return validQuote({ provider: "yahoo", providerSymbol: quote.symbol, price: quote.price, currency: quote.currency, quotedAt: quote.asOf ?? new Date().toISOString(), marketStatus: "unknown", dataDelayMinutes: null, quoteMode: "delayed", rawMetadata: { exchange: quote.exchange, name: quote.name, source: "Yahoo Finance" } });
     }
@@ -138,7 +168,7 @@ export class YahooFinanceProvider implements MarketDataProvider {
 
 export function primaryMarketProvider(): MarketDataProvider | null {
   const provider = (process.env.MARKET_DATA_PRIMARY_PROVIDER ?? "eodhd").toLowerCase();
-  if (provider === "eodhd") return new EodhdProvider();
+  if (provider === "eodhd") return isEodhdConfigured() ? new EodhdProvider() : null;
   if (provider === "yahoo") return new YahooFinanceProvider();
   return null;
 }

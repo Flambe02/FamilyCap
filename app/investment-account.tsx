@@ -64,15 +64,65 @@ export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "p
 // Compte rendu du rafraîchissement des cours (une ligne par position). Aucune valeur n'est
 // inventée : un instrument introuvable ou coté dans une autre devise est RAPPORTÉ, pas écrit.
 export type PriceRefreshRow = {
-  assetId: string; name: string;
-  status: "fresh" | "stale" | "unavailable" | "manual" | "needs_review";
-  source: "eodhd" | "yahoo" | "cache" | "manual" | null;
-  marketDate?: string | null;
+  instrumentKey: string;
+  assetId: string | null;
+  listingId: string | null;
+  name: string;
+  isin: string | null;
+  ticker: string | null;
+  symbol: string | null;
+  status: "updated" | "preserved" | "unresolved" | "failed" | "skipped";
+  provider: "eodhd" | "yahoo" | null;
+  price: number | null;
+  currency: string | null;
+  priceAt: string | null;
+  reason: string;
+  preservedPrice: {
+    price: number;
+    priceAt: string | null;
+    source: "automatic_cache" | "manual_holding";
+    provider: string | null;
+  } | null;
+  diagnostic?: { primaryReason: string | null; fallbackReason: string | null };
 };
 // Compte rendu de la passe de CHANGE, distincte de celle des cours : elle a ses propres
 // fournisseurs (gratuits, sans clé) et son propre cache quotidien.
 export type FxRefreshRow = { pair: string; status: "fresh" | "cached" | "unavailable"; rate?: number; provider?: string; quotedAt?: string; message?: string };
-export type PriceRefreshReport = { refreshed: number; skipped: number; cached: number; errors: number; apiLimitReached: boolean; results: PriceRefreshRow[]; fx?: FxRefreshRow[]; error?: string };
+export type PriceRefreshReport = {
+  total: number;
+  updated: number;
+  preserved: { total: number; automaticCache: number; manualHoldingPrice: number };
+  unresolved: number;
+  failed: number;
+  skipped: number;
+  provider: {
+    primary: string;
+    primaryConfigured: boolean;
+    primaryCircuitOpen: boolean;
+    fallback: string | null;
+    fallbackEnabled: boolean;
+  };
+  results: PriceRefreshRow[];
+  fx?: FxRefreshRow[];
+  error?: string;
+};
+
+const EMPTY_REFRESH_REPORT: PriceRefreshReport = {
+  total: 0,
+  updated: 0,
+  preserved: { total: 0, automaticCache: 0, manualHoldingPrice: 0 },
+  unresolved: 0,
+  failed: 0,
+  skipped: 0,
+  provider: {
+    primary: "eodhd",
+    primaryConfigured: false,
+    primaryCircuitOpen: false,
+    fallback: "yahoo",
+    fallbackEnabled: false,
+  },
+  results: [],
+};
 
 // ---- Config d'enveloppe (PEA / CTO) ------------------------------------------------------
 export type EnvelopeConfig = {
@@ -329,8 +379,8 @@ export function InvestmentAccountShell({
     }
   }
 
-  // Rafraîchissement des cours auprès d'un fournisseur de marché gratuit (Yahoo Finance, repli
-  // Stooq). N'écrit qu'un cours et son horodatage : ni quantité, ni prix de revient.
+  // Pipeline serveur EODHD puis Yahoo. Il n'écrit qu'un cours automatique et son
+  // horodatage : jamais une quantité, un prix de revient ou une opération.
   async function refreshPrices() {
     if (!selectedAccount || pricesBusy) return;
     setPricesBusy(true);
@@ -341,13 +391,20 @@ export function InvestmentAccountShell({
       });
       const data = (await response.json().catch(() => ({}))) as PriceRefreshReport & { error?: string };
       if (!response.ok) {
-        setPriceReport({ refreshed: 0, skipped: 0, cached: 0, errors: 0, apiLimitReached: false, results: [], error: data.error ?? "Mise à jour des cours impossible." });
+        setPriceReport({ ...EMPTY_REFRESH_REPORT, error: data.error ?? "Mise à jour des cours impossible." });
       } else {
-        setPriceReport({ refreshed: data.refreshed ?? 0, skipped: data.skipped ?? 0, cached: data.cached ?? 0, errors: data.errors ?? 0, apiLimitReached: data.apiLimitReached ?? false, results: data.results ?? [], fx: data.fx ?? [] });
+        setPriceReport({
+          ...EMPTY_REFRESH_REPORT,
+          ...data,
+          preserved: data.preserved ?? EMPTY_REFRESH_REPORT.preserved,
+          provider: data.provider ?? EMPTY_REFRESH_REPORT.provider,
+          results: data.results ?? [],
+          fx: data.fx ?? [],
+        });
         onReload();
       }
     } catch {
-      setPriceReport({ refreshed: 0, skipped: 0, cached: 0, errors: 0, apiLimitReached: false, results: [], error: "Réseau indisponible." });
+      setPriceReport({ ...EMPTY_REFRESH_REPORT, error: "Réseau indisponible." });
     }
     setPricesBusy(false);
   }
@@ -612,27 +669,41 @@ function ResumeTab({ config, model, title, range, setRange, canManage, memberCan
       <div className="btc-hero-grid">
         <section className="btc-hero">
           <div className="btc-hero-copy">
-            <span className="btc-eyebrow">VALEUR ACTUELLE TOTALE</span>
+            <span className="btc-eyebrow">VALEUR TOTALE DU COMPTE</span>
             <strong className="btc-hero-value">{valueLabel}</strong>
             <p className="btc-hero-btc">{euro.format(model.netInvestedEur)} investis</p>
-            <div className="btc-hero-gain"><GainPill eur={model.performanceEur} pct={model.performancePct} muted={marketLoading} /></div>
-            <small className="btc-hero-note">Depuis l’origine ({startLabel}){multiCurrency ? " · valeurs non converties" : ""}</small>
+            <div className="btc-hero-gain"><GainPill eur={model.unrealizedGainEur} pct={model.unrealizedGainPct} muted={marketLoading} /></div>
+            <small className="btc-hero-note">
+              Valeur des positions {model.positionsValueEur === null ? "indisponible" : euro.format(model.positionsValueEur)}
+              {" · "}Trésorerie {euro.format(model.cashEur)}
+              {" · "}Depuis l’origine ({startLabel}){multiCurrency ? " · valeurs non converties" : ""}
+            </small>
           </div>
           <div className="btc-hero-scene" aria-hidden="true" />
         </section>
 
         <div className="btc-kpi-grid">
           <BitcoinKpi label="MONTANT NET INVESTI" value={euro.format(model.netInvestedEur)} sub="Versements − retraits" icon="wallet" tone="amber" />
-          <BitcoinKpi label="PRIX DE REVIENT MOYEN" value={model.averageBookPrice === null ? "Non disponible" : euro.format(model.averageBookPrice)} sub="Par part / action" icon="landmark" tone="teal" />
-          <BitcoinKpi label="PLUS / MOINS-VALUE" value={model.unrealizedGainEur === null ? "Cours non disponible" : <GainPill eur={model.unrealizedGainEur} pct={model.unrealizedGainPct} />} sub="Sur les positions détenues" icon="trending-up" tone="teal" />
+          <BitcoinKpi label="VALEUR DES POSITIONS" value={model.positionsValueEur === null ? "Cours non disponible" : euro.format(model.positionsValueEur)} sub={`${model.valuationCoverage.valuedPositions}/${model.valuationCoverage.totalPositions} positions valorisées`} icon="landmark" tone="teal" />
+          <BitcoinKpi label={model.valuationCoverage.unvaluedPositions > 0 ? "PERFORMANCE PARTIELLE" : "PLUS / MOINS-VALUE"} value={model.unrealizedGainEur === null ? "Cours non disponible" : <GainPill eur={model.unrealizedGainEur} pct={model.unrealizedGainPct} />} sub={`Coût valorisé ${euro.format(model.valuationCoverage.valuedCostEur)}`} icon="trending-up" tone="teal" />
           <BitcoinKpi label="DIVIDENDES REÇUS" value={euro.format(model.dividendsNetEur)} sub="Net, depuis l’origine" icon="sprout" tone="teal" />
-          <BitcoinKpi label="ESPÈCES DISPONIBLES" value={euro.format(model.cashEur)} sub="À investir" icon="bell" tone="blue" />
+          <BitcoinKpi label="TRÉSORERIE" value={euro.format(model.cashEur)} sub={model.cashEur < 0 ? "Des apports historiques peuvent manquer" : "Disponible"} icon="bell" tone="blue" />
           {config.sixthKpi === "fxImpact" ? (
             <BitcoinKpi label="IMPACT DU CHANGE" value={model.fxImpactEur === null ? "Non disponible" : euro.format(model.fxImpactEur)} sub={multiCurrency ? "Plusieurs devises détectées" : "Calcul à venir"} icon="swap" tone="navy" />
           ) : (
-            <BitcoinKpi label="PERFORMANCE DEPUIS L’ORIGINE" value={model.performancePct === null ? "Non disponible" : `${model.performancePct >= 0 ? "+" : ""}${model.performancePct.toFixed(2).replace(".", ",")} %`} sub="Valeur / net investi" icon="trending-up" tone="teal" />
+            <BitcoinKpi label={model.valuationCoverage.unvaluedPositions > 0 ? "PERFORMANCE PARTIELLE" : "PERFORMANCE DES POSITIONS"} value={model.unrealizedGainPct === null ? "Non disponible" : `${model.unrealizedGainPct >= 0 ? "+" : ""}${model.unrealizedGainPct.toFixed(2).replace(".", ",")} %`} sub={`${model.valuationCoverage.coveragePercent.toFixed(0)} % des positions valorisées`} icon="trending-up" tone="teal" />
           )}
         </div>
+        {model.cashEur < 0 && (
+          <p className="btc-chart-source" role="note">
+            Trésorerie négative : certains achats ne sont associés à aucun versement ou transfert entrant. Aucune opération n’a été créée automatiquement.
+          </p>
+        )}
+        {model.valuationCoverage.unvaluedPositions > 0 && (
+          <p className="btc-chart-source" role="note">
+            Performance partielle : {model.valuationCoverage.unvaluedPositions} position(s), représentant un coût de {euro.format(model.valuationCoverage.unvaluedCostEur)}, sont exclues faute de cours.
+          </p>
+        )}
       </div>
 
       <div className="btc-allocation-grid pea-alloc-grid">
@@ -694,7 +765,7 @@ function ResumeTab({ config, model, title, range, setRange, canManage, memberCan
           <div className="btc-chart-foot">
             <div><small>Montant net investi</small><strong>{euro.format(model.netInvestedEur)}</strong></div>
             <div><small>Valeur actuelle</small><strong>{valueLabel}</strong></div>
-            <div><small>Depuis l’origine</small><strong className={model.performanceEur === null ? "" : model.performanceEur >= 0 ? "up" : "down"}><GainPill eur={model.performanceEur} pct={model.performancePct} /></strong></div>
+            <div><small>{model.valuationCoverage.unvaluedPositions > 0 ? "Performance partielle" : "Performance des positions"}</small><strong className={model.unrealizedGainEur === null ? "" : model.unrealizedGainEur >= 0 ? "up" : "down"}><GainPill eur={model.unrealizedGainEur} pct={model.unrealizedGainPct} /></strong></div>
           </div>
         </section>
 
@@ -957,12 +1028,16 @@ function PositionsTab({
         )}
       </div>
       <PortfolioSummaryStrip
+        positionsValue={model.positionsValueEur}
+        cash={model.cashEur}
         totalValue={model.totalValueEur}
         invested={model.investedInAssetsEur}
         gainEur={model.unrealizedGainEur}
         gainPct={model.unrealizedGainPct}
         dividends={model.dividendsNetEur}
         currency={referenceCurrency}
+        unvaluedPositions={model.valuationCoverage.unvaluedPositions}
+        unvaluedCost={model.valuationCoverage.unvaluedCostEur}
       />
       {priceReport && <PriceRefreshPanel report={priceReport} onDismiss={onDismissPriceReport} />}
       {model.positions.length === 0 ? (
@@ -1011,22 +1086,23 @@ function PositionsTab({
 // n'est masqué — une position sans cours doit se voir, pas disparaître du total en silence.
 function PriceRefreshPanel({ report, onDismiss }: { report: PriceRefreshReport; onDismiss: () => void }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const unavailable = report.results.filter((row) => row.status === "unavailable");
-  const preserved = report.results.filter((row) => row.status === "stale" || row.source === "cache");
-  const needsReview = report.results.filter((row) => row.status === "needs_review");
-  const primary = report.results.filter((row) => row.status === "fresh" && row.source === "eodhd");
-  const backup = report.results.filter((row) => row.status === "fresh" && row.source === "yahoo");
+  const unavailable = report.results.filter((row) => row.status === "failed");
+  const preserved = report.results.filter((row) => row.status === "preserved");
+  const needsReview = report.results.filter((row) => row.status === "unresolved");
+  const primary = report.results.filter((row) => row.status === "updated" && row.provider === "eodhd");
+  const backup = report.results.filter((row) => row.status === "updated" && row.provider === "yahoo");
   const fx = report.fx ?? [];
   const fxFailures = fx.filter((row) => row.status === "unavailable");
   const hasIssue = unavailable.length > 0 || preserved.length > 0 || needsReview.length > 0 || fxFailures.length > 0;
   const title = report.error ? "Actualisation momentanément indisponible"
     : needsReview.length > 0 ? `${needsReview.length} actif${needsReview.length > 1 ? "s" : ""} à vérifier`
       : !hasIssue ? "Cours actualisés"
-        : report.refreshed > 0 || preserved.length > 0 ? "Actualisation partielle" : "Actualisation momentanément indisponible";
+        : report.updated > 0 || preserved.length > 0 ? "Actualisation partielle" : "Actualisation momentanément indisponible";
   const message = report.error ? "Les nouveaux cours n’ont pas pu être récupérés. Réessayez plus tard."
-    : needsReview.length > 0 ? `Le symbole de marché de ${needsReview[0]?.name ?? "cet actif"} doit être confirmé avant l’actualisation de son cours.`
-      : !hasIssue ? `${report.refreshed} position${report.refreshed > 1 ? "s" : ""} mise${report.refreshed > 1 ? "s" : ""} à jour.${backup.length ? " Un fournisseur de secours a été utilisé pour certains cours." : ""}`
-        : `${report.refreshed} cours actualisé${report.refreshed > 1 ? "s" : ""}. Les derniers cours connus sont conservés pour ${preserved.length} position${preserved.length > 1 ? "s" : ""}.`;
+    : report.updated === report.total && report.total > 0 ? `${report.updated} cours actualisés.`
+      : report.updated === 0 && report.preserved.total > 0
+        ? `Aucun nouveau cours récupéré. ${report.preserved.total} cours existants ont été conservés. ${report.unresolved + report.failed} position(s) restent sans cours.`
+        : `${report.updated} cours actualisé${report.updated > 1 ? "s" : ""}. ${report.preserved.total} dernier${report.preserved.total > 1 ? "s" : ""} cours connu${report.preserved.total > 1 ? "s" : ""} conservé${report.preserved.total > 1 ? "s" : ""}.`;
   return (
     <div className={`inv-price-report${hasIssue || report.error ? " warn" : ""}`} role="status">
       <button type="button" className="inv-price-report-close" onClick={onDismiss} aria-label="Fermer">×</button>
@@ -1037,14 +1113,49 @@ function PriceRefreshPanel({ report, onDismiss }: { report: PriceRefreshReport; 
       {detailsOpen && (
         <div className="inv-price-report-details-content">
           {primary.length > 0 && <p>{primary.length} cours actualisé{primary.length > 1 ? "s" : ""} par le fournisseur principal.</p>}
-          {backup.length > 0 && <p>{backup.length} cours actualisé{backup.length > 1 ? "s" : ""} par le fournisseur de secours.</p>}
-          {preserved.length > 0 && <p>{preserved.length} dernier{preserved.length > 1 ? "s" : ""} cours conservé{preserved.length > 1 ? "s" : ""}. Le fournisseur principal était temporairement indisponible.</p>}
+          {backup.length > 0 && <p>EODHD était indisponible ou avait atteint sa limite. Yahoo Finance a actualisé {backup.length} position{backup.length > 1 ? "s" : ""}.</p>}
+          {preserved.length > 0 && <p>{report.preserved.automaticCache} cours automatique(s) et {report.preserved.manualHoldingPrice} cours manuel(s) conservé(s).</p>}
           {needsReview.length > 0 && <p>Actif à vérifier : {needsReview.map((row) => row.name).join(", ")}.</p>}
           {unavailable.length > 0 && <p>Aucun cours disponible : {unavailable.map((row) => row.name).join(", ")}.</p>}
+          {report.results.map((row) => (
+            <details key={row.instrumentKey}>
+              <summary>{row.name} · {row.status === "updated" ? "actualisé" : row.status === "preserved" ? "cours conservé" : row.status === "unresolved" ? "instrument à vérifier" : row.status === "failed" ? "échec" : "ignoré"}</summary>
+              <p>
+                Symbole : {row.symbol ?? "non déterminé"} · Fournisseur : {row.provider === "yahoo" ? "Yahoo Finance" : row.provider === "eodhd" ? "EODHD" : "aucun"}.
+                {" "}{refreshReasonLabel(row.reason)}
+                {row.preservedPrice ? ` Ancien cours conservé : ${money(row.preservedPrice.price, row.currency ?? "EUR")}.` : ""}
+              </p>
+            </details>
+          ))}
         </div>
       )}
     </div>
   );
+}
+
+function refreshReasonLabel(reason: string) {
+  const labels: Record<string, string> = {
+    primary_success: "Le fournisseur principal a répondu.",
+    primary_not_configured: "EODHD n’est pas configuré sur le serveur.",
+    primary_quota_exhausted: "La limite EODHD est atteinte.",
+    primary_symbol_not_found: "EODHD n’a pas trouvé ce symbole.",
+    primary_http_error: "EODHD est temporairement indisponible.",
+    primary_timeout: "EODHD n’a pas répondu à temps.",
+    primary_parse_error: "La réponse EODHD était inexploitable.",
+    fallback_success: "Le fournisseur de secours a répondu.",
+    fallback_disabled: "Le fournisseur de secours Yahoo doit être activé dans la configuration serveur.",
+    fallback_symbol_not_found: "Yahoo Finance n’a pas trouvé ce symbole.",
+    fallback_http_error: "Yahoo Finance est temporairement indisponible.",
+    fallback_timeout: "Yahoo Finance n’a pas répondu à temps.",
+    fallback_parse_error: "La réponse Yahoo Finance était inexploitable.",
+    fallback_attempt_limit: "La limite de tentatives du fournisseur de secours est atteinte.",
+    preserved_automatic_cache: "Le dernier cours automatique valide est conservé.",
+    preserved_manual_price: "Le cours manuel historique est conservé.",
+    missing_market_identity: "Renseignez l’instrument et sa place de cotation.",
+    ambiguous_market_identity: "Le ticker est ambigu : vérifiez la place et la devise.",
+    quote_storage_failed: "Le cours récupéré n’a pas pu être sauvegardé.",
+  };
+  return labels[reason] ?? "Consultez l’identité de marché de cette position.";
 }
 
 // ==========================================================================================

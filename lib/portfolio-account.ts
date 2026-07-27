@@ -6,9 +6,9 @@
 // correction). Aucune donnée fictive : si une valeur n'est pas calculable (pas de cours, pas
 // d'opération), on renvoie `null` / 0 et l'UI l'affiche honnêtement.
 //
-// Le cours actuel de chaque instrument provient du snapshot `holdings` (colonne `last_price`,
-// déjà entretenue par l'admin via Alpha Vantage) : on l'utilise UNIQUEMENT comme référentiel
-// de prix + classe d'actif, jamais comme quantité (la quantité vient des opérations).
+// Le cours actuel provient d'abord de `market_quotes`, puis du champ historique
+// `holdings.last_price` en compatibilité. Ces tables servent uniquement de référentiel
+// de prix + classe d'actif, jamais de quantité (la quantité vient des opérations).
 
 export type AccountType = "PEA" | "CTO";
 
@@ -117,6 +117,15 @@ export type MonthlyInvestment = {
   status: "à_investir" | "partiellement_investi" | "investi" | "reporté";
 };
 
+export type ValuationCoverage = {
+  totalPositions: number;
+  valuedPositions: number;
+  unvaluedPositions: number;
+  valuedCostEur: number;
+  unvaluedCostEur: number;
+  coveragePercent: number;
+};
+
 export type AccountModel = {
   accountType: AccountType;
   hasOperations: boolean;
@@ -137,6 +146,7 @@ export type AccountModel = {
   averageBookPrice: number | null; // prix de revient moyen par part (Σ coût ÷ Σ quantité)
   pricedPositions: number;
   unpricedPositions: number;
+  valuationCoverage: ValuationCoverage;
 
   // Totaux & performance
   totalValueEur: number | null; // positions valorisées + espèces
@@ -451,9 +461,28 @@ export function computeAccountModel(params: {
     }))
     .sort((a, b) => (b.currentValueEur ?? -1) - (a.currentValueEur ?? -1) || b.investedEur - a.investedEur);
 
+  const valuedCostEur = positions
+    .filter((position) => position.currentValueEur !== null)
+    .reduce((sum, position) => sum + position.investedEur, 0);
+  const unvaluedCostEur = positions
+    .filter((position) => position.currentValueEur === null)
+    .reduce((sum, position) => sum + position.investedEur, 0);
+  const valuedPositions = positions.filter((position) => position.currentValueEur !== null).length;
+  const unvaluedPositions = positions.length - valuedPositions;
+  const valuationCoverage: ValuationCoverage = {
+    totalPositions: positions.length,
+    valuedPositions,
+    unvaluedPositions,
+    valuedCostEur,
+    unvaluedCostEur,
+    coveragePercent: positions.length > 0 ? (valuedPositions / positions.length) * 100 : 100,
+  };
+
   const totalValueEur = hasUnconvertedCash || (positionsValueEur === null && Math.abs(cash) < EPS) ? null : (positionsValueEur ?? 0) + cash;
-  const unrealizedGainEur = positionsValueEur === null ? null : positionsValueEur - investedInAssetsEur;
-  const unrealizedGainPct = unrealizedGainEur === null || investedInAssetsEur <= EPS ? null : (unrealizedGainEur / investedInAssetsEur) * 100;
+  // Une position sans cours ne vaut jamais zéro et son coût n'entre pas dans le
+  // dénominateur : la performance latente porte uniquement sur le périmètre valorisé.
+  const unrealizedGainEur = positionsValueEur === null ? null : positionsValueEur - valuedCostEur;
+  const unrealizedGainPct = unrealizedGainEur === null || valuedCostEur <= EPS ? null : (unrealizedGainEur / valuedCostEur) * 100;
   const performanceEur = totalValueEur === null ? null : totalValueEur - netInvested;
   const performancePct = performanceEur === null || netInvested <= EPS ? null : (performanceEur / netInvested) * 100;
 
@@ -526,8 +555,9 @@ export function computeAccountModel(params: {
     positionsValueEur,
     investedInAssetsEur,
     averageBookPrice: totalQty > EPS ? investedInAssetsEur / totalQty : null,
-    pricedPositions: positions.filter((position) => position.currentValueEur !== null).length,
-    unpricedPositions: positions.filter((position) => position.currentValueEur === null).length,
+    pricedPositions: valuedPositions,
+    unpricedPositions: unvaluedPositions,
+    valuationCoverage,
     totalValueEur,
     unrealizedGainEur,
     unrealizedGainPct,

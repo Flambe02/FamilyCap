@@ -25,7 +25,7 @@
 | Emails transactionnels | **Resend** (optionnel) | Alerte à l'admin quand un enfant demande un transfert |
 | Cours Bitcoin | **CoinGecko** puis **Kraken** en repli | Cache HTTP `max-age=30, s-maxage=60` |
 | Lecture blockchain | **Blockstream Esplora API** (publique, lecture seule) | Soldes, historique de transactions, vérification de virement |
-| Cours actions/ETF | **Alpha Vantage** (optionnel, clé serveur) | Alimente l'onglet Administration → Comptes & positions |
+| Cours actions/ETF | **EODHD**, puis **Yahoo Finance** en secours | Pipeline serveur, cache `market_quotes`, dernier cours manuel compatible |
 
 ### 1.2 Organisation des dossiers
 
@@ -127,6 +127,13 @@ Tables principales (voir détail complet en §5.2) : `family_members`, `wallets`
 - **CoinGecko** puis **Kraken** — cours BTC/EUR, avec repli automatique si le premier échoue.
 - **Resend** — email d'alerte optionnel (variables absentes = fonctionnalité silencieusement désactivée, pas d'erreur).
 - **Alpha Vantage** — recherche/cours actions-ETF, optionnel, 25 requêtes/jour en gratuit (affiché à l'admin).
+- **EODHD puis Yahoo Finance** — actualisation des portefeuilles PEA/CTO côté serveur. EODHD
+  est utilisé lorsqu'un jeton est configuré et que le quota local reste disponible. Yahoo
+  prend le relais si EODHD est absent, limité ou en échec. Yahoo utilise des endpoints publics
+  sans clé et sans garantie de service ; il n'est jamais appelé depuis le navigateur. Les délais
+  maximaux sont de 9 s pour EODHD et 8 s pour Yahoo, avec au plus 30 tentatives Yahoo par
+  rafraîchissement. Les cours sont tous traités avant les dividendes ; ces derniers utilisent
+  seulement le budget EODHD encore disponible.
 
 ### 1.8 PWA
 
@@ -229,6 +236,10 @@ De même, **le scaffolding Cloudflare/vinext** (`vite.config.ts`, `worker/index.
 | `SUPABASE_SECRET_KEY` | oui | Clé service-role — **tout-puissante, jamais exposée au navigateur** |
 | `RESEND_API_KEY` / `ALERT_EMAIL_FROM` / `ALERT_EMAIL_TO` | non | Emails d'alerte sur demande de transfert |
 | `ALPHA_VANTAGE_API_KEY` | non | Recherche/cours actions-ETF (Administration → Comptes & positions) |
+| `EODHD_API_TOKEN` | non | Fournisseur principal des cours PEA/CTO ; son absence bascule directement vers Yahoo |
+| `MARKET_DATA_PRIMARY_PROVIDER` | non | `eodhd` par défaut |
+| `MARKET_DATA_FALLBACK_PROVIDER` | oui pour le secours | `yahoo` active le choix du fournisseur secondaire |
+| `ENABLE_EXPERIMENTAL_YAHOO_PROVIDER` | oui pour Yahoo | `true` autorise les appels Yahoo côté serveur ; sinon le diagnostic indique que le secours est désactivé |
 
 ⚠️ Le client **navigateur** (`lib/supabase-browser.ts`) n'utilise **aucune de ces variables** : l'URL et la clé publishable y sont codées en dur. À corriger si un environnement de staging distinct est un jour nécessaire.
 

@@ -5,6 +5,7 @@ import { loadImportAccount, isOperationAccount } from "../../../../lib/investmen
 import { supabaseRest } from "../../../../lib/supabase-rest";
 import { resolveMarketIdentity } from "../../../../lib/market-identity";
 import { loadAccountListings, type ListingIdentity } from "../../../../lib/asset-catalog-server";
+import { createMarketRefreshPost } from "../../../../lib/market-refresh-route";
 
 export const runtime = "nodejs";
 
@@ -12,11 +13,12 @@ type HoldingRow = {
   id: string; account_id: string; asset_type: string; name: string; symbol: string | null; isin: string | null; currency: string;
   exchange: string | null; provider_symbol: string | null; market_symbol: string | null; mic_code: string | null;
   data_provider: string | null; quote_mode: string | null; country: string | null;
+  listing_id?: string | null; last_price?: number | null; last_price_at?: string | null;
   yahoo_symbol?: string | null; classification_status?: "verified" | "inferred" | "needs_review" | null;
 };
 type OperationRow = { id: string; account_id: string; member_id: string; type: AccountOperation["type"]; operation_date: string; asset_name: string | null; ticker: string | null; isin: string | null; quantity: number | null; unit_price: number | null; gross_amount: number | null; fees: number | null; net_amount: number | null; currency: string; source: string | null; note: string | null; exchange_rate?: number | null; taxes?: number | null };
 
-const HOLDING_SELECT = "id,account_id,asset_type,name,symbol,isin,currency,exchange,provider_symbol,yahoo_symbol,market_symbol,mic_code,data_provider,quote_mode,country,classification_status";
+const HOLDING_SELECT = "id,account_id,asset_type,name,symbol,isin,currency,exchange,provider_symbol,yahoo_symbol,market_symbol,mic_code,data_provider,quote_mode,country,classification_status,listing_id,last_price,last_price_at";
 
 function asOperation(row: OperationRow): AccountOperation {
   return { id: row.id, accountId: row.account_id, memberId: row.member_id, type: row.type, date: row.operation_date, assetName: row.asset_name, ticker: row.ticker, isin: row.isin, quantity: row.quantity === null ? null : Number(row.quantity), unitPrice: row.unit_price === null ? null : Number(row.unit_price), grossAmount: row.gross_amount === null ? null : Number(row.gross_amount), fees: row.fees === null ? null : Number(row.fees), netAmount: row.net_amount === null ? null : Number(row.net_amount), currency: row.currency, source: row.source, note: row.note, exchangeRate: row.exchange_rate === null ? null : Number(row.exchange_rate), taxes: row.taxes === null ? null : Number(row.taxes) };
@@ -33,7 +35,7 @@ async function loadHoldings(accountId: string) {
     // secours Yahoo/les statuts d'identité ne deviennent actifs qu'après la migration fournie.
     const message = error instanceof Error ? error.message : "";
     if (!/yahoo_symbol|classification_status|PGRST20[0-9]|42703/.test(message)) throw error;
-    return await supabaseRest<HoldingRow[]>(`holdings?select=id,account_id,asset_type,name,symbol,isin,currency,exchange,provider_symbol,market_symbol,mic_code,data_provider,quote_mode,country&account_id=eq.${encodeURIComponent(accountId)}`);
+    return await supabaseRest<HoldingRow[]>(`holdings?select=id,account_id,asset_type,name,symbol,isin,currency,exchange,provider_symbol,market_symbol,mic_code,data_provider,quote_mode,country,last_price,last_price_at&account_id=eq.${encodeURIComponent(accountId)}`);
   }
 }
 /**
@@ -86,18 +88,12 @@ async function createReference(
   }
 }
 
-export async function POST(request: Request) {
-  let accountId: string | null = null;
-  try {
-    await requireAdmin(request);
-    const body = await request.json().catch(() => ({})) as { accountId?: string };
-    accountId = String(body.accountId ?? "").trim() || null;
-    if (!accountId) return Response.json({ error: "Le compte est obligatoire." }, { status: 400 });
+async function refreshAccount(accountId: string) {
     const account = await loadImportAccount(accountId);
-    if (!account || !isOperationAccount(account.accountType)) return Response.json({ error: "Compte PEA ou compte-titres introuvable." }, { status: 404 });
+    if (!account || !isOperationAccount(account.accountType)) {
+      return Response.json({ error: "Compte PEA ou compte-titres introuvable." }, { status: 404 });
+    }
     const confirmedAccountId = accountId;
-    if (!await acquireRefreshLock(accountId)) return Response.json({ error: "Une actualisation est déjà en cours pour ce compte." }, { status: 409 });
-
     const [operations, holdingRows, listingByKey] = await Promise.all([
       loadOperations(accountId),
       loadHoldings(accountId),
@@ -121,8 +117,7 @@ export async function POST(request: Request) {
       // Un symbole choisi par l'utilisateur n'est jamais écrasé par une valeur devinée du nom,
       // mais il ne prime pas non plus sur une ligne que l'administrateur a explicitement corrigée.
       const listing = item.classification_status === "verified" ? null : listingByKey.get(key) ?? null;
-      return {
-        ...resolveMarketIdentity({
+      const identity = resolveMarketIdentity({
           name: item.name || position.name, isin: listing?.isin ?? item.isin ?? position.isin, ticker: listing?.ticker ?? item.symbol ?? position.ticker,
           providerSymbol: listing?.eodhdSymbol ?? item.provider_symbol ?? item.market_symbol,
           yahooSymbol: listing?.yahooSymbol ?? item.yahoo_symbol,
@@ -133,17 +128,33 @@ export async function POST(request: Request) {
           dataProvider: listing?.eodhdSymbol ? "eodhd" : item.data_provider,
           quoteMode: (listing?.eodhdSymbol ? "eod" : item.quote_mode) as SyncAsset["quoteMode"],
           country: listing?.country ?? item.country,
-        }),
-        id: item.id, accountId: confirmedAccountId, referenceCurrency: account.currency, lastQuote: quoteByAsset.get(item.id) ?? null,
+          assetId: listing?.assetId ?? null,
+          listingId: listing?.listingId ?? item.listing_id ?? null,
+        });
+      return {
+        ...identity,
+        id: item.id,
+        accountId: confirmedAccountId,
+        identityReason: identity.reason,
+        referenceCurrency: account.currency,
+        lastQuote: quoteByAsset.get(item.id) ?? null,
+        manualPrice: {
+          price: item.last_price === null || item.last_price === undefined ? null : Number(item.last_price),
+          priceAt: item.last_price_at ?? null,
+          currency: item.currency ?? position.currency,
+        },
       };
     });
     // Les dividendes sont synchronisés séparément : ne jamais consommer le quota des cours
     // depuis un clic utilisateur alors que des positions restent à valoriser.
     const report = await syncMarketData(assets, { includeCorporateActions: false });
     return Response.json(report);
-  } catch (error) {
-    return authErrorResponse(error);
-  } finally {
-    if (accountId) await releaseRefreshLock(accountId);
-  }
 }
+
+export const POST = createMarketRefreshPost({
+  authorize: requireAdmin,
+  acquireLock: acquireRefreshLock,
+  releaseLock: releaseRefreshLock,
+  refresh: refreshAccount,
+  errorResponse: authErrorResponse,
+});

@@ -296,3 +296,50 @@ test("position mono-devise EUR par défaut", () => {
   assert.equal(model.currencyAllocation.length, 1);
   assert.equal(model.currencyAllocation[0].currency, "EUR");
 });
+
+test("valorisation partielle : performance calculée seulement sur les positions cotées", () => {
+  const operations = [
+    op({ id: "buy-valued", type: "achat", assetName: "Valorisée", ticker: "VAL", isin: null, quantity: 10, unitPrice: 100, grossAmount: 1000, netAmount: 1000 }),
+    op({ id: "buy-unvalued", type: "achat", assetName: "Sans cours", ticker: "MISS", isin: null, quantity: 5, unitPrice: 200, grossAmount: 1000, netAmount: 1000 }),
+  ];
+  const model = computeAccountModel({
+    operations,
+    priceByKey: new Map([
+      ["tkr:VAL", { lastPrice: 120, lastPriceAt: "2026-07-24", assetType: "stock", name: "Valorisée" }],
+    ]),
+    accountType: "PEA",
+    today: "2026-07-25",
+  });
+  assert.equal(model.positionsValueEur, 1200);
+  assert.equal(model.investedInAssetsEur, 2000);
+  assert.equal(model.unrealizedGainEur, 200);
+  assert.equal(model.unrealizedGainPct, 20);
+  assert.deepEqual(model.valuationCoverage, {
+    totalPositions: 2,
+    valuedPositions: 1,
+    unvaluedPositions: 1,
+    valuedCostEur: 1000,
+    unvaluedCostEur: 1000,
+    coveragePercent: 50,
+  });
+});
+
+test("une trésorerie négative reste séparée et aucune opération n'est créée", () => {
+  const operations = [
+    op({ id: "buy-only", type: "achat", assetName: "Titre", ticker: "TIT", isin: null, quantity: 10, unitPrice: 100, grossAmount: 1000, netAmount: 1000 }),
+  ];
+  const originalLength = operations.length;
+  const model = computeAccountModel({
+    operations,
+    priceByKey: new Map([
+      ["tkr:TIT", { lastPrice: 120, lastPriceAt: "2026-07-24", assetType: "stock", name: "Titre" }],
+    ]),
+    accountType: "CTO",
+    today: "2026-07-25",
+  });
+  assert.equal(model.positionsValueEur, 1200);
+  assert.equal(model.cashEur, -1000);
+  assert.equal(model.totalValueEur, 200);
+  assert.equal(operations.length, originalLength);
+  assert.ok(operations.every((operation) => operation.type !== "versement"));
+});
