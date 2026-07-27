@@ -60,6 +60,9 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     if (isMissingChallengeTable(error)) {
+      // Trace explicite : sans elle, une migration non jouée se traduisait par une section vide
+      // côté client et par RIEN côté serveur. Aucun identifiant ni montant n'est journalisé.
+      console.warn("[challenges/summary] tables de défis absentes : appliquez 20260804_challenges_mvp.sql (et 20260805_onboarding_missions.sql) dans Supabase.");
       return Response.json({
         available: false,
         current: null,

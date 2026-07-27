@@ -20,7 +20,7 @@ const CtoInvestmentPage = dynamic(() => import("./cto-investments").then((module
 const SouvenirsPage = dynamic(() => import("./souvenirs").then((module) => module.SouvenirsPage));
 const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((module) => module.PeaPortfolioLesson));
 import type { AccountOperation } from "../lib/portfolio-account";
-import type { Viewer } from "../lib/auth-types";
+import { isChallengeEligible, toFamilyRole, type Viewer } from "../lib/auth-types";
 import type { FxRateRow } from "../lib/fx-rates";
 import { getAccessToken } from "../lib/supabase-session";
 import { OnboardingFlow } from "./onboarding/onboarding-flow";
@@ -62,7 +62,23 @@ type FamilyGiftRecord = {
 type FamilyMemberBalance = { name: string; btc: number; currentValueEur: number | null };
 // Identité réelle (Supabase) d'un membre, utilisée pour résoudre l'aperçu admin sur son VRAI id
 // (jamais celui de l'admin) — parité complète "comme si connecté via son compte".
-type PreviewMemberRecord = { id: string; name: string; email: string | null; role: Viewer["role"]; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; photo_url: string | null; wallet_address: string | null; is_active?: boolean };
+// `role` est le rôle CONSOLE de /api/admin/users (adult et child y sont repliés sur « member ») ;
+// `family_role` est le rôle familial brut. Le typer `Viewer["role"]` était un mensonge que
+// TypeScript ne pouvait pas détecter — la réponse JSON est transtypée à la frontière du fetch.
+type PreviewMemberRecord = { id: string; name: string; email: string | null; role: string; family_role?: string; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; photo_url: string | null; wallet_address: string | null; is_active?: boolean };
+/**
+ * La section Défis a un STATUT, jamais un simple « données ou rien ». Chaque cas a son rendu :
+ * chargement, indisponible (API, réseau, migration non jouée) ou prêt. C'est ce qui garantit
+ * qu'elle ne peut plus s'évaporer en silence.
+ */
+// `memberId` accompagne l'état : c'est lui qui permet d'ignorer une réponse qui ne concerne plus
+// le membre affiché, sans remettre l'état à « loading » dans le corps de l'effet (ce qui
+// déclencherait un rendu en cascade) ni laisser apparaître les défis du membre précédent.
+type ChallengesState =
+  | { status: "loading" }
+  | { status: "ready"; memberId: string; summary: ChallengesDashboardSummary }
+  | { status: "unavailable"; memberId: string; reason: "api" | "network" | "setup" };
+
 type LedgerQuote = { bitcoinEur?: number | null };
 type PortfolioAccount = { id: string; name: string; institution?: string | null; accountType: string; currency: string; memberId?: string; memberName: string | null };
 type PortfolioHolding = { account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string };
@@ -149,7 +165,10 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   // Plan d'investissement personnel du membre affiché (objectif mensuel + compte cible). Utilisé
   // par le bloc « Investissement régulier » des écrans PEA/CTO. null pour l'admin hors aperçu.
   const [investmentPlan, setInvestmentPlan] = useState<{ monthlyTarget: number | null; targetAccountId: string | null } | null>(null);
-  const [challengesSummary, setChallengesSummary] = useState<ChallengesDashboardSummary | null>(null);
+  // État de la synthèse Défis. Il porte un STATUT et pas seulement des données : une section qui
+  // disparaît quand l'API échoue est indiscernable d'une section jamais intégrée — c'est
+  // précisément ce qui rendait ce bloc invisible sans laisser la moindre trace.
+  const [challengesState, setChallengesState] = useState<ChallengesState>({ status: "loading" });
   const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
   const [familyMarketLoading, setFamilyMarketLoading] = useState(true);
   const [familyMember, setFamilyMember] = useState("Thibault");
@@ -208,21 +227,40 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   // admin) pour ne jamais exposer l'identité de l'administrateur pendant le chargement.
   const effectiveViewer: Viewer = previewMember
     ? (previewMemberRecord
-        ? { id: previewMemberRecord.id, email: previewMemberRecord.email ?? "", name: previewMemberRecord.name, role: previewMemberRecord.role, birthdayDay: previewMemberRecord.birthday_day, birthdayMonth: previewMemberRecord.birthday_month, birthdayYear: previewMemberRecord.birthday_year, photoUrl: previewMemberRecord.photo_url, walletAddress: previewMemberRecord.wallet_address }
+        ? { id: previewMemberRecord.id, email: previewMemberRecord.email ?? "", name: previewMemberRecord.name, role: toFamilyRole(previewMemberRecord.family_role ?? previewMemberRecord.role), birthdayDay: previewMemberRecord.birthday_day, birthdayMonth: previewMemberRecord.birthday_month, birthdayYear: previewMemberRecord.birthday_year, photoUrl: previewMemberRecord.photo_url, walletAddress: previewMemberRecord.wallet_address }
         : { ...viewer, name: previewMember, email: "preview@cap.family", role: "child", photoUrl: null })
     : viewer;
+  const challengesEligible = isChallengeEligible(effectiveViewer.role);
+  // Membre dont on affiche les défis : celui prévisualisé par l'administrateur, sinon soi.
+  const challengesMemberId = isPreview && viewer.role === "admin" && previewMemberId ? previewMemberId : effectiveViewer.id;
   useEffect(() => {
-    const isEligible = effectiveViewer.role === "adult" || effectiveViewer.role === "child";
-    if (!isEligible) return;
+    if (!challengesEligible) return;
     const controller = new AbortController();
     const asMember = isPreview && viewer.role === "admin" && previewMemberId ? `?asMember=${encodeURIComponent(previewMemberId)}` : "";
     void authenticatedFetch(`/api/challenges/summary${asMember}`, { signal: controller.signal })
-      .then(async (response) => response.ok ? await response.json() as ChallengesDashboardSummary : null)
-      .then((summary) => { if (!controller.signal.aborted) setChallengesSummary(summary?.available ? summary : null); })
-      .catch(() => { if (!controller.signal.aborted) setChallengesSummary(null); });
+      .then(async (response) => {
+        if (!response.ok) return { status: "unavailable", memberId: challengesMemberId, reason: "api" } as ChallengesState;
+        const summary = await response.json() as ChallengesDashboardSummary;
+        // `available: false` = tables de défis absentes (migration non jouée). On le DIT au
+        // lieu de faire disparaître la section : sinon rien, à l'écran, ne distingue une
+        // migration manquante d'une fonctionnalité jamais livrée.
+        return summary.available
+          ? { status: "ready", memberId: challengesMemberId, summary } as ChallengesState
+          : { status: "unavailable", memberId: challengesMemberId, reason: "setup" } as ChallengesState;
+      })
+      .then((next) => { if (!controller.signal.aborted) setChallengesState(next); })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
+        setChallengesState({ status: "unavailable", memberId: challengesMemberId, reason: "network" });
+      });
     return () => controller.abort();
-  }, [effectiveViewer.id, effectiveViewer.role, isPreview, previewMemberId, viewer.role]);
-  const memberChallengesSummary = (effectiveViewer.role === "adult" || effectiveViewer.role === "child") ? challengesSummary : null;
+  }, [challengesEligible, challengesMemberId, isPreview, previewMemberId, viewer.role]);
+  // Un état qui concerne un AUTRE membre vaut « en cours de chargement » : changer d'aperçu ne
+  // doit jamais afficher, même une fraction de seconde, les défis du membre précédent.
+  const challengesView: ChallengesState = challengesState.status !== "loading" && challengesState.memberId === challengesMemberId
+    ? challengesState
+    : { status: "loading" };
+  const memberChallengesSummary = challengesEligible && challengesView.status === "ready" ? challengesView.summary : null;
   const canManageGifts = viewer.role === "admin" && !isPreview;
   // Un membre non-admin enregistre lui-même ses achats Bitcoin personnels ; l'identité et
   // l'origine sont forcées côté serveur. Un administrateur en aperçu bénéficie du même accès
@@ -693,8 +731,10 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           navigate={navigate}
           home={homeData}
           marketLoading={familyMarketLoading}
-          challengesSection={memberChallengesSummary ? <ChallengesDashboardSection summary={memberChallengesSummary} navigate={navigate} /> : null}
-          checklist={effectiveViewer.role === "adult" || effectiveViewer.role === "child" ? <OnboardingChecklist key={checklistToken} compact={Boolean(memberChallengesSummary)} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null}
+          // La section est rendue dès que le membre y a droit — le contenu s'adapte au statut.
+          // La conditionner aux DONNÉES la faisait disparaître sur la moindre défaillance.
+          challengesSection={challengesEligible ? <ChallengesDashboardSection state={challengesView} navigate={navigate} /> : null}
+          checklist={challengesEligible ? <OnboardingChecklist key={checklistToken} compact={challengesView.status === "ready"} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null}
         />}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} onOpenTransactions={openFilteredTransactions} />}

@@ -148,6 +148,13 @@ export async function GET(request: Request) {
       return {
         ...rest,
         role,
+        // Rôle FAMILIAL brut (admin | adult | child | viewer), à côté du rôle « console »
+        // ci-dessus qui replie adult ET child sur « member » pour l'écran d'administration.
+        // Ce repli perd l'information dont le reste de l'application a besoin : l'aperçu
+        // « Vue <membre> » reconstruit un Viewer à partir de cette réponse, et un rôle
+        // « member » ne correspondait à aucune branche `adult`/`child` — les défis et la
+        // checklist d'accueil disparaissaient silencieusement de l'aperçu.
+        family_role: String(member.role),
         relationship: String(member.relationship ?? profileByMember.get(member.id)?.relationship ?? ""),
         wallet_address: wallets?.[0]?.xpub ?? wallets?.[0]?.public_address ?? null,
         selected_viewer_ids: grants.filter((grant) => grant.owner_member_id === member.id).map((grant) => grant.viewer_member_id),

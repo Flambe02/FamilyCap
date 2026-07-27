@@ -691,7 +691,43 @@ export function ChallengesDashboardCard({ navigate, asMemberId }: { navigate: (v
  * Entrée dashboard unique de la gamification. Cette vue ne réconcilie ni ne calcule : elle
  * reçoit le contrat agrégé par /api/challenges/summary et ne présente que des données réelles.
  */
-export function ChallengesDashboardSection({ summary, navigate }: { summary: ChallengesDashboardSummary; navigate: (view: View) => void }) {
+/**
+ * État de la section, fourni par le tableau de bord. Il porte volontairement le CHARGEMENT et
+ * l'INDISPONIBILITÉ : la version précédente n'acceptait que des données et renvoyait `null` dès
+ * qu'il en manquait, si bien que la section s'évaporait sans laisser de trace — impossible de
+ * distinguer une API en panne d'une fonctionnalité absente.
+ */
+export type ChallengesSectionState =
+  | { status: "loading" }
+  | { status: "ready"; summary: ChallengesDashboardSummary }
+  | { status: "unavailable"; reason: "api" | "network" | "setup" };
+
+const UNAVAILABLE_COPY: Record<"api" | "network" | "setup", string> = {
+  api: "Les défis sont momentanément indisponibles. Réessayez dans un instant.",
+  network: "Connexion interrompue : les défis n’ont pas pu être chargés.",
+  setup: "Les défis ne sont pas encore activés sur ce compte.",
+};
+
+export function ChallengesDashboardSection({ state: sectionState, navigate }: { state: ChallengesSectionState; navigate: (view: View) => void }) {
+  if (sectionState.status !== "ready") {
+    // La section garde sa PLACE et sa forme (deux panneaux) quel que soit le statut : le
+    // tableau de bord ne doit jamais se réorganiser selon la disponibilité d'une API.
+    const message = sectionState.status === "loading" ? "Chargement de vos défis…" : UNAVAILABLE_COPY[sectionState.reason];
+    return (
+      <section className="cha-dashboard-section" aria-label="Défis et classement familial" aria-busy={sectionState.status === "loading"}>
+        <section className="panel home-card cha-dashboard-missions" aria-labelledby="dashboard-challenges-title">
+          <header className="cha-dashboard-head"><div><h3 id="dashboard-challenges-title">Mes défis</h3><p>Suivi de mes progrès</p></div></header>
+          <p className="cha-dashboard-empty">{message}</p>
+        </section>
+        <section className="panel home-card cha-dashboard-leaderboard" aria-labelledby="dashboard-leaderboard-title">
+          <header className="cha-dashboard-head"><div><h3 id="dashboard-leaderboard-title">Classement familial</h3><p>Ce mois-ci</p></div></header>
+          <div className="cha-dashboard-board-empty"><TrophyIcon /><p>{sectionState.status === "loading" ? "Chargement du classement…" : "Classement indisponible pour le moment."}</p></div>
+        </section>
+      </section>
+    );
+  }
+
+  const summary = sectionState.summary;
   const challenge = summary.current?.available ? summary.current.challenge : null;
   const state = summary.current?.state ?? "challenge_ended";
   const progress = summary.current?.progress ?? null;
@@ -704,8 +740,6 @@ export function ChallengesDashboardSection({ summary, navigate }: { summary: Cha
   const cta = challenge ? dashboardCta(state) : null;
   const onboardingPct = onboarding && onboarding.totalCount > 0 ? Math.round((onboarding.completedCount / onboarding.totalCount) * 100) : 0;
   const actions = Number(Boolean(challenge)) + Number(Boolean(nextMission));
-
-  if (!summary.available) return null;
 
   return (
     <section className="cha-dashboard-section" aria-label="Défis et classement familial">
