@@ -54,3 +54,8 @@ dev*.err
 
 # temp / scratch
 _tmp_*.cjs
+
+# Originaux des photos de profil : les avatars sont servis depuis le bucket
+# Supabase, jamais depuis public/. Ces fichiers restent sur le disque comme
+# sources, mais n'ont rien à faire dans le dépôt.
+/public/foto*.jpeg
