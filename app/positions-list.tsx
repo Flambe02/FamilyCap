@@ -117,9 +117,9 @@ function Chevron() {
 // ==========================================================================================
 // BANDE DE SYNTHÈSE
 // ==========================================================================================
-/** Une seule bande blanche, quatre zones séparées par de fines bordures — pas quatre cartes. */
-export function PortfolioSummaryStrip({ positionsValue, cash, totalValue, invested, gainEur, gainPct, dividends, currency, unvaluedPositions, unvaluedCost }: {
-  positionsValue: number | null; cash: number;
+/** Une seule bande blanche, cinq zones séparées par de fines bordures — pas cinq cartes. */
+export function PortfolioSummaryStrip({ positionsValue, totalValue, invested, gainEur, gainPct, dividends, currency, unvaluedPositions, unvaluedCost }: {
+  positionsValue: number | null;
   totalValue: number | null; invested: number; gainEur: number | null; gainPct: number | null;
   dividends: number; currency: string; unvaluedPositions: number; unvaluedCost: number;
 }) {
@@ -128,10 +128,6 @@ export function PortfolioSummaryStrip({ positionsValue, cash, totalValue, invest
       <div className="pf-cell pf-cell-lead">
         <small>Valeur des positions</small>
         <strong>{positionsValue === null ? "Indisponible" : money(positionsValue, currency)}</strong>
-      </div>
-      <div className="pf-cell">
-        <small>Trésorerie</small>
-        <strong className={cash < 0 ? "pf-perf is-down" : undefined}>{money(cash, currency)}</strong>
       </div>
       <div className="pf-cell">
         <small>Valeur totale du compte</small>

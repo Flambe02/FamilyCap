@@ -186,8 +186,8 @@
   .pos-cell > em { font-size: 11px; }
 }
 
-/* La bande de synthèse tient sur UNE rangée bien plus bas que la liste (quatre nombres, pas
-   six zones) : elle ne se replie qu'à partir du moment où ses cellules deviendraient illisibles. */
+/* La bande de synthèse tient sur UNE rangée bien plus bas que la liste (cinq nombres) : elle ne
+   se replie qu'à partir du moment où ses cellules deviendraient illisibles. */
 @container pos (max-width: 899px) {
   .pf-cell { padding: 13px 16px; }
   .pf-cell small { font-size: 11px; }

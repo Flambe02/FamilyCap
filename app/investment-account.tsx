@@ -6,9 +6,9 @@
 //
 // Différences pilotées par la config : titre/logo, hash d'onglet, 6e KPI (performance vs
 // impact du change), 3e carte de répartition (géographique vs devise), vue agrégée multi-compte,
-// colonnes du tableau de positions, cartes « Investir », champs de la modale, FAQ, états vides.
+// colonnes du tableau de positions, cartes « Investir », champs de la modale et états vides.
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Viewer } from "../lib/auth-types";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { authenticatedFetch, OP_LABEL, OP_ICON, OP_INFLOW } from "./investment-shared";
@@ -16,7 +16,7 @@ import { InvestmentImportWizard } from "./investment-import-wizard";
 import { InvestmentAccountSetup, type SetupNext } from "./investment-account-setup";
 import {
   euro, euro0, dateOf, GainPill, BitcoinKpi, DonutChart, LegendRow,
-  EvolutionChart, PeriodFilter, EmptyState, InfoNote, type ChartSeries,
+  EvolutionChart, PeriodFilter, EmptyState, type ChartSeries,
 } from "./bitcoin-components";
 import {
   computeAccountModel, windowAccountTimeline, supportedRanges, priceKeyOf, instrumentKey,
@@ -59,7 +59,7 @@ export type InvestmentOperation = AccountOperation;
 // est l'engagement PERSONNEL du membre (≠ financial_accounts.monthly_target).
 export type ShellInvestmentPlan = { monthlyTarget: number | null; targetAccountId: string | null };
 
-export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "performance" | "historique" | "comprendre" | "infos";
+export type InvestmentTab = "resume" | "positions" | "investir" | "revenus" | "performance" | "historique" | "infos";
 
 // Compte rendu du rafraîchissement des cours (une ligne par position). Aucune valeur n'est
 // inventée : un instrument introuvable ou coté dans une autre devise est RAPPORTÉ, pas écrit.
@@ -168,7 +168,7 @@ function tabFromHash(prefix: string): InvestmentTab | null {
   if (typeof window === "undefined") return null;
   const match = new RegExp(`#${prefix}/([\\w-]+)`).exec(window.location.hash);
   const slug = match?.[1];
-  const tabs: InvestmentTab[] = ["resume", "positions", "investir", "revenus", "performance", "historique", "comprendre", "infos"];
+  const tabs: InvestmentTab[] = ["resume", "positions", "investir", "revenus", "performance", "historique", "infos"];
   return slug && (tabs as string[]).includes(slug) ? (slug as InvestmentTab) : null;
 }
 
@@ -217,6 +217,10 @@ export function InvestmentAccountShell({
   const [detailPosition, setDetailPosition] = useState<PortfolioPosition | null>(null);
   const [pricesBusy, setPricesBusy] = useState(false);
   const [priceReport, setPriceReport] = useState<PriceRefreshReport | null>(null);
+  // Evite une rafale de rafraichissements lorsque le rechargement des donnees remonte l'arbre.
+  // Un compte est actualise une fois a son ouverture, puis l'utilisateur garde le bouton manuel.
+  const refreshedOnEntry = useRef<string | null>(null);
+  const refreshInFlight = useRef(false);
   // Assistant de création de compte, ouvert EN PLACE (plus de détour par Administration).
   // `null` = fermé ; la valeur mémorise l'intention de départ pour proposer la bonne suite.
   const [setupIntent, setSetupIntent] = useState<SetupNext | null>(null);
@@ -246,10 +250,14 @@ export function InvestmentAccountShell({
     if (typeof window !== "undefined") window.history.replaceState(null, "", `#${config.hashPrefix}/${next}`);
   }
   useEffect(() => {
-    if (typeof window !== "undefined" && !window.location.hash.startsWith(`#${config.hashPrefix}/`)) {
+    if (typeof window !== "undefined" && (!window.location.hash.startsWith(`#${config.hashPrefix}/`) || tabFromHash(config.hashPrefix) === null)) {
       window.history.replaceState(null, "", `#${config.hashPrefix}/${tab}`);
     }
-    const onHash = () => { const next = tabFromHash(config.hashPrefix); if (next) setTabState(next); };
+    const onHash = () => {
+      const next = tabFromHash(config.hashPrefix);
+      if (next) setTabState(next);
+      else window.history.replaceState(null, "", `#${config.hashPrefix}/${tab}`);
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -381,8 +389,9 @@ export function InvestmentAccountShell({
 
   // Pipeline serveur EODHD puis Yahoo. Il n'écrit qu'un cours automatique et son
   // horodatage : jamais une quantité, un prix de revient ou une opération.
-  async function refreshPrices() {
-    if (!selectedAccount || pricesBusy) return;
+  const refreshPrices = useCallback(async () => {
+    if (!selectedAccount || refreshInFlight.current) return;
+    refreshInFlight.current = true;
     setPricesBusy(true);
     try {
       const response = await authenticatedFetch("/api/market-data/refresh", {
@@ -405,9 +414,21 @@ export function InvestmentAccountShell({
       }
     } catch {
       setPriceReport({ ...EMPTY_REFRESH_REPORT, error: "Réseau indisponible." });
+    } finally {
+      setPricesBusy(false);
+      refreshInFlight.current = false;
     }
-    setPricesBusy(false);
-  }
+  }, [onReload, selectedAccount]);
+
+  // Les cours sont rafraichis cote serveur quand un administrateur ouvre un compte precis qui
+  // contient des positions. Cela ne cree ni ne modifie aucune operation financiere, et ne se
+  // declenche pas dans la vue agregee (la route attend un compte unique).
+  useEffect(() => {
+    if (!canManage || !selectedAccount || model?.positions.length === 0) return;
+    if (refreshedOnEntry.current === selectedAccount.id) return;
+    refreshedOnEntry.current = selectedAccount.id;
+    void refreshPrices();
+  }, [canManage, model?.positions.length, refreshPrices, selectedAccount]);
 
   // Toutes les opérations d'une position (clé d'instrument), pour l'édition ligne à ligne.
   function operationsOfPosition(key: string): InvestmentOperation[] {
@@ -443,7 +464,7 @@ export function InvestmentAccountShell({
   const tabs: { id: InvestmentTab; label: string }[] = [
     { id: "resume", label: "Résumé" }, { id: "positions", label: "Mes positions" }, { id: "investir", label: "Investir" },
     { id: "revenus", label: "Revenus" }, { id: "performance", label: "Performance" }, { id: "historique", label: "Historique" },
-    { id: "comprendre", label: "Comprendre" }, { id: "infos", label: "Infos" },
+    { id: "infos", label: "Infos" },
   ];
 
   return (
@@ -550,8 +571,7 @@ export function InvestmentAccountShell({
           )}
           {tab === "revenus" && <RevenusTab model={model!} operations={scopeOps} accountIds={scopeAccounts.map((account) => account.id)} />}
           {tab === "investir" && <InvestirTab config={config} model={model!} canManage={canManage} memberCanRecord={memberCanRecord} onAdd={(type) => setModal({ open: true, type, mode: "admin" })} onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })} />}
-          {tab === "performance" && <PerformanceTab model={model!} onGoto={setTab} />}
-          {tab === "comprendre" && <ComprendreTab config={config} />}
+          {tab === "performance" && <PerformanceTab model={model!} />}
         </>
       )}
 
@@ -609,6 +629,7 @@ export function InvestmentAccountShell({
           onClassified={onReload}
           onPrepareReference={canManage && selectedAccount ? async () => { await refreshPrices(); } : undefined}
           onViewOperations={() => { setDetailPosition(null); setTab("historique"); }}
+          onEditOperation={canManage ? (operation) => { setDetailPosition(null); setEditingOp(operation); } : undefined}
           onAddRelated={canManage ? () => { setDetailPosition(null); setModal({ open: true, type: "achat", mode: "admin" }); } : undefined}
           onViewDividends={() => { setDetailPosition(null); setTab("revenus"); }}
           onClose={() => setDetailPosition(null)}
@@ -811,9 +832,6 @@ function ResumeTab({ config, model, title, range, setRange, canManage, memberCan
         <OperationList operations={[...recent].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)} subtitle={title} />
       </section>
 
-      <InfoNote title={`Comment lisons-nous votre ${config.kind === "CTO" ? "compte-titres" : "PEA"} ?`} action="Comprendre" onAction={() => onGoto("comprendre")}>
-        {config.resumeNote}
-      </InfoNote>
     </>
   );
 }
@@ -1029,7 +1047,6 @@ function PositionsTab({
       </div>
       <PortfolioSummaryStrip
         positionsValue={model.positionsValueEur}
-        cash={model.cashEur}
         totalValue={model.totalValueEur}
         invested={model.investedInAssetsEur}
         gainEur={model.unrealizedGainEur}
@@ -1203,12 +1220,12 @@ type MarketState =
   | { status: "ok"; instrument: InstrumentSnapshot; currencyMismatch: boolean }
   | { status: "error"; message: string };
 
-function PositionDetailModal({ position, envLabel, operations, canManage, onClassified, onPrepareReference, onViewOperations, onAddRelated, onViewDividends, onClose }: {
+function PositionDetailModal({ position, envLabel, operations, canManage, onClassified, onPrepareReference, onViewOperations, onEditOperation, onAddRelated, onViewDividends, onClose }: {
   position: PortfolioPosition; envLabel: string; operations: InvestmentOperation[]; canManage: boolean; onClassified: () => void;
   // Crée la fiche d'actif manquante (via le rafraîchissement des cours du compte). Absent en vue
   // agrégée : la création vise un compte précis.
   onPrepareReference?: () => Promise<void>;
-  onViewOperations: () => void; onAddRelated?: () => void; onViewDividends: () => void; onClose: () => void;
+  onViewOperations: () => void; onEditOperation?: (operation: InvestmentOperation) => void; onAddRelated?: () => void; onViewDividends: () => void; onClose: () => void;
 }) {
   const dialogRef = useDialogA11y(true, onClose);
   const [market, setMarket] = useState<MarketState>({ status: "loading" });
@@ -1287,7 +1304,9 @@ function PositionDetailModal({ position, envLabel, operations, canManage, onClas
               La quantité et le prix de revient sont <b>dérivés de ces opérations</b>, jamais saisis directement.
             </p>
             <div className="inv-detail-actions" aria-label="Actions pour cette position">
-              <button type="button" className="secondary-button" onClick={onViewOperations}>Voir les opérations</button>
+              {onEditOperation && operations.length === 1 && <button type="button" className="primary-button" onClick={() => onEditOperation(operations[0])}>Modifier l&apos;opération</button>}
+              {onEditOperation && operations.length > 1 && <button type="button" className="primary-button" onClick={() => onEditOperation(operations[0])}>Modifier la dernière opération</button>}
+              <button type="button" className="secondary-button" onClick={onViewOperations}>{onEditOperation ? "Voir toutes les opérations" : "Voir les opérations"}</button>
               {onAddRelated && <button type="button" className="secondary-button" onClick={onAddRelated}>Ajouter une opération liée</button>}
               <button type="button" className="secondary-button" onClick={onViewDividends}>Voir les dividendes</button>
             </div>
@@ -1625,71 +1644,35 @@ function InvestirTab({ config, model, canManage, memberCanRecord, onAdd, onMembe
 }
 
 // ==========================================================================================
-// PERFORMANCE (placeholder honnête : pas de métrique non implémentée)
+// PERFORMANCE DES POSITIONS
 // ==========================================================================================
-function PerformanceTab({ model, onGoto }: { model: AccountModel; onGoto: (tab: InvestmentTab) => void }) {
+function PerformanceTab({ model }: { model: AccountModel }) {
+  const coverage = model.valuationCoverage;
+  const isPartial = coverage.unvaluedPositions > 0;
   return (
     <>
       <section className="panel btc-synth">
-        <h3 className="btc-panel-kicker">PERFORMANCE (VUE SIMPLE)</h3>
+        <h3 className="btc-panel-kicker">PERFORMANCE DES POSITIONS</h3>
         <div className="btc-synth-grid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
-          <div><small>Montant net investi</small><strong>{euro.format(model.netInvestedEur)}</strong></div>
-          <div><small>Valeur actuelle</small><strong>{model.totalValueEur === null ? "Non disponible" : euro.format(model.totalValueEur)}</strong></div>
+          <div><small>Valeur des positions</small><strong>{model.positionsValueEur === null ? "Non disponible" : euro.format(model.positionsValueEur)}</strong></div>
+          <div><small>Coût des positions valorisées</small><strong>{euro.format(coverage.valuedCostEur)}</strong></div>
           <div><small>Plus / moins-value</small><strong>{model.unrealizedGainEur === null ? "Non disponible" : <GainPill eur={model.unrealizedGainEur} pct={model.unrealizedGainPct} />}</strong></div>
           <div><small>Dividendes nets</small><strong>{euro.format(model.dividendsNetEur)}</strong></div>
           <div><small>Frais</small><strong>{euro.format(model.feesEur)}</strong></div>
-          <div><small>Performance depuis l’origine</small><strong>{model.performanceEur === null ? "Non disponible" : <GainPill eur={model.performanceEur} pct={model.performancePct} />}</strong></div>
+          <div><small>Couverture de valorisation</small><strong>{coverage.valuedPositions} / {coverage.totalPositions} position(s)</strong><em>{coverage.coveragePercent.toFixed(0)} % du coût valorisé</em></div>
         </div>
       </section>
       <section className="panel">
-        <EmptyState icon="📊" title="Analyse avancée à venir"
-          description="Le rendement annualisé, le TWR, l’IRR, la volatilité, le drawdown et l’impact du change seront ajoutés lorsqu’ils seront réellement calculés — nous n’affichons aucune métrique estimée."
-          action="Voir le Résumé" onAction={() => onGoto("resume")} />
+        <h3 className="btc-panel-kicker">PÉRIMÈTRE DE CALCUL</h3>
+        {isPartial ? (
+          <p className="inv-detail-warn">
+            Performance partielle : {coverage.unvaluedPositions} position(s) sans cours valide, pour un coût de {euro.format(coverage.unvaluedCostEur)}, sont exclue(s) du calcul. Elles ne sont jamais valorisées à zéro.
+          </p>
+        ) : (
+          <p className="inv-detail-note">Toutes les positions détenues ont un cours valide. La performance compare leur valeur à leur prix de revient.</p>
+        )}
       </section>
     </>
-  );
-}
-
-// ==========================================================================================
-// COMPRENDRE
-// ==========================================================================================
-// Onglet « Comprendre » — huit réponses affichées d'un bloc, c'était un mur de texte que
-// personne ne lit. Reprise en ACCORDÉON : une question par ligne, la première ouverte pour
-// amorcer la lecture, et un bouton « tout déplier » pour ceux qui préfèrent parcourir ou
-// imprimer. `<details>` fait le travail nativement : accessible au clavier, cherchable par
-// Ctrl+F dans les navigateurs récents, et fonctionnel même si le JS n'a pas encore chargé.
-function ComprendreTab({ config }: { config: EnvelopeConfig }) {
-  const [allOpen, setAllOpen] = useState(false);
-  const kind = config.kind === "CTO" ? "compte-titres" : "PEA";
-  return (
-    <section className="panel pea-faq-panel">
-      <header className="pea-faq-head">
-        <div>
-          <h3 className="btc-panel-kicker">COMPRENDRE VOTRE {kind.toUpperCase()}</h3>
-          <p className="pea-faq-lead">
-            Les {config.faq.length} questions que l’on se pose vraiment sur ce type de compte — en langage clair,
-            sans jargon. Rien ici n’est un conseil d’investissement.
-          </p>
-        </div>
-        <button type="button" className="secondary-button" onClick={() => setAllOpen((current) => !current)}>
-          {allOpen ? "Tout replier" : "Tout déplier"}
-        </button>
-      </header>
-      <div className="pea-faq">
-        {config.faq.map((item, index) => (
-          // `key` inclut l'état global : re-monter l'élément est ce qui permet à « tout déplier »
-          // de reprendre la main sur les ouvertures/fermetures faites à la main juste avant.
-          <details key={`${item.q}-${allOpen}`} className="pea-faq-item" open={allOpen || index === 0}>
-            <summary>
-              <span className="pea-faq-num" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
-              <span className="pea-faq-q">{item.q}</span>
-              <span className="pea-faq-chevron" aria-hidden="true">⌄</span>
-            </summary>
-            <p>{item.a}</p>
-          </details>
-        ))}
-      </div>
-    </section>
   );
 }
 
