@@ -38,3 +38,17 @@ test("keeps the retired Codex preview outside the application", async () => {
   assert.doesNotMatch(page, /codex-preview|SkeletonPreview|react-loading-skeleton/i);
   assert.doesNotMatch(layout, /codex-preview|SkeletonPreview|react-loading-skeleton/i);
 });
+
+test("intègre la leçon des sept règles dans le catalogue et la modale accessible", async () => {
+  const [catalogue, lesson] = await Promise.all([
+    source("app/family-dashboard.tsx"),
+    source("app/lesson-investing-rules.tsx"),
+  ]);
+  assert.match(catalogue, /Les 7 règles essentielles pour bien investir/);
+  assert.match(catalogue, /InvestingRulesLesson/);
+  assert.match(lesson, /useDialogA11y/);
+  assert.match(lesson, /BOURSE · LEÇON/);
+  assert.match(lesson, /Définir mon rythme d’investissement/);
+  assert.match(lesson, /Découvrir le portefeuille PEA type/);
+  assert.match(lesson, /number: "07"/);
+});

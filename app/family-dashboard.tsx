@@ -19,6 +19,7 @@ const PeaInvestmentPage = dynamic(() => import("./pea-investments").then((module
 const CtoInvestmentPage = dynamic(() => import("./cto-investments").then((module) => module.CtoInvestmentPage));
 const SouvenirsPage = dynamic(() => import("./souvenirs").then((module) => module.SouvenirsPage));
 const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((module) => module.PeaPortfolioLesson));
+const InvestingRulesLesson = dynamic(() => import("./lesson-investing-rules").then((module) => module.InvestingRulesLesson));
 import type { AccountOperation } from "../lib/portfolio-account";
 import { isChallengeEligible, toFamilyRole, type Viewer } from "../lib/auth-types";
 import type { FxRateRow } from "../lib/fx-rates";
@@ -814,7 +815,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
         {view === "famille-acces" && effectiveViewer.role === "admin" && <AdminUsers />}
         {view === "administration-suggestions" && effectiveViewer.role === "admin" && <AdminChallenges />}
         {view === "administration-globale" && effectiveViewer.role === "admin" && <Administration viewer={effectiveViewer} requests={transferRequests} onRequestStatus={updateRequestStatus} />}
-        {view === "apprendre" && <Learn />}
+        {view === "apprendre" && <Learn onNavigate={navigate} />}
         {view === "parametres" && (isPreview ? <AdminMemberSettings memberName={previewMember!} onExit={() => { setPreviewMember(null); setView("famille"); }} onNavigate={navigate} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} /> : <Settings viewer={viewer} onSignOut={onSignOut} publishedVersion={publishedVersion} onReplayOnboarding={replayOnboarding} onResumeOnboarding={resumeOnboarding} onNavigate={navigate} onViewerChanged={onViewerChanged} />)}
       </section>
 
@@ -1127,9 +1128,10 @@ function Portfolios({ viewer, requests, selectedMember, onOpenTransactions }: { 
 
 type Lesson = { id: string; level: string; minutes: number; title: string; text: string; icon: string; color: string; cta?: string; onOpen?: () => void };
 
-function Learn() {
+function Learn({ onNavigate }: { onNavigate: (view: View) => void }) {
   const [openLessonId, setOpenLessonId] = useState<string | null>(null);
   const lessons: Lesson[] = [
+    { id: "investing-rules", level: "BOURSE", minutes: 5, title: "Les 7 règles essentielles pour bien investir", text: "Sept repères simples pour investir avec régularité, patience et discipline.", icon: "↗", color: "teal", cta: "Lire la leçon", onOpen: () => setOpenLessonId("investing-rules") },
     { id: "invest-early", level: "LES BASES", minutes: 4, title: "Pourquoi investir tôt ?", text: "Le temps et les intérêts composés sont les deux meilleurs alliés d’un jeune investisseur.", icon: "↗", color: "navy" },
     { id: "pea-portfolio-type", level: "PEA", minutes: 6, title: "Le portefeuille PEA type", text: "Une stratégie simple et diversifiée pour investir à long terme avec seulement trois ETF.", icon: "◕", color: "amber", cta: "Découvrir le portefeuille", onOpen: () => setOpenLessonId("pea-portfolio-type") },
     { id: "etf-5min", level: "BOURSE", minutes: 6, title: "Un ETF en 5 minutes", text: "Acheter en une fois un panier diversifié d’entreprises, avec des frais généralement réduits.", icon: "▥", color: "teal" },
@@ -1158,6 +1160,11 @@ function Learn() {
         ))}
       </section>
       {openLessonId === "pea-portfolio-type" && <PeaPortfolioLesson onClose={() => setOpenLessonId(null)} />}
+      {openLessonId === "investing-rules" && <InvestingRulesLesson
+        onClose={() => setOpenLessonId(null)}
+        onDefineRhythm={() => { setOpenLessonId(null); onNavigate("parametres"); }}
+        onOpenPeaPortfolio={() => setOpenLessonId("pea-portfolio-type")}
+      />}
     </div>
   );
 }
