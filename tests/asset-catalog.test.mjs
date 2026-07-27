@@ -115,6 +115,44 @@ test("déduplication par ISIN + MIC + devise : la même cotation vue deux fois n
   assert.equal(merged[0].lastPrice, 176.42);
 });
 
+test("catalogue + fournisseur : la même cotation ne s'affiche JAMAIS deux fois", () => {
+  // Cas RÉEL observé après la mise en base : chercher « Air Liquide » renvoyait la ligne du
+  // catalogue (avec ISIN) ET celle du fournisseur (sans ISIN, car Yahoo ne le renvoie pas sur une
+  // recherche par nom). Comparées sur leur seule clé primaire, elles paraissaient distinctes —
+  // et le doublon que cette refonte doit supprimer s'affichait à l'écran.
+  const fromProvider = candidate({
+    isin: null, name: "L'Air Liquide S.A.", assetType: "stock", ticker: "AI",
+    exchange: "Euronext Paris", micCode: "XPAR", currency: "EUR",
+    yahooSymbol: "AI.PA", eodhdSymbol: "AI.PA", origin: "provider", confidence: "needs_review",
+  });
+  const merged = dedupeCandidates([AIR_LIQUIDE, fromProvider]);
+  assert.equal(merged.length, 1, "le symbole fournisseur doit réconcilier les deux lignes");
+  assert.equal(merged[0].isin, "FR0000120073", "l'ISIN du catalogue est conservé");
+  assert.equal(merged[0].confidence, "verified");
+  assert.equal(merged[0].name, "Air Liquide");
+});
+
+test("la fusion est transitive : reliés par l'ISIN puis par le symbole, ils n'en font qu'un", () => {
+  const withIsinOnly = candidate({ isin: "FR0000120073", name: "Air Liquide", micCode: "XPAR", currency: "EUR", origin: "catalog" });
+  const bridge = candidate({ isin: "FR0000120073", name: "Air Liquide", micCode: "XPAR", currency: "EUR", yahooSymbol: "AI.PA", origin: "catalog" });
+  const withSymbolOnly = candidate({ isin: null, name: "AIR LIQUIDE", ticker: "AI", currency: "EUR", yahooSymbol: "AI.PA", origin: "provider" });
+  assert.equal(dedupeCandidates([withIsinOnly, bridge, withSymbolOnly]).length, 1);
+  // Et l'ordre d'arrivée ne change pas le résultat.
+  assert.equal(dedupeCandidates([withSymbolOnly, bridge, withIsinOnly]).length, 1);
+});
+
+test("la réconciliation par symbole ne fusionne PAS deux places distinctes", () => {
+  // AI.PA et AILA.F sont deux cotations réelles du même émetteur : elles doivent rester
+  // choisissables séparément, sinon l'utilisateur ne peut plus arbitrer sa place.
+  const paris = { ...AIR_LIQUIDE };
+  const francfort = candidate({
+    isin: "FR0000120073", name: "Air Liquide", assetType: "stock", ticker: "AILA",
+    exchange: "Francfort", micCode: "XFRA", currency: "EUR", yahooSymbol: "AILA.F", eodhdSymbol: "AILA.F",
+    origin: "provider",
+  });
+  assert.equal(dedupeCandidates([paris, francfort]).length, 2);
+});
+
 test("fusion : un champ absent n'écrase jamais un champ renseigné", () => {
   const rich = { ...AIR_LIQUIDE };
   const poor = candidate({ isin: "FR0000120073", name: "Air Liquide", micCode: "XPAR", currency: "EUR", origin: "provider" });

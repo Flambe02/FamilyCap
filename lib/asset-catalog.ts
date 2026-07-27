@@ -200,17 +200,59 @@ function pickFresherPrice(a: AssetCandidate, b: AssetCandidate): { lastPrice: nu
   return a.lastPriceAt >= b.lastPriceAt ? { lastPrice: a.lastPrice, lastPriceAt: a.lastPriceAt } : { lastPrice: b.lastPrice, lastPriceAt: b.lastPriceAt };
 }
 
-/** Déduplique par identité canonique + cotation, en conservant l'ordre d'arrivée des gagnants. */
-export function dedupeCandidates(candidates: AssetCandidate[]): AssetCandidate[] {
-  const byKey = new Map<string, AssetCandidate>();
-  const order: string[] = [];
-  for (const candidate of candidates) {
-    const key = listingIdentityKey(candidate);
-    const existing = byKey.get(key);
-    if (existing) byKey.set(key, mergeCandidates(existing, candidate));
-    else { byKey.set(key, candidate); order.push(key); }
+/**
+ * TOUTES les clés fortes d'un candidat. Une seule ne suffit pas : le fournisseur ne renvoie pas
+ * d'ISIN sur une recherche par nom, alors que le catalogue en a un. Comparés sur leur seule clé
+ * primaire, « Air Liquide (catalogue, ISIN FR0000120073, XPAR, EUR) » et « L'Air Liquide S.A.
+ * (fournisseur, AI.PA, sans ISIN) » paraissaient distincts et s'affichaient EN DOUBLE — le
+ * doublon même que cette recherche doit supprimer. Le symbole fournisseur les réconcilie.
+ */
+function candidateKeys(candidate: AssetCandidate): string[] {
+  const keys = [listingIdentityKey(candidate)];
+  for (const symbol of [candidate.yahooSymbol, candidate.eodhdSymbol]) {
+    const normalized = normalizeTicker(symbol);
+    if (normalized) keys.push(`sym:${normalized}`);
   }
-  return order.map((key) => byKey.get(key)!);
+  return [...new Set(keys)];
+}
+
+/**
+ * Déduplique par identité canonique + cotation, en conservant l'ordre d'arrivée des gagnants.
+ * Deux candidats sont le même instrument dès qu'ils partagent UNE clé forte — et la fusion est
+ * transitive : A lié à B par l'ISIN et B lié à C par le symbole ne laissent qu'une seule entrée.
+ */
+export function dedupeCandidates(candidates: AssetCandidate[]): AssetCandidate[] {
+  const groupByKey = new Map<string, number>();  // clé forte -> indice du groupe
+  const groups: Array<{ candidate: AssetCandidate; keys: Set<string> } | null> = [];
+
+  for (const candidate of candidates) {
+    const keys = candidateKeys(candidate);
+    const hits = [...new Set(keys.map((key) => groupByKey.get(key)).filter((index): index is number => index !== undefined))];
+
+    if (hits.length === 0) {
+      const index = groups.length;
+      groups.push({ candidate, keys: new Set(keys) });
+      for (const key of keys) groupByKey.set(key, index);
+      continue;
+    }
+
+    // Le candidat rejoint le premier groupe touché ; les autres groupes qu'il relie y fusionnent
+    // (il vient de prouver qu'ils désignent le même instrument).
+    const target = hits[0];
+    const group = groups[target]!;
+    group.candidate = mergeCandidates(group.candidate, candidate);
+    for (const key of keys) { group.keys.add(key); groupByKey.set(key, target); }
+    for (const other of hits.slice(1)) {
+      const merged = groups[other];
+      if (!merged) continue;
+      group.candidate = mergeCandidates(group.candidate, merged.candidate);
+      for (const key of merged.keys) { group.keys.add(key); groupByKey.set(key, target); }
+      groups[other] = null; // absorbé : son rang d'origine disparaît, pas son contenu
+    }
+  }
+
+  return groups.filter((group): group is { candidate: AssetCandidate; keys: Set<string> } => group !== null)
+    .map((group) => group.candidate);
 }
 
 // ==========================================================================================

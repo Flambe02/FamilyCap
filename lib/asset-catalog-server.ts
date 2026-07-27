@@ -23,6 +23,7 @@ import {
   type ReviewableAsset,
   type SearchIntent,
   classifyQuery,
+  dedupeCandidates,
   normalizeAssetType,
   normalizeCurrency,
   normalizeIsin,
@@ -130,7 +131,10 @@ export async function searchCatalog(intent: SearchIntent, limit = 12): Promise<A
       if (!asset) return null;
       return rowToCandidates({ ...asset, asset_listings: [listing] }, "catalog")[0];
     }).filter((candidate): candidate is AssetCandidate => candidate !== null);
-    return [...direct, ...viaTicker];
+    // Les deux requêtes se recouvrent (« AI » remonte Air Liquide par son nom ET par son ticker).
+    // Sans ce dédoublonnage, le même actif compterait deux fois dans le `local.length < limit`
+    // qui décide d'interroger le fournisseur : on se croirait servi alors qu'on ne l'est pas.
+    return dedupeCandidates([...direct, ...viaTicker]);
   } catch (error) {
     if (isMissingSchema(error)) return []; // migration non jouée → le fournisseur prend le relais
     throw error;
