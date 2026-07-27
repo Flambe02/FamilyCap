@@ -1,0 +1,254 @@
+/* « Mes positions » — liste patrimoniale, pas un tableau.
+   ------------------------------------------------------------------------------------------
+   Deux partis pris structurent tout le fichier :
+
+   1. CSS GRID EXPLICITE, jamais `table-layout`. Un tableau HTML répartit la place selon le
+      contenu le plus large de CHAQUE colonne : neuf colonnes chiffrées finissaient par écraser
+      le nom de l'actif jusqu'à le découper en « Amun / di... ». Ici la première zone a un
+      plancher de 280 px et le plus gros coefficient d'expansion : elle ne se comprime jamais.
+
+   2. @container plutôt que @media. La liste vit dans un panneau qui partage l'écran avec une
+      barre latérale de 252 px : à 1366 px de fenêtre elle n'a qu'environ 1050 px. C'est CETTE
+      largeur qui décide du régime d'affichage, pas celle de la fenêtre.
+
+   Aucune règle ici ne sort de `.inv-positions-panel` : les autres écrans sont intacts. */
+
+.inv-positions-panel { container-type: inline-size; container-name: pos; }
+
+/* ============ Bande de synthèse (remplace les quatre tuiles) ============ */
+.pf-strip {
+  display: grid; grid-template-columns: 1.25fr 1fr 1.15fr 1fr; align-items: center;
+  margin: 18px 0 20px; border: 1px solid #e2e8e6; border-radius: 14px; background: #fff;
+  box-shadow: 0 1px 2px rgba(17, 47, 43, .03); overflow: hidden;
+}
+.pf-cell { min-width: 0; padding: 15px 20px; border-left: 1px solid #edf2f0; }
+.pf-cell:first-child { border-left: 0; }
+.pf-cell small { display: block; color: #6c7d7b; font-size: 11.5px; font-weight: 600; line-height: 1.2; }
+.pf-cell strong {
+  display: block; margin-top: 6px; color: var(--ink); font-size: 20px; font-weight: 700;
+  line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.pf-cell-lead strong { font-size: 25px; }
+.pf-perf.is-up { color: var(--btc-up, #1d7a5f); }
+.pf-perf.is-down { color: var(--btc-down, #d9544d); }
+.pf-perf em { font-size: 14px; font-style: normal; font-weight: 650; opacity: .9; white-space: nowrap; }
+
+/* ============ En-tête de liste ============ */
+.pos-listing { margin-top: 4px; }
+/* Dès que la liste tient en colonnes, elle déborde volontairement des marges intérieures du
+   panneau : chaque ligne récupère ainsi les ~40 px qui manquaient à la zone Actif, et le fond
+   de survol court d'un bord à l'autre — c'est ce qui la fait lire comme une carte, pas une
+   cellule de tableau. Les cartes mobiles, elles, gardent les marges du panneau. */
+@container pos (min-width: 660px) {
+  .pos-listing { margin-inline: -20px; }
+}
+.pos-head {
+  display: grid; align-items: end; gap: 12px; padding: 0 16px 9px;
+  color: #7b8b89; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+}
+.pos-head > span { min-width: 0; text-align: right; }
+.pos-head-asset { text-align: left !important; }
+
+/* ============ Ligne ============ */
+.pos-list { list-style: none; margin: 0; padding: 0; }
+.pos-item { min-width: 0; }
+.pos-row {
+  display: grid; align-items: center; gap: 12px; width: 100%; min-height: 76px;
+  padding: 14px 16px; margin: 0; border: 0; border-bottom: 1px solid #e8eeec; border-radius: 0;
+  background: #fff; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: background-color .15s ease, border-radius .15s ease;
+}
+.pos-item:last-child .pos-row { border-bottom: 0; }
+.pos-row:hover { background: #f3f8f7; border-radius: 10px; border-bottom-color: transparent; }
+.pos-row:hover .pos-chevron { transform: translateX(3px); color: var(--teal); }
+.pos-row:focus-visible { outline: 3px solid var(--amber); outline-offset: -2px; border-radius: 10px; }
+
+/* Huit pistes : Actif · Quantité · PRU · Cours · Valeur · Performance · Poids · chevron.
+   Seule la zone Actif porte un plancher confortable (280 px) et le plus fort coefficient
+   d'expansion : les colonnes chiffrées ne peuvent donc jamais la comprimer. Somme des planchers
+   960 px + 7 gouttières de 10 px = 1030 px, soit la largeur en dessous de laquelle on bascule
+   sur le palier intermédiaire. */
+.pos-head, .pos-row {
+  grid-template-columns:
+    minmax(280px, 2.2fr)
+    minmax(84px, .75fr)
+    minmax(104px, .85fr)
+    minmax(116px, .95fr)
+    minmax(132px, 1.05fr)
+    minmax(132px, 1.05fr)
+    minmax(88px, .7fr)
+    24px;
+}
+.pos-lab-mid { display: none; }
+.pos-lab-full, .pos-lab-mid { font-style: normal; }
+/* La quantité se lit d'un bloc : « 1 568 » puis son unité, jamais un pavé de texte. */
+.pos-cell-qty > b { font-size: 14.5px; }
+.pos-qty-pru { display: none; }
+
+.pos-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; text-align: right; }
+.pos-cell-asset { align-items: stretch; text-align: left; }
+.pos-cell > b { font-size: 14px; font-weight: 700; line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.pos-cell > em { color: #71817f; font-size: 12px; font-style: normal; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.pos-na { color: #93a1a0; font-weight: 600; }
+
+/* ---- Zone Actif ---- */
+.pos-identity { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.pos-mono {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 50%; font-size: 12px; font-weight: 800;
+  letter-spacing: .02em; line-height: 1;
+}
+.pos-mono-teal { background: #e2f0ed; color: #14655e; }
+.pos-mono-blue { background: #e7eefa; color: #35608f; }
+.pos-mono-violet { background: #eeeafa; color: #5c46a0; }
+.pos-mono-slate { background: #eceff1; color: #536065; }
+.pos-mono-amber { background: #fbeed6; color: #8a5a05; }
+.pos-mono-gold { background: #f8ecc9; color: #856107; }
+.pos-mono-orange { background: #fce9dc; color: #9a5416; }
+.pos-mono-warn { background: #fff2d3; color: #8c5a00; }
+.pos-identity-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+/* Le nom est l'information la plus facile à lire de la ligne, et il n'est JAMAIS rogné :
+   `break-word` (et non `anywhere`) n'autorise une césure que pour un mot qui, seul, ne tiendrait
+   pas sur une ligne — cas qui n'existe pas pour « TotalEnergies » ou « Société Générale ». */
+.pos-name {
+  color: var(--ink); font-size: 14.5px; font-weight: 650; line-height: 1.3; letter-spacing: -.01em;
+  min-width: 0; overflow-wrap: break-word; word-break: normal; hyphens: none; text-wrap: pretty;
+}
+.pos-meta { display: flex; flex-wrap: wrap; align-items: baseline; color: #6e7f7d; font-size: 12px; font-weight: 600; line-height: 1.35; }
+.pos-meta > span + span::before { content: "·"; margin: 0 6px; opacity: .5; }
+.pos-type { color: #4a6b8c; }
+.pos-type.is-warn { color: #8c5a00; font-weight: 750; }
+.pos-isin { color: #90a09e; font-size: 11px; font-weight: 600; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+
+/* ---- Cours : pastille de fraîcheur ----
+   `gap` plutôt qu'une espace typographique : dans un conteneur flex, les blancs entre éléments
+   sont supprimés, et « 25 juil · clôture » se serait affiché « 25 juil· clôture ». */
+.pos-cell-quote em { display: flex; align-items: center; gap: 4px; }
+.pos-dot { flex: 0 0 auto; width: 6px; height: 6px; margin-right: 2px; border-radius: 50%; }
+.pos-dot-fresh { background: #2f9e6f; }
+.pos-dot-stale { background: #dc8b2d; }
+.pos-dot-manual { background: #a9b6b4; }
+.pos-dot-none { background: #cfd8d6; }
+
+/* ---- Valeur ---- */
+.pos-cell-value > b { font-size: 15px; font-weight: 700; }
+/* Repli du palier intermédiaire uniquement : le poids se glisse sous la valeur. */
+.pos-value-weight { display: none; }
+
+/* ---- Performance : couleur seule, jamais de fond saturé ---- */
+.pos-cell-perf.is-up > b, .pos-cell-perf.is-up > em { color: var(--btc-up, #1d7a5f); }
+.pos-cell-perf.is-down > b, .pos-cell-perf.is-down > em { color: var(--btc-down, #d9544d); }
+.pos-cell-perf > em { font-weight: 700; }
+
+/* ---- Poids ---- */
+.pos-cell-weight > b { font-size: 13px; font-weight: 700; }
+.pos-weight-bar { display: block; width: 100%; max-width: 72px; height: 4px; margin-top: 5px; border-radius: 99px; background: #e9efed; overflow: hidden; }
+.pos-weight-bar i { display: block; height: 100%; border-radius: inherit; background: var(--teal); }
+
+/* ---- Chevron ---- */
+.pos-chevron { justify-self: end; flex: 0 0 auto; color: #b3c1bf; transition: transform .15s ease, color .15s ease; }
+
+/* ---- Cartes : masquées tant que le conteneur est large ---- */
+.pos-cards { display: none; list-style: none; margin: 0; padding: 0; }
+
+/* ============ Palier intermédiaire (conteneur < 1040 px) ============
+   L'actif reste entier et garde 240 px de plancher. Ce qui s'efface est ACCESSOIRE :
+   l'ISIN, le mode de cotation, la colonne Poids (qui repasse sous la valeur). */
+@container pos (max-width: 1039px) {
+  .pos-head, .pos-row {
+    gap: 10px;
+    grid-template-columns:
+      minmax(240px, 2.2fr)
+      minmax(88px, 1fr)
+      minmax(92px, 1fr)
+      minmax(108px, 1.1fr)
+      minmax(108px, 1.1fr)
+      18px;
+  }
+  .pos-head { padding: 0 14px 8px; }
+  .pos-row { padding: 14px; }
+  /* Six zones au lieu de huit : le PRU se replie sous la quantité et le poids sous la valeur.
+     Ce qui disparaît est toujours REPRIS ailleurs — aucune information n'est perdue. */
+  .pos-head-weight, .pos-cell-weight, .pos-head-pru, .pos-cell-pru,
+  .pos-isin, .pos-quote-mode, .pos-lab-full { display: none; }
+  .pos-lab-mid, .pos-qty-pru, .pos-value-weight { display: block; }
+  .pos-cell-qty > b { font-size: 13px; }
+  .pos-identity { gap: 11px; }
+  .pos-mono { width: 36px; height: 36px; font-size: 11px; }
+  .pos-name { font-size: 14px; }
+  .pos-meta { font-size: 11.5px; }
+  .pos-cell > b { font-size: 13px; }
+  .pos-cell-value > b { font-size: 14px; }
+  .pos-cell > em { font-size: 11px; }
+}
+
+/* La bande de synthèse tient sur UNE rangée bien plus bas que la liste (quatre nombres, pas
+   six zones) : elle ne se replie qu'à partir du moment où ses cellules deviendraient illisibles. */
+@container pos (max-width: 899px) {
+  .pf-cell { padding: 13px 16px; }
+  .pf-cell small { font-size: 11px; }
+  .pf-cell strong { font-size: 17px; }
+  .pf-cell-lead strong { font-size: 20px; }
+  .pf-perf em { font-size: 12px; }
+}
+@container pos (max-width: 659px) {
+  .pf-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pf-cell:nth-child(3) { border-left: 0; }
+  .pf-cell:nth-child(n + 3) { border-top: 1px solid #edf2f0; }
+}
+
+/* ============ Cartes (conteneur < 660 px) ============ */
+@container pos (max-width: 659px) {
+  .pos-head, .pos-list { display: none; }
+  .pos-cards { display: grid; gap: 10px; }
+}
+/* Repli pour les navigateurs sans requête de conteneur : sous 780 px, l'écran est mobile. */
+@media (max-width: 780px) {
+  .inv-positions-panel .pos-head, .inv-positions-panel .pos-list { display: none; }
+  .inv-positions-panel .pos-cards { display: grid; gap: 10px; }
+}
+
+.pos-card-item { min-width: 0; }
+.pos-card {
+  display: grid; grid-template-columns: minmax(0, 1fr) 15px; align-items: start; gap: 4px 10px;
+  width: 100%; padding: 14px; margin: 0; border: 1px solid #e8eeec; border-radius: 14px;
+  background: #fff; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(17, 47, 43, .03);
+}
+.pos-card:active { background: #f3f8f7; }
+.pos-card:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+.pos-card .pos-chevron { grid-column: 2; grid-row: 1; align-self: center; }
+.pos-card-head { grid-column: 1; grid-row: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.pos-card-head .pos-identity { min-width: 0; }
+.pos-card-head .pos-name { font-size: 14px; }
+.pos-card-pct { flex: 0 0 auto; font-size: 13px; font-weight: 750; font-variant-numeric: tabular-nums; color: #71817f; }
+.pos-card-pct.is-up { color: var(--btc-up, #1d7a5f); }
+.pos-card-pct.is-down { color: var(--btc-down, #d9544d); }
+.pos-card-body { grid-column: 1 / -1; grid-row: 2; display: flex; flex-direction: column; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eef3f1; }
+.pos-card-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 5px 0; min-width: 0; }
+.pos-card-row > span:first-child { color: #71817f; font-size: 12px; font-weight: 600; }
+.pos-card-row b { font-size: 13px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.pos-card-row b em { display: block; margin-top: 2px; color: #71817f; font-size: 11px; font-style: normal; font-weight: 600; }
+.pos-card-row b em .pos-dot { display: inline-block; vertical-align: 1px; }
+.pos-card-row.is-lead { padding-bottom: 8px; }
+.pos-card-figure { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.pos-card-figure b { font-size: 16px; letter-spacing: -.02em; }
+.pos-card-gain { font-size: 12px; font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pos-card-gain.is-up { color: var(--btc-up, #1d7a5f); }
+.pos-card-gain.is-down { color: var(--btc-down, #d9544d); }
+
+/* ============ Bande de synthèse & en-tête, format mobile ============ */
+@media (max-width: 780px) {
+  .pf-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 14px 0 16px; }
+  .pf-cell { padding: 12px 14px; }
+  .pf-cell strong { font-size: 17px; }
+  .pf-cell-lead strong { font-size: 20px; }
+  .pf-perf em { display: block; margin-top: 2px; font-size: 12px; }
+  .pf-cell:nth-child(3) { border-left: 0; }
+  .pf-cell:nth-child(n + 3) { border-top: 1px solid #edf2f0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pos-row, .pos-chevron { transition: none; }
+}

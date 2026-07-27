@@ -43,6 +43,7 @@ tsconfig.tsbuildinfo
 /.wrangler/
 /outputs/
 /work/
+/artifacts/
 
 # local development logs
 dev*.out
