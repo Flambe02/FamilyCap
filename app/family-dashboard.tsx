@@ -868,8 +868,8 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             n'aurait plus aucun accès à la galerie ni aux cadeaux. */}
         <div className="mobile-menu-section">
           <p>Espace famille</p>
-          <button type="button" className="mobile-menu-link" onClick={() => { navigate("anniversaires"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="calendar" /></span><span>Anniversaires</span></span><span>›</span></button>
           <button type="button" className="mobile-menu-link" onClick={() => { navigate("cadeaux-amatxi"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="gift" /></span><span>Cadeaux d’Amatxi</span></span><span>›</span></button>
+          <button type="button" className="mobile-menu-link" onClick={() => { navigate("anniversaires"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="calendar" /></span><span>Anniversaires</span></span><span>›</span></button>
           <button type="button" className="mobile-menu-link" onClick={() => { navigate("videos"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="square-play" /></span><span>Souvenirs</span></span><span>›</span></button>
           <button type="button" className="mobile-menu-link" onClick={() => { navigate("famille-roster"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille</span></span><span>›</span></button>
         </div>

@@ -21,7 +21,7 @@ Date : 28 juillet 2026
 
 - Les tables sont sous RLS ; les lectures métier de cette route passent par le serveur, qui impose `requireFamilyMember` avant son accès Supabase privilégié. Cette frontière est conservée.
 - Le statut de connexion et `is_active` ne seront ni sélectionnés ni retournés par la route Anniversaires. Ils n'auront aucun effet sur la liste.
-- Une date peut être absente ou partielle (notamment une année inconnue). Toute date sans jour, mois et année civils valides ira dans « Date à compléter » : l'âge ne sera jamais inventé.
+- Une date peut être absente ou partielle. Les jours et mois déjà présents restent toujours affichables et classables ; seule une année inconnue masque l'âge. Seuls les profils sans jour/mois civil valide vont dans « Date à compléter ».
 
 ## Stratégie retenue
 

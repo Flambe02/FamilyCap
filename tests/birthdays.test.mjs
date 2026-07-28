@@ -29,8 +29,9 @@ test("le classement garde ensemble les anniversaires du même jour et isole les 
     { id: "y", name: "Année absente", birthdayDay: 17, birthdayMonth: 8, birthdayYear: null, photoUrl: null },
   ];
   const result = birthdayEntries(members, today(2026, 7, 28));
-  assert.deepEqual(result.complete.map((member) => member.name), ["Aurore", "Béatrice"]);
-  assert.deepEqual(result.incomplete.map((member) => member.name), ["Année absente", "Incomplet"]);
+  assert.deepEqual(result.complete.map((member) => member.name), ["Année absente", "Aurore", "Béatrice"]);
+  assert.equal(result.complete[0]?.age, null);
+  assert.deepEqual(result.incomplete.map((member) => member.name), ["Incomplet"]);
 });
 
 test("la recherche ignore les accents et la casse", () => {

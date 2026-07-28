@@ -59,8 +59,8 @@ export const investmentGroupMeta = {
 
 export const familyNavigation: NavLeaf[] = [
   { id: "famille", label: "Tableau de bord", icon: "house", iconLabel: "Tableau de bord", short: "Accueil" },
-  { id: "anniversaires", label: "Anniversaires", icon: "calendar", iconLabel: "Anniversaires", short: "Anniv." },
   { id: "cadeaux-amatxi", label: "Cadeaux d’Amatxi", icon: "gift", iconLabel: "Cadeaux d’Amatxi", short: "Cadeaux" },
+  { id: "anniversaires", label: "Anniversaires", icon: "calendar", iconLabel: "Anniversaires", short: "Anniv." },
   { id: "videos", label: "Souvenirs", icon: "square-play", iconLabel: "Souvenirs", short: "Souvenirs" },
   { id: "parametres", label: "Paramètres", icon: "settings", iconLabel: "Paramètres", short: "Paramètres" },
 ];

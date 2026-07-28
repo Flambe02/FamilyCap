@@ -64,10 +64,12 @@ export function birthdayEntries(members: BirthdayMember[], today: CivilDate = lo
   const complete: BirthdayEntry[] = [];
   const incomplete: BirthdayMember[] = [];
   for (const member of members) {
-    const birthDate = { year: member.birthdayYear ?? 0, month: member.birthdayMonth ?? 0, day: member.birthdayDay ?? 0 };
+    // Jour/mois sont déjà la source de vérité historique. Une année inconnue ne doit jamais
+    // effacer un anniversaire : 2000 sert uniquement de support bissextile pour le calcul civil.
+    const birthDate = { year: member.birthdayYear ?? 2000, month: member.birthdayMonth ?? 0, day: member.birthdayDay ?? 0 };
     const info = birthdayInfo(birthDate, today);
     if (!info) { incomplete.push(member); continue; }
-    complete.push({ ...member, birthDate, ...info, age: info.age });
+    complete.push({ ...member, birthDate, ...info, age: member.birthdayYear === null ? null : info.age });
   }
   complete.sort((a, b) => a.sortKey - b.sortKey || normalizeBirthdaySearch(a.name).localeCompare(normalizeBirthdaySearch(b.name), "fr"));
   incomplete.sort((a, b) => normalizeBirthdaySearch(a.name).localeCompare(normalizeBirthdaySearch(b.name), "fr"));
