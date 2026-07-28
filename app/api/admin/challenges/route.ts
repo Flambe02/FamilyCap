@@ -1,6 +1,6 @@
 import { authErrorResponse, requireAdmin } from "../../../../lib/auth-server";
 import { listChallengesForAdmin, createChallenge, updateChallenge, deleteChallenge, isMissingChallengeTable, type AdminChallengeRow } from "../../../../lib/challenges-service";
-import { listOnboardingMissionsForAdmin } from "../../../../lib/onboarding-challenges-service";
+import { listOnboardingMissionsForAdmin, updateOnboardingMission } from "../../../../lib/onboarding-challenges-service";
 import type { ChallengeInput } from "../../../../lib/challenges";
 
 // Back-office « Défis & animation » — création et gestion des défis. requireAdmin sur chaque
@@ -44,8 +44,13 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await requireAdmin(request);
-    const body = (await request.json()) as ChallengeInput & { id?: string; status?: string };
+    const body = (await request.json()) as ChallengeInput & { id?: string; status?: string; onboarding?: boolean; points?: number; cta?: string; successMessage?: string; active?: boolean; displayOrder?: number };
     if (!body.id) return Response.json({ error: "Le défi est obligatoire." }, { status: 400 });
+    if (body.onboarding) {
+      const result = await updateOnboardingMission(body.id, { title: body.title, description: body.description ?? undefined, points: body.points, cta: body.cta, successMessage: body.successMessage, active: body.active, displayOrder: body.displayOrder });
+      if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
+      return Response.json({ updated: true });
+    }
     const { id, ...patch } = body;
     const result = await updateChallenge(id, patch);
     if (!result.ok) return Response.json({ error: result.error }, { status: result.status });

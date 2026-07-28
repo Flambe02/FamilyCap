@@ -16,7 +16,7 @@ type ChallengeDto = {
   participants: number; completed: number; completionRate: number; pointsAttributed: number;
 };
 type ParticipantDto = { memberId: string; name: string; photoUrl: string | null; status: string; pct: number; invested: number; targetAmount: number; pointsEarned: number; lastEligibleDate: string | null };
-type OnboardingMissionDto = { slug: string; title: string; points: number; completedCount: number };
+type OnboardingMissionDto = { id: string; slug: string; title: string; description: string; points: number; cta: string; successMessage: string; active: boolean; displayOrder: number; completedCount: number };
 
 const STATUS_LABEL: Record<string, string> = { draft: "Brouillon", scheduled: "Programmé", active: "Actif", completed: "Terminé", archived: "Archivé" };
 const ACCOUNT_OPTIONS: [string, string][] = [["pea", "PEA"], ["securities", "Compte-titres"]];
@@ -42,6 +42,7 @@ export function AdminChallenges() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<ParticipantDto[]>([]);
   const [formModal, setFormModal] = useState<"create" | ChallengeDto | null>(null);
+  const [onboardingModal, setOnboardingModal] = useState<OnboardingMissionDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -130,7 +131,7 @@ export function AdminChallenges() {
     <div className="page-stack ach-page">
       <header className="ach-head">
         <div>
-          <h1>Défis &amp; animation</h1>
+          <h1>Gestion des défis</h1>
           <p>Animez les objectifs familiaux avec simplicité.</p>
         </div>
         <button type="button" className="ach-create-btn" onClick={() => setFormModal("create")}>+ Créer un défi</button>
@@ -154,15 +155,17 @@ export function AdminChallenges() {
         <section className="panel ach-onboard-card">
           <div className="ach-onboard-head">
             <h3 className="ach-card-title">Bien démarrer</h3>
-            <span className="ach-onboard-badge">Onboarding · Permanent · Préconfiguré</span>
+            <span className="ach-onboard-badge">Onboarding · Permanent · configurable</span>
           </div>
-          <p className="ach-muted">Parcours individuel automatique, distinct du défi du mois. Identifiants stables, non modifiables depuis cet écran ; les points déjà attribués ne sont jamais retirés.</p>
+          <p className="ach-muted">Parcours individuel automatique, distinct du défi du mois. Les identifiants et les points déjà attribués restent historiques.</p>
           <ul className="ach-onboard-list">
             {onboarding.map((mission) => (
               <li key={mission.slug} className="ach-onboard-row">
                 <span className="ach-onboard-title">{mission.title}</span>
                 <span className="ach-onboard-points">{mission.points} pts</span>
                 <span className="ach-onboard-count">{mission.completedCount} membre{mission.completedCount > 1 ? "s" : ""} terminé{mission.completedCount > 1 ? "s" : ""}</span>
+                <span className={`ach-status ach-status-${mission.active ? "active" : "archived"}`}>{mission.active ? "Actif" : "Inactif"}</span>
+                <button type="button" className="quiet" onClick={() => setOnboardingModal(mission)}>Modifier</button>
               </li>
             ))}
           </ul>
@@ -252,8 +255,46 @@ export function AdminChallenges() {
       )}
 
       {formModal && <ChallengeFormModal challenge={formModal === "create" ? null : formModal} onClose={() => setFormModal(null)} onSaved={() => { setFormModal(null); setReloadToken((token) => token + 1); }} />}
+      {onboardingModal && <OnboardingMissionModal mission={onboardingModal} onClose={() => setOnboardingModal(null)} onSaved={() => { setOnboardingModal(null); setReloadToken((token) => token + 1); }} />}
     </div>
   );
+}
+
+function OnboardingMissionModal({ mission, onClose, onSaved }: { mission: OnboardingMissionDto; onClose: () => void; onSaved: () => void }) {
+  const [title, setTitle] = useState(mission.title);
+  const [description, setDescription] = useState(mission.description);
+  const [points, setPoints] = useState(String(mission.points));
+  const [cta, setCta] = useState(mission.cta);
+  const [successMessage, setSuccessMessage] = useState(mission.successMessage);
+  const [active, setActive] = useState(mission.active);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  async function submit() {
+    if (saving) return;
+    setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/admin/challenges", { method: "PATCH", headers: await headers(), body: JSON.stringify({ id: mission.id, onboarding: true, title, description, points: Number(points), cta, successMessage, active, displayOrder: mission.displayOrder }) });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Modification impossible.");
+      onSaved();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Modification impossible."); }
+    finally { setSaving(false); }
+  }
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+    <section className="modal ach-modal" role="dialog" aria-modal="true" aria-label="Modifier la mission">
+      <header className="ach-modal-head"><h2>Modifier la mission</h2><button type="button" onClick={onClose} aria-label="Fermer">×</button></header>
+      <div className="ach-form">
+        <label className="ach-field ach-field-wide"><span>Titre</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} /></label>
+        <label className="ach-field ach-field-wide"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={600} /></label>
+        <label className="ach-field"><span>Points</span><input type="number" min="0" max="10000" value={points} onChange={(event) => setPoints(event.target.value)} /></label>
+        <label className="ach-field"><span>Bouton</span><input value={cta} onChange={(event) => setCta(event.target.value)} maxLength={80} /></label>
+        <label className="ach-field ach-field-wide"><span>Message de réussite</span><input value={successMessage} onChange={(event) => setSuccessMessage(event.target.value)} maxLength={200} /></label>
+        <label className="ach-check"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} /> Mission active</label>
+        {error && <p className="ach-error" role="alert">{error}</p>}
+      </div>
+      <footer className="ach-modal-foot"><button type="button" className="quiet" disabled={saving} onClick={onClose}>Annuler</button><button type="button" className="ach-create-btn" disabled={saving} onClick={() => void submit()}>{saving ? "Enregistrement…" : "Enregistrer"}</button></footer>
+    </section>
+  </div>;
 }
 
 function Stat({ icon, value, label }: { icon: string; value: string; label: string }) {

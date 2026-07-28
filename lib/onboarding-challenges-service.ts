@@ -15,7 +15,7 @@ import { computeAccountModel, type AccountOperation, type AccountType } from "./
 import {
   ONBOARDING_CHALLENGE_TYPE, ONBOARDING_MISSIONS, ONBOARDING_MISSION_SLUGS,
   evaluateOnboardingMissions, buildOnboardingProgress, onboardingCompletionKey,
-  type OnboardingMemberFacts, type OnboardingMissionSlug, type OnboardingPositionFact, type OnboardingPurchaseFact, type OnboardingProgress,
+  type OnboardingMemberFacts, type OnboardingMissionConfig, type OnboardingMissionSlug, type OnboardingPositionFact, type OnboardingPurchaseFact, type OnboardingProgress,
 } from "./onboarding-challenges.ts";
 
 const REASON = "onboarding_completion";
@@ -24,8 +24,11 @@ export function isMissingOnboardingSchema(error: unknown): boolean {
   return error instanceof Error && (/\bslug\b/.test(error.message) || error.message.includes("PGRST204") || error.message.includes("42703") || error.message.includes("challenges") || error.message.includes("PGRST205"));
 }
 
-type ChallengeRow = { id: string; slug: string | null; points_reward: number };
-type MissionRow = { id: string; points: number };
+type ChallengeRow = {
+  id: string; slug: string | null; points_reward: number; title: string; description: string | null; status: string;
+  cta_label?: string | null; success_message?: string | null; display_order?: number | null;
+};
+type MissionRow = { id: string; config: OnboardingMissionConfig };
 
 /** Les 4 lignes préconfigurées (seedées par la migration 20260805), indexées par leur slug métier. */
 async function getOnboardingMissionRows(): Promise<Map<OnboardingMissionSlug, MissionRow>> {
@@ -33,15 +36,40 @@ async function getOnboardingMissionRows(): Promise<Map<OnboardingMissionSlug, Mi
   let rows: ChallengeRow[];
   try {
     rows = await supabaseRest<ChallengeRow[]>(
-      `challenges?select=id,slug,points_reward&challenge_type=eq.${ONBOARDING_CHALLENGE_TYPE}&status=eq.active`,
+      `challenges?select=id,slug,points_reward,title,description,status,cta_label,success_message,display_order&challenge_type=eq.${ONBOARDING_CHALLENGE_TYPE}&order=display_order.asc.nullslast`,
     );
   } catch (error) {
-    if (isMissingOnboardingSchema(error)) return map; // migration 20260805 non encore jouée
-    throw error;
+    // Déploiement progressif : la migration v3 ajoute seulement les champs de présentation.
+    // Pendant sa fenêtre d'application, les quatre missions existantes restent utilisables avec
+    // leurs libellés de repli plutôt que de disparaître de l'espace membre.
+    if (error instanceof Error && (error.message.includes("cta_label") || error.message.includes("success_message") || error.message.includes("display_order") || error.message.includes("PGRST204"))) {
+      try {
+        rows = await supabaseRest<ChallengeRow[]>(
+          `challenges?select=id,slug,points_reward,title,description,status&challenge_type=eq.${ONBOARDING_CHALLENGE_TYPE}`,
+        );
+      } catch (fallbackError) {
+        if (isMissingOnboardingSchema(fallbackError)) return map;
+        throw fallbackError;
+      }
+    } else {
+      if (isMissingOnboardingSchema(error)) return map; // migration 20260805 non encore jouée
+      throw error;
+    }
   }
   for (const row of rows) {
     if (row.slug && (ONBOARDING_MISSION_SLUGS as readonly string[]).includes(row.slug)) {
-      map.set(row.slug as OnboardingMissionSlug, { id: row.id, points: Number(row.points_reward) });
+      map.set(row.slug as OnboardingMissionSlug, {
+        id: row.id,
+        config: {
+          title: row.title,
+          description: row.description ?? undefined,
+          points: Number(row.points_reward),
+          cta: row.cta_label ?? undefined,
+          successMessage: row.success_message ?? undefined,
+          active: row.status === "active",
+          displayOrder: row.display_order ?? undefined,
+        },
+      });
     }
   }
   return map;
@@ -164,15 +192,15 @@ export async function reconcileOnboardingForMember(memberId: string, options: { 
   for (const slug of ONBOARDING_MISSION_SLUGS) {
     if (!results[slug] || options.reconcile === false) continue;
     const mission = missionRows.get(slug);
-    if (!mission || alreadyAwarded.has(mission.id)) continue; // pas seedée, ou déjà attribuée pour toujours
-    await applyOnboardingPoints({ memberId, challengeId: mission.id, points: mission.points, slug });
+    if (!mission || mission.config.active === false || alreadyAwarded.has(mission.id)) continue; // inactive, non seedée, ou déjà attribuée pour toujours
+    await applyOnboardingPoints({ memberId, challengeId: mission.id, points: Number(mission.config.points), slug });
     justCompleted.push(slug);
   }
 
-  const pointsBySlug: Partial<Record<OnboardingMissionSlug, number>> = {};
-  for (const [slug, mission] of missionRows) pointsBySlug[slug] = mission.points;
+  const configs: Partial<Record<OnboardingMissionSlug, OnboardingMissionConfig>> = {};
+  for (const [slug, mission] of missionRows) configs[slug] = mission.config;
 
-  return { available: true, progress: buildOnboardingProgress(results, pointsBySlug), justCompleted };
+  return { available: true, progress: buildOnboardingProgress(results, configs), justCompleted };
 }
 
 /** Lecture + réconciliation en un appel, pour l'écran Défis (filet de sécurité au chargement). */
@@ -181,7 +209,10 @@ export async function getOnboardingProgressForMember(memberId: string, options: 
 }
 
 // ---- Administration (lecture seule) --------------------------------------------------------
-export type AdminOnboardingMissionRow = { slug: OnboardingMissionSlug; title: string; points: number; completedCount: number };
+export type AdminOnboardingMissionRow = {
+  id: string; slug: OnboardingMissionSlug; title: string; description: string; points: number;
+  cta: string; successMessage: string; active: boolean; displayOrder: number; completedCount: number;
+};
 
 /** Vue admin minimale : les 4 missions préconfigurées + combien de membres ont terminé chacune. */
 export async function listOnboardingMissionsForAdmin(): Promise<AdminOnboardingMissionRow[]> {
@@ -200,10 +231,34 @@ export async function listOnboardingMissionsForAdmin(): Promise<AdminOnboardingM
   }
   return ONBOARDING_MISSIONS.map((def) => {
     const mission = missionRows.get(def.slug);
+    const config = mission?.config;
     return {
-      slug: def.slug, title: def.title,
-      points: mission?.points ?? def.points,
+      id: mission?.id ?? def.slug, slug: def.slug, title: config?.title ?? def.title,
+      description: config?.description ?? def.description, points: config?.points ?? def.points,
+      cta: config?.cta ?? def.cta, successMessage: config?.successMessage ?? def.successMessage,
+      active: config?.active ?? false, displayOrder: config?.displayOrder ?? Number.MAX_SAFE_INTEGER,
       completedCount: mission ? (completedByChallenge.get(mission.id)?.size ?? 0) : 0,
     };
-  });
+  }).sort((a, b) => a.displayOrder - b.displayOrder);
+}
+
+export async function updateOnboardingMission(
+  id: string,
+  patch: { title?: string; description?: string; points?: number; cta?: string; successMessage?: string; active?: boolean; displayOrder?: number },
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const rows = await supabaseRest<ChallengeRow[]>(`challenges?select=id,slug,points_reward,title,description,status&challenge_type=eq.${ONBOARDING_CHALLENGE_TYPE}&id=eq.${encodeURIComponent(id)}&limit=1`);
+  const current = rows[0];
+  if (!current || !current.slug || !(ONBOARDING_MISSION_SLUGS as readonly string[]).includes(current.slug)) return { ok: false, status: 404, error: "Mission introuvable." };
+  const title = patch.title?.trim() ?? current.title;
+  const description = patch.description?.trim() ?? current.description ?? "";
+  const points = patch.points ?? Number(current.points_reward);
+  if (!title || title.length > 120 || description.length > 600) return { ok: false, status: 400, error: "Le titre ou la description est invalide." };
+  if (!Number.isInteger(points) || points < 0 || points > 10_000) return { ok: false, status: 400, error: "Le nombre de points est invalide." };
+  const update: Record<string, unknown> = { title, description, points_reward: points, updated_at: new Date().toISOString() };
+  if (patch.cta !== undefined) update.cta_label = patch.cta.trim().slice(0, 80);
+  if (patch.successMessage !== undefined) update.success_message = patch.successMessage.trim().slice(0, 200);
+  if (patch.active !== undefined) update.status = patch.active ? "active" : "archived";
+  if (patch.displayOrder !== undefined) update.display_order = Math.max(0, Math.floor(patch.displayOrder));
+  await supabaseRest(`challenges?id=eq.${encodeURIComponent(id)}`, { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify(update) });
+  return { ok: true };
 }

@@ -32,6 +32,16 @@ export type OnboardingMissionDef = {
   successMessage: string;
 };
 
+/**
+ * Configuration lue dans `challenges`. Les définitions ci-dessous ne servent qu'à rendre
+ * l'application lisible avant l'application de la migration : une fois la table à jour, le
+ * contenu administrable vient de la base, jamais d'une seconde liste TypeScript.
+ */
+export type OnboardingMissionConfig = Partial<Pick<OnboardingMissionDef, "title" | "description" | "points" | "cta" | "successMessage">> & {
+  active?: boolean;
+  displayOrder?: number;
+};
+
 export const ONBOARDING_MISSIONS: readonly OnboardingMissionDef[] = [
   {
     slug: "onboarding_account_setup",
@@ -187,17 +197,37 @@ export type OnboardingProgress = {
  * points_reward RÉEL stocké en base (source de vérité) ; en son absence (migration non encore
  * lue), on retombe sur les valeurs canoniques de ONBOARDING_MISSIONS — jamais une valeur inventée.
  */
-export function buildOnboardingProgress(results: OnboardingMissionResults, pointsBySlug?: Partial<Record<OnboardingMissionSlug, number>>): OnboardingProgress {
-  const missions = ONBOARDING_MISSIONS.map((def) => ({
+export function buildOnboardingProgress(
+  results: OnboardingMissionResults,
+  configs?: Partial<Record<OnboardingMissionSlug, OnboardingMissionConfig>>,
+): OnboardingProgress {
+  const missions = ONBOARDING_MISSIONS
+    .filter((def) => configs?.[def.slug]?.active !== false)
+    .map((def) => {
+      const config = configs?.[def.slug];
+      return {
     slug: def.slug,
-    title: def.title,
-    description: def.description,
-    points: pointsBySlug?.[def.slug] ?? def.points,
-    cta: def.cta,
+    title: config?.title ?? def.title,
+    description: config?.description ?? def.description,
+    points: config?.points ?? def.points,
+    cta: config?.cta ?? def.cta,
     view: def.view,
     status: (results[def.slug] ? "done" : "todo") as OnboardingMissionStatus,
-    successMessage: def.successMessage,
-  }));
+    successMessage: config?.successMessage ?? def.successMessage,
+    displayOrder: config?.displayOrder ?? Number.MAX_SAFE_INTEGER,
+  };
+    })
+    .sort((a, b) => a.displayOrder - b.displayOrder)
+    .map((mission) => ({
+      slug: mission.slug,
+      title: mission.title,
+      description: mission.description,
+      points: mission.points,
+      cta: mission.cta,
+      view: mission.view,
+      status: mission.status,
+      successMessage: mission.successMessage,
+    }));
   const done = missions.filter((mission) => mission.status === "done");
   return {
     missions,

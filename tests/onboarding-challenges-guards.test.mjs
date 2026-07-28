@@ -114,8 +114,16 @@ test("getActiveChallenge / listVisibleChallenges / listChallengesForAdmin filtre
   assert.ok(usages >= 3, "les 3 lectures mensuelles (getActiveChallenge, listVisibleChallenges, listChallengesForAdmin) doivent référencer MONTHLY_TYPE_FILTER");
 });
 
-test("l'admin ne peut pas éditer une mission onboarding depuis updateChallenge (garde explicite)", () => {
+test("les défis mensuels restent séparés des missions onboarding dans updateChallenge", () => {
   assert.match(challengesService, /challenge_type !== "monthly_investment"/);
+});
+
+test("les missions onboarding sont éditables par un chemin admin dédié, sans modifier le ledger", () => {
+  const adminRoute = read("app/api/admin/challenges/route.ts");
+  assert.match(adminRoute, /updateOnboardingMission/);
+  assert.match(adminRoute, /requireAdmin/);
+  assert.match(service, /export async function updateOnboardingMission/);
+  assert.equal(/supabaseRest\(\s*["'`]points_ledger[^"'`]*["'`]\s*,\s*\{\s*\n?\s*method:\s*["'`]POST/.test(service), false);
 });
 
 test("la migration v2 revalorise les quatre missions sans modifier les anciennes écritures", () => {
