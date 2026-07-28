@@ -22,6 +22,7 @@ import { confidenceLabel } from "../lib/dividend-projection";
 import type {
   DividendContributor, DividendEntry, DividendModel, DividendPositionDetail, DividendStatus,
 } from "../lib/dividend-engine";
+import "./investment-dividends.css";
 
 type ProviderState = { name: string; role: string; configured: boolean };
 
@@ -67,9 +68,6 @@ export function DividendsTab({ accountIds, canManage }: { accountIds: string[]; 
   const [windowChoice, setWindowChoice] = useState<WindowChoice>("next12m");
   const [includeForecast, setIncludeForecast] = useState(true);
   const [basis, setBasis] = useState<"gross" | "net">("gross");
-  const [payload, setPayload] = useState<DividendPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"overview" | "positions" | "calendar">("overview");
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -77,39 +75,34 @@ export function DividendsTab({ accountIds, canManage }: { accountIds: string[]; 
 
   const scope = accountIds.join(",");
   const primaryId = accountIds[0] ?? "";
+  // Résultat mémorisé AVEC la requête qui l'a produit. « En cours de chargement » se déduit de la
+  // comparaison des deux clés, plutôt que d'un setState synchrone dans l'effet : c'est le même
+  // patron que le reste du projet, et il rend impossible l'affichage d'un résultat périmé après un
+  // changement de période.
+  const requestKey = `${primaryId}|${scope}|${windowChoice}|${includeForecast ? 1 : 0}|${nonce}`;
+  const [fetched, setFetched] = useState<{ key: string; payload: DividendPayload | null; error: string | null } | null>(null);
 
   useEffect(() => {
-    if (!primaryId) {
-      setLoading(false);
-      return;
-    }
+    if (!primaryId) return;
     let active = true;
-    setLoading(true);
-    setError(null);
     const query = new URLSearchParams({ accountIds: scope, window: windowChoice, includeForecast: includeForecast ? "1" : "0" });
     authenticatedFetch(`/api/investment-accounts/${encodeURIComponent(primaryId)}/dividends?${query.toString()}`)
       .then(async (response) => {
         const data = (await response.json().catch(() => ({}))) as DividendPayload & { error?: string };
         if (!active) return;
-        if (!response.ok) {
-          setError(data.error ?? "Les dividendes n’ont pas pu être chargés.");
-          setPayload(null);
-        } else {
-          setPayload(data);
-          setError(null);
-        }
+        if (!response.ok) setFetched({ key: requestKey, payload: null, error: data.error ?? "Les dividendes n’ont pas pu être chargés." });
+        else setFetched({ key: requestKey, payload: data, error: null });
       })
       .catch(() => {
-        if (active) {
-          setError("Réseau indisponible : les dividendes n’ont pas pu être chargés.");
-          setPayload(null);
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+        if (active) setFetched({ key: requestKey, payload: null, error: "Réseau indisponible : les dividendes n’ont pas pu être chargés." });
       });
     return () => { active = false; };
-  }, [primaryId, scope, windowChoice, includeForecast, nonce]);
+  }, [primaryId, scope, windowChoice, includeForecast, requestKey]);
+
+  const current = fetched?.key === requestKey ? fetched : null;
+  const loading = primaryId !== "" && current === null;
+  const payload = current?.payload ?? null;
+  const error = current?.error ?? null;
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 
@@ -329,10 +322,14 @@ function DividendNotices({ payload }: { payload: DividendPayload }) {
     });
   }
   if (payload.unresolved.length > 0) {
+    const many = payload.unresolved.length > 1;
     const names = payload.unresolved.slice(0, 3).map((item) => item.name).join(", ");
     notices.push({
       tone: "warn",
-      text: `${payload.unresolved.length} instrument${payload.unresolved.length > 1 ? "s doivent" : " doit"} être identifié${payload.unresolved.length > 1 ? "s" : ""} avant de pouvoir calculer ${payload.unresolved.length > 1 ? "leurs" : "son"} dividende${payload.unresolved.length > 1 ? "s" : ""} : ${names}${payload.unresolved.length > 3 ? "…" : ""}`,
+      // Message ACTIONNABLE : la synchronisation crée elle-même l'identité manquante à partir de
+      // l'ISIN déjà présent sur la ligne. Annoncer le problème sans dire quoi faire laisserait
+      // l'utilisateur devant un écran vide sans issue.
+      text: `${payload.unresolved.length} instrument${many ? "s doivent" : " doit"} être identifié${many ? "s" : ""} avant de pouvoir calculer ${many ? "leurs" : "son"} dividende${many ? "s" : ""} : ${names}${payload.unresolved.length > 3 ? "…" : ""}. Lancez « Actualiser » : l’identification se fait à partir de l’ISIN déjà enregistré.`,
     });
   }
   for (const anomaly of payload.model.anomalies.slice(0, 3)) {

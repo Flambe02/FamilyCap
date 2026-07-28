@@ -88,18 +88,45 @@ Ce qu'elle apporte :
   reconstituée. Alimentation par `POST /api/market-data/benchmarks` (admin).
 - `portfolio_analyses` — cache de l'analyse pédagogique, indexé par empreinte des données. L'analyse
   n'est régénérée que si les chiffres changent, ou sur action explicite.
-- `financial_accounts.dividend_tax_rate` — taux d'imposition des dividendes du **compte-titres**
-  (0 à 1). `NULL` = non paramétré : l'écran applique alors l'hypothèse PFU 30 % **en l'annonçant**.
-  Colonne ignorée pour un PEA, où aucun prélèvement n'est appliqué par dividende.
+- `financial_accounts.dividend_tax_rate` — colonne historique, reprise automatiquement dans
+  `account_tax_profiles` par la migration 20260817 (voir ci-dessous).
 
 RLS : expositions et benchmarks sont des métadonnées de marché, lisibles par tout membre
 authentifié (aucune donnée financière personnelle) ; `portfolio_analyses` suit le périmètre du
 compte (titulaire ou administrateur). L'écriture reste réservée aux services serveur.
 
-**Après la migration**, pour peupler les dividendes : ouvrir un compte PEA/CTO → onglet **Revenus**
-→ « Synchroniser les dividendes » (admin). La route lit un fournisseur gratuit et sans clé, écrit
-uniquement dans `corporate_actions`, et **ignore les ETF capitalisants**. Elle n'écrit jamais dans
-`account_operations` : un dividende détaché n'est pas un dividende encaissé.
+## 20260817_dividend_engine.sql — moteur de dividendes
+
+Additive et rejouable. À exécuter **après** `20260816_portfolio_exposures_insights.sql`.
+
+- `dividend_events` — événements de dividende rattachés à l'**instrument canonique** (`assets`),
+  pas au compte. C'est la correction structurante : `corporate_actions` pointait vers `holdings`,
+  table dupliquée par compte, si bien qu'une synchronisation du compte-titres laissait le PEA sans
+  aucun dividende pour le même titre. Aucune quantité n'y est stockée : elle reste dérivée des
+  opérations à chaque lecture.
+- `account_tax_profiles` — résidence fiscale, retenue à la source, taux d'imposition, abattement.
+  **Sans profil, seul le brut est affiché** : aucun taux par défaut, aucune fiscalité française
+  présumée. La migration reprend `financial_accounts.dividend_tax_rate` quand il existe.
+- `dividend_sync_state` — file de synchronisation (priorité aux instruments jamais synchronisés).
+- `assets.distribution_policy` (`distributing` / `accumulating` / `unknown`) et
+  `asset_listings.alpha_vantage_symbol` / `resolution_status` / `last_resolved_at`.
+
+RLS : un événement d'instrument ne contient aucune donnée personnelle et reste lisible par tout
+membre authentifié ; un événement rattaché à un compte suit `can_view_member_investments()` ; le
+profil fiscal n'est lisible que par son titulaire ou l'administrateur ; l'état de synchronisation
+est réservé à l'administrateur. Aucune écriture n'est accordée au navigateur.
+
+**Après la migration**, pour peupler les dividendes :
+
+1. obtenir une clé Alpha Vantage gratuite sur <https://www.alphavantage.co/support/#api-key>
+   (e-mail + type d'usage, la clé s'affiche immédiatement) ;
+2. la placer dans `.env.local` sous `ALPHA_VANTAGE_API_KEY=` puis redémarrer le serveur ;
+3. ouvrir un compte PEA/CTO → onglet **Dividendes** → bouton **Actualiser** (administrateur).
+
+La synchronisation respecte le quota (~25 appels/jour) et s'étale sur plusieurs jours si le
+portefeuille compte plus d'instruments que le budget quotidien : elle reprend là où elle s'était
+arrêtée. Elle ignore les ETF capitalisants, n'écrit jamais dans `account_operations` — un dividende
+détaché n'est pas un dividende encaissé — et ne supprime que ses propres projections.
 
 ### Vérifications après déploiement
 

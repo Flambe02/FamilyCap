@@ -30,8 +30,13 @@ test("les expositions et les benchmarks exigent une session authentifiée", asyn
   assert.match(benchmarks, /requireAdmin/); // collecte
 });
 
+// Les dividendes ont désormais leur écran, leur moteur et leurs propres garde-fous, vérifiés au
+// plus près du code qui les implémente : tests/dividend-guards.test.mjs (périmètre par classe,
+// écriture limitée à `dividend_events`, suppression bornée aux projections, ETF capitalisants,
+// clés fournisseurs strictement serveur). Ne restent ici que les invariants COMMUNS aux écrans
+// d'analyse — les dupliquer reviendrait à les maintenir à deux endroits.
 test("la synchronisation des dividendes est réservée à l'administrateur", async () => {
-  const route = codeOnly(await source("app/api/market-data/dividends/sync/route.ts"));
+  const route = codeOnly(await source("app/api/investment-accounts/[accountId]/dividends/sync/route.ts"));
   assert.match(route, /requireAdmin/);
   assert.doesNotMatch(route, /export async function GET/);
 });
@@ -39,29 +44,15 @@ test("la synchronisation des dividendes est réservée à l'administrateur", asy
 // ---- 4. Une estimation ne crée jamais d'opération -----------------------------------------------
 test("aucune route de dividendes n'écrit dans account_operations", async () => {
   for (const path of [
-    "app/api/market-data/dividends/route.ts",
-    "app/api/market-data/dividends/sync/route.ts",
+    "app/api/investment-accounts/[accountId]/dividends/route.ts",
+    "app/api/investment-accounts/[accountId]/dividends/sync/route.ts",
     "app/api/portfolio/analysis/route.ts",
     "app/api/market-data/exposures/route.ts",
   ]) {
     const route = codeOnly(await source(path));
     assert.doesNotMatch(route, /supabaseRest\(\s*"account_operations/, `${path} ne doit jamais écrire d'opération`);
-    assert.doesNotMatch(route, /method: "DELETE"/, `${path} ne doit rien supprimer`);
+    assert.doesNotMatch(route, /account_operations/, `${path} ne doit jamais toucher aux opérations`);
   }
-});
-
-test("la synchronisation n'écrit QUE dans corporate_actions", async () => {
-  const route = codeOnly(await source("app/api/market-data/dividends/sync/route.ts"));
-  const writes = [...route.matchAll(/supabaseRest\(\s*\n?\s*"([a-z_]+)/g)].map((match) => match[1]);
-  const written = writes.filter((table) => route.includes(`"${table}`) && /corporate_actions|holdings|market_quotes|account_operations/.test(table));
-  assert.ok(written.includes("corporate_actions"));
-  assert.equal(written.includes("account_operations"), false);
-});
-
-test("un ETF capitalisant est explicitement écarté de la synchronisation", async () => {
-  const route = codeOnly(await source("app/api/market-data/dividends/sync/route.ts"));
-  assert.match(route, /isAccumulating/);
-  assert.match(route, /status: "accumulating"/);
 });
 
 // ---- Migration non destructive -------------------------------------------------------------------
@@ -131,7 +122,7 @@ test("toute exposition estimée porte une source et un drapeau explicites", asyn
 // ---- L'IA ne reçoit jamais d'opérations brutes ---------------------------------------------------
 test("l'objet envoyé au modèle est construit côté serveur, à partir des moteurs existants", async () => {
   const facts = codeOnly(await source("lib/portfolio-facts-server.ts"));
-  for (const engine of ["computeAccountModel", "computeExposureModel", "computeDividendIncome", "computePerformanceModel"]) {
+  for (const engine of ["computeAccountModel", "computeExposureModel", "computeDividendModel", "computePerformanceModel"]) {
     assert.match(facts, new RegExp(engine), `${engine} doit être réutilisé, jamais réimplémenté`);
   }
   // Aucun second moteur de portefeuille : les positions restent dérivées des opérations.
@@ -148,7 +139,7 @@ test("la route d'analyse valide la réponse du modèle avant de l'afficher", asy
 
 // ---- Le moteur de portefeuille n'a pas été dupliqué ------------------------------------------------
 test("aucun nouveau module ne recalcule les positions en parallèle du moteur", async () => {
-  for (const path of ["lib/portfolio-exposure.ts", "lib/dividend-income.ts", "lib/portfolio-performance.ts", "lib/portfolio-insights.ts"]) {
+  for (const path of ["lib/portfolio-exposure.ts", "lib/dividend-engine.ts", "lib/portfolio-performance.ts", "lib/portfolio-insights.ts"]) {
     const module = codeOnly(await source(path));
     assert.doesNotMatch(module, /function computeAccountModel/, `${path} ne doit pas redéfinir le moteur`);
     assert.doesNotMatch(module, /from "\.\/supabase-rest/, `${path} doit rester pur (aucun accès base)`);
@@ -160,6 +151,6 @@ test("le shell PEA/CTO reste un seul écran partagé, sans route d'écriture par
   assert.match(shell, /\/api\/pea\/operations/);
   assert.match(shell, /\/api\/investment-operations/);
   // Les nouveaux écrans sont montés dans le MÊME shell, pas dans une page dupliquée.
-  assert.match(shell, /import \{ RevenusTab, useAnnouncedDividends \} from "\.\/investment-revenus"/);
+  assert.match(shell, /import \{ DividendsTab \} from "\.\/investment-revenus"/);
   assert.match(shell, /import \{ PerformanceTab \} from "\.\/investment-performance"/);
 });

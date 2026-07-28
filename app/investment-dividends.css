@@ -1,0 +1,222 @@
+/* DIVIDENDES — écran partagé PEA / compte-titres (app/investment-revenus.tsx).
+
+   Design system LaBaJo & Co : fond crème, cartes blanches, vert canard, bordures légères, rayons
+   et typographies existants. Préfixe .dv- : aucune règle existante n'est redéfinie, et le rendu
+   des autres écrans n'est jamais touché.
+
+   Les trois statuts se distinguent par la couleur ET par la texture — l'estimé est hachuré. Une
+   différence de teinte seule est invisible pour une partie des lecteurs et disparaît à
+   l'impression ; chaque statut porte en plus son libellé écrit dans le badge.
+
+   Le mobile vit exclusivement sous 780 px, en fin de fichier. */
+
+.dv-loading { padding: 28px; }
+
+/* ---- En-tête ---------------------------------------------------------------------------- */
+.dv-header { display: grid; gap: 12px; padding: 20px 22px; }
+.dv-header-id h2 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -.5px; }
+.dv-header-id p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.dv-header-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dv-header-stamp { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.dv-refresh { white-space: nowrap; }
+
+.dv-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.dv-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.dv-switch-track {
+  width: 38px; height: 21px; border-radius: 999px; background: #dfe6e6; position: relative;
+  transition: background .15s ease; flex: 0 0 auto;
+}
+.dv-switch-track i {
+  position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(23, 50, 77, .3); transition: transform .15s ease;
+}
+.dv-switch input:checked + .dv-switch-track { background: var(--teal); }
+.dv-switch input:checked + .dv-switch-track i { transform: translateX(17px); }
+.dv-switch input:focus-visible + .dv-switch-track { outline: 2px solid var(--teal); outline-offset: 2px; }
+.dv-switch-label { font-size: 10px; font-weight: 700; color: var(--ink); }
+
+/* ---- Bandeaux d'état -------------------------------------------------------------------- */
+.dv-notices { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 8px; }
+.dv-notices li {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start;
+  padding: 11px 14px; border-radius: 12px; background: #eef4f7; border: 1px solid #d9e6ee;
+}
+.dv-notices li.is-warn { background: #fdf3e2; border-color: #f0dcb4; }
+.dv-notices li span { font-size: 12px; line-height: 1.3; }
+.dv-notices li p { margin: 0; font-size: 10px; line-height: 1.55; color: #3f5560; }
+
+/* ---- KPI : trois cartes, jamais plus ----------------------------------------------------- */
+.dv-kpi-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.dv-kpi { display: flex; align-items: flex-start; gap: 14px; padding: 20px; min-width: 0; }
+.dv-kpi > div { min-width: 0; }
+.dv-kpi-icon {
+  width: 40px; height: 40px; flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: 13px; background: var(--teal-soft); font-size: 17px;
+}
+.dv-kpi small { display: block; color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.dv-kpi strong { display: block; margin: 6px 0 8px; font-size: 26px; font-weight: 650; letter-spacing: -.7px; font-variant-numeric: tabular-nums; }
+.dv-kpi em { display: block; margin-top: 8px; font-style: normal; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.dv-kpi-split { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10px; color: #3f5560; }
+.dv-kpi-split span { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.dv-dot { width: 8px; height: 8px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+.dv-dot-received { background: #14504c; }
+.dv-dot-announced { background: #3f9c86; }
+.dv-dot-estimated { background: #cfe7dc; border: 1px solid #9ec7b6; }
+.dv-hint { text-decoration: none; cursor: help; color: var(--muted); }
+
+/* ---- Grille principale ------------------------------------------------------------------- */
+.dv-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+.dv-chart-panel, .dv-next-panel, .dv-contributors-panel, .dv-detail { padding: 22px; }
+.dv-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.dv-more { margin-top: 14px; }
+
+/* ---- Légende et histogramme -------------------------------------------------------------- */
+.dv-legend { list-style: none; margin: 0; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 10px; font-weight: 700; }
+.dv-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.dv-swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.dv-swatch-received { background: #14504c; }
+.dv-swatch-announced { background: #3f9c86; }
+.dv-swatch-estimated {
+  background: repeating-linear-gradient(135deg, #cfe7dc 0 3px, #a9cfbd 3px 6px);
+  border: 1px solid #9ec7b6;
+}
+
+.dv-chart { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 10px; align-items: start; margin-top: 16px; }
+.dv-chart-axis { height: 190px; display: flex; flex-direction: column; justify-content: space-between; color: var(--muted); font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.dv-chart-plot {
+  list-style: none; margin: 0; padding: 0; position: relative;
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 5px; align-items: end;
+}
+.dv-gridline { position: absolute; left: 0; right: 0; height: 1px; background: #edf1f1; pointer-events: none; }
+.dv-chart-col { display: grid; justify-items: center; gap: 6px; min-width: 0; position: relative; }
+.dv-chart-stack { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 38px; }
+.dv-bar { width: 100%; }
+.dv-bar:first-child { border-radius: 5px 5px 0 0; }
+.dv-bar-received { background: #14504c; }
+.dv-bar-announced { background: #3f9c86; }
+.dv-bar-estimated { background: repeating-linear-gradient(135deg, #cfe7dc 0 4px, #a9cfbd 4px 8px); }
+.dv-chart-col small { color: var(--muted); font-size: 9px; font-weight: 700; }
+/* Infobulle au survol ET au focus clavier : un chiffre accessible seulement à la souris ne l'est
+   pas vraiment. */
+.dv-chart-tip {
+  position: absolute; bottom: calc(100% - 14px); left: 50%; transform: translateX(-50%);
+  padding: 5px 9px; border-radius: 9px; background: #17324d; color: #fff; font-size: 10px;
+  font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0;
+  pointer-events: none; transition: opacity .12s ease; z-index: 2;
+}
+.dv-chart-col:hover .dv-chart-tip, .dv-chart-col:focus-within .dv-chart-tip { opacity: 1; }
+
+/* ---- Prochains versements ---------------------------------------------------------------- */
+.dv-next { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 12px; }
+.dv-next li {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 10px; align-items: center;
+  padding-bottom: 12px; border-bottom: 1px solid #edf1f1;
+}
+.dv-next li:last-child { border-bottom: 0; padding-bottom: 0; }
+.dv-next-mark {
+  width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px;
+  font-size: 9px; font-weight: 900; letter-spacing: -.02em;
+}
+.dv-mark-received { background: #14504c; color: #fff; }
+.dv-mark-announced { background: var(--teal-soft); color: var(--teal); }
+.dv-mark-estimated { background: repeating-linear-gradient(135deg, #eef6f1 0 4px, #dcece4 4px 8px); color: #2f6b58; }
+.dv-mark-unavailable { background: #f0f2f3; color: var(--muted); }
+.dv-next-id { min-width: 0; }
+.dv-next-id strong { display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-next-id small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+.dv-next-detail { color: #6b7d86; }
+.dv-next-amount { text-align: right; }
+.dv-next-amount b { display: block; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dv-next-amount small { display: block; color: var(--muted); font-size: 8px; }
+.dv-badge-received { background: #14504c; color: #fff; }
+.dv-badge-announced { background: var(--teal-soft); color: var(--teal); }
+.dv-badge-estimated { background: #fdf3e2; color: #8a5c00; }
+.dv-badge-unavailable { background: #f0f2f3; color: #5b6d76; }
+
+/* ---- Contributeurs ------------------------------------------------------------------------ */
+.dv-contributors { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 13px; }
+.dv-contributors li { display: grid; grid-template-columns: minmax(110px, 200px) auto minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.dv-contributor-name { font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-quality { font-style: normal; color: var(--muted); font-size: 9px; font-weight: 600; }
+.dv-contributor-value { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.dv-contributor-track { height: 9px; border-radius: 9px; background: #eef2f1; overflow: hidden; }
+.dv-contributor-track i { display: block; height: 100%; border-radius: inherit; background: var(--teal); }
+.dv-contributor-track i.is-estimated { background: repeating-linear-gradient(135deg, #3f9c86 0 4px, #7fbfab 4px 8px); }
+.dv-contributor-pct { min-width: 38px; text-align: right; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+/* ---- Détail par position ------------------------------------------------------------------ */
+.dv-table-scroll { overflow-x: auto; margin-top: 14px; -webkit-overflow-scrolling: touch; }
+.dv-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.dv-table th { text-align: left; padding: 10px 8px; color: var(--muted); font-size: 8px; letter-spacing: .8px; text-transform: uppercase; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.dv-table td { padding: 12px 8px; border-bottom: 1px solid #edf1f1; vertical-align: top; white-space: normal; }
+/* La feuille globale impose `td:first-child { display: flex }` aux tableaux historiques. Ici la
+   première cellule empile un nom et son code : en flex, les deux se retrouvent côte à côte et la
+   colonne pousse le tableau hors du cadre. */
+.dv-table td:first-child { display: table-cell; max-width: 240px; }
+.dv-table td strong { display: block; font-size: 11px; }
+.dv-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+.dv-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Les cartes ne servent qu'en mobile : elles portent les MÊMES champs que le tableau, aucune
+   donnée n'est perdue en changeant de largeur. */
+.dv-cards { display: none; }
+
+.dv-calendar { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 22px; }
+.dv-calendar > li > h4 {
+  margin: 0 0 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  font-size: 12px; font-weight: 700; text-transform: capitalize;
+  padding-bottom: 8px; border-bottom: 1px solid var(--line);
+}
+.dv-calendar > li > h4 b { font-variant-numeric: tabular-nums; font-size: 13px; }
+
+/* ==========================================================================================
+   MOBILE — sous 780 px uniquement. Le desktop n'est jamais modifié depuis ce bloc.
+   ========================================================================================== */
+@media (max-width: 780px) {
+  /* Les trois KPI s'empilent : côte à côte, un montant à sept chiffres devient illisible. */
+  .dv-kpi-row, .dv-grid { grid-template-columns: minmax(0, 1fr); }
+  .dv-header, .dv-chart-panel, .dv-next-panel, .dv-contributors-panel, .dv-detail { padding: 16px; }
+  .dv-header-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .dv-header-controls .inv-select,
+  .dv-header-controls .inv-toggle { grid-column: 1 / -1; }
+  .dv-kpi strong { font-size: 21px; }
+  .dv-kpi-icon { width: 34px; height: 34px; border-radius: 11px; font-size: 15px; }
+
+  /* Les 12 mois tiennent en colonnes étroites plutôt que de défiler : un défilement afficherait
+     d'abord une zone vide, les mois qui portent réellement les revenus se retrouvant hors écran. */
+  .dv-chart { grid-template-columns: 40px minmax(0, 1fr); gap: 6px; }
+  .dv-chart-axis { font-size: 7px; }
+  .dv-chart-plot { gap: 2px; }
+  .dv-chart-stack { max-width: 20px; }
+  .dv-chart-col small { font-size: 7px; letter-spacing: -.03em; }
+  .dv-legend { gap: 10px; font-size: 9px; }
+
+  .dv-next li { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "mark id amount" "mark badge badge"; row-gap: 6px; }
+  .dv-next-mark { grid-area: mark; }
+  .dv-next-id { grid-area: id; }
+  .dv-next-amount { grid-area: amount; }
+  .dv-next .inv-badge { grid-area: badge; justify-self: start; }
+
+  .dv-contributors li { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name value" "track track" "pct pct"; row-gap: 5px; }
+  .dv-contributor-name { grid-area: name; }
+  .dv-contributor-value { grid-area: value; }
+  .dv-contributor-track { grid-area: track; }
+  .dv-contributor-pct { grid-area: pct; text-align: left; }
+
+  /* Un tableau à dix colonnes n'est pas « adaptable » : il devient une liste de cartes, avec TOUS
+     les champs conservés — masquer des colonnes reviendrait à supprimer des données. */
+  .dv-table-scroll { display: none; }
+  .dv-cards { display: grid; gap: 12px; list-style: none; margin: 14px 0 0; padding: 0; }
+  .dv-card { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+  .dv-card header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .dv-card header strong { font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .dv-card-note { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+  .dv-card-grid { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+  .dv-card-grid > div { min-width: 0; }
+  .dv-card-wide { grid-column: 1 / -1; }
+  .dv-card-grid dt { color: var(--muted); font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+  .dv-card-grid dd { margin: 3px 0 0; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-switch-track, .dv-switch-track i, .dv-chart-tip { transition: none; }
+}

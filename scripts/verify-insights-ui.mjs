@@ -119,7 +119,9 @@ const FIXTURES = {
   "/api/ledger": { bitcoinEur: null },
   "/api/investment-plan": { plan: null },
   "/api/market-data/exposures": { available: true, exposures },
-  "/api/market-data/dividends": { dividends },
+  // L'onglet Dividendes ne lit plus cette route : son modèle est calculé SERVEUR
+  // (/api/investment-accounts/:id/dividends) et vérifié par scripts/verify-dividends-ui.mjs.
+  // Le jeu `dividends` reste chargé ci-dessus pour le décompte affiché en console.
   "/api/market-data/benchmarks": { available: true, benchmarks: [] },
 };
 

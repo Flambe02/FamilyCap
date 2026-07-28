@@ -1,7 +1,7 @@
 // Construction SERVEUR de l'objet déterministe envoyé à l'analyse IA.
 //
 // Le modèle ne voit jamais une opération brute. Il voit ce fichier : des agrégats déjà calculés
-// par les moteurs existants (`computeAccountModel`, `computeExposureModel`, `computeDividendIncome`,
+// par les moteurs existants (`computeAccountModel`, `computeExposureModel`, `computeDividendModel`,
 // `computePerformanceModel`), donc déjà vérifiés et testés. C'est la seule façon de garantir que
 // chaque chiffre cité dans l'analyse est un chiffre que l'application sait justifier ligne à ligne.
 //

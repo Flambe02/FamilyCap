@@ -97,81 +97,9 @@
 .inv-exposure-gaps li small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
 .inv-exposure-gaps li p { margin: 8px 0 0; color: #5b6d76; font-size: 10px; line-height: 1.55; }
 
-/* ---- Revenus -------------------------------------------------------------------------- */
-.inv-income-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, 1fr); gap: 16px; align-items: start; }
-.inv-income-chart, .inv-income-next, .inv-income-detail { padding: 22px; }
+/* ---- Bandeau partagé (Performance) ------------------------------------------------- */
 .inv-income-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
-.inv-income-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-.inv-bars { margin-top: 16px; }
-.inv-bars-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 14px; color: var(--muted); font-size: 10px; font-weight: 700; }
-.inv-bars-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.inv-swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
-.inv-swatch-received { background: #1d706b; }
-.inv-swatch-expected { background: #bcdfd8; }
-.inv-swatch-average { background: none; border-top: 2px dashed #6f7f88; height: 0; width: 16px; border-radius: 0; }
-.inv-bars-chart { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: start; }
-.inv-bars-axis { height: 200px; display: flex; flex-direction: column; justify-content: space-between; color: var(--muted); font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
-.inv-bars-plot { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; align-items: end; }
-.inv-bars-gridline { position: absolute; left: 0; right: 0; height: 1px; background: #edf1f1; pointer-events: none; }
-.inv-bars-average { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed #9aa8ae; pointer-events: none; }
-.inv-bars-col { display: grid; justify-items: center; gap: 6px; min-width: 0; }
-.inv-bars-stack { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 40px; }
-.inv-bar { width: 100%; border-radius: 5px 5px 0 0; }
-.inv-bar-expected { background: #bcdfd8; }
-.inv-bar-received { background: #1d706b; border-radius: 0; }
-.inv-bars-col:only-child .inv-bar-received { border-radius: 5px 5px 0 0; }
-.inv-bars-col small { color: var(--muted); font-size: 9px; font-weight: 700; }
-
-.inv-next-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 12px; }
-.inv-next-list li {
-  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 10px; align-items: center;
-  padding-bottom: 12px; border-bottom: 1px solid #edf1f1;
-}
-.inv-next-list li:last-child { border-bottom: 0; padding-bottom: 0; }
-.inv-next-mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; background: #f4eee5; color: var(--ink); font-size: 8px; font-weight: 900; letter-spacing: -.02em; }
-.inv-next-mark.is-announced { background: var(--teal-soft); color: var(--teal); }
-.inv-next-id { min-width: 0; }
-.inv-next-id strong { display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inv-next-id small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
-.inv-next-amount { text-align: right; }
-.inv-next-amount b { display: block; font-size: 12px; font-variant-numeric: tabular-nums; }
-.inv-next-amount small { display: block; color: var(--muted); font-size: 8px; }
-.inv-income-sync { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf1f1; display: grid; gap: 8px; }
-.inv-income-sync small { color: var(--muted); font-size: 9px; line-height: 1.5; }
-
-.inv-contributors { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 13px; }
-.inv-contributors li { display: grid; grid-template-columns: minmax(90px, 150px) minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
-.inv-contributor-name { font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inv-contributor-track { height: 9px; border-radius: 9px; background: #eef2f1; overflow: hidden; }
-.inv-contributor-track i { display: block; height: 100%; border-radius: inherit; background: var(--teal); }
-.inv-contributor-value { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.inv-contributor-pct { min-width: 38px; text-align: right; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
-
-.inv-quickread { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 14px; }
-.inv-quickread li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: center; }
-.inv-quickread li > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 11px; background: var(--teal-soft); font-size: 14px; }
-.inv-quickread p { margin: 0; font-size: 11px; line-height: 1.55; }
-
-.inv-table-scroll { overflow-x: auto; margin-top: 14px; }
-.inv-income-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-.inv-income-table th { text-align: left; padding: 10px; color: var(--muted); font-size: 8px; letter-spacing: .8px; text-transform: uppercase; border-bottom: 1px solid var(--line); white-space: nowrap; }
-/* La feuille globale impose `white-space: nowrap` à toutes les cellules de tableau. Ici, la
-   première colonne contient un nom d'instrument long ET sa source : sans retour à la ligne, elle
-   poussait à elle seule les colonnes de montants hors du cadre — le tableau paraissait n'avoir
-   qu'une colonne. */
-.inv-income-table td { padding: 12px 10px; border-bottom: 1px solid #edf1f1; vertical-align: top; white-space: normal; }
-.inv-income-table td:first-child { max-width: 260px; }
-.inv-income-table td:first-child small { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-/* La feuille globale impose `td:first-child { display: flex }` pour les tableaux historiques.
-   Ici la première cellule empile un nom et sa source : en flex, les deux se retrouvaient côte à
-   côte sur une seule ligne, et la colonne poussait le tableau bien au-delà du cadre. */
-.inv-income-table td:first-child { display: table-cell; }
-.inv-income-table td:first-child strong { display: block; }
-.inv-income-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.inv-income-table td strong { display: block; font-size: 11px; }
-.inv-income-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
-.inv-net-hint { font-style: normal; color: var(--muted); font-size: 8px; }
 
 /* ---- Performance ---------------------------------------------------------------------- */
 .inv-perf-filters { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 14px 18px; }
@@ -259,58 +187,14 @@
   .inv-coverage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inv-coverage-grid li:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
-  .inv-income-grid, .inv-perf-grid, .inv-perf-bottom { grid-template-columns: minmax(0, 1fr); }
-  .inv-income-chart, .inv-income-next, .inv-income-detail, .inv-perf-chart, .inv-perf-analysis, .inv-perf-bottom > section { padding: 16px; }
+  .inv-perf-grid, .inv-perf-bottom { grid-template-columns: minmax(0, 1fr); }
+  .inv-perf-chart, .inv-perf-analysis, .inv-perf-bottom > section { padding: 16px; }
   .inv-income-head { align-items: flex-start; flex-direction: column; gap: 10px; }
-  .inv-income-controls { width: 100%; justify-content: space-between; }
   .inv-toggle { width: 100%; justify-content: space-between; }
   .inv-toggle button { flex: 1 1 auto; justify-content: center; padding: 8px 6px; }
   .inv-perf-filters { flex-direction: column; align-items: stretch; gap: 10px; }
   .inv-perf-benchmark { margin-left: 0; justify-content: space-between; }
   .inv-perf-benchmark select { flex: 1 1 auto; }
-
-  /* Histogramme : les 12 mois tiennent, en colonnes étroites. Le faire défiler aurait affiché
-     une zone vide au premier regard — janvier à août sont souvent à zéro, et les mois qui
-     portent réellement les revenus se seraient retrouvés hors écran. */
-  .inv-bars-plot { gap: 2px; }
-  .inv-bars-chart { grid-template-columns: 36px minmax(0, 1fr); gap: 6px; }
-  .inv-bars-axis { font-size: 7px; }
-  .inv-bars-stack { max-width: 20px; }
-  .inv-bars-col small { font-size: 7px; letter-spacing: -.02em; }
-  .inv-bars-legend { gap: 10px; font-size: 9px; }
-
-  /* Tableau des dividendes : on retire les colonnes secondaires plutôt que de tout faire défiler.
-     Restent le nom, le statut et les deux montants — mesuré : c'est ce qui tient réellement sur
-     390 px avec des montants à sept chiffres. Les dates, elles, sont déjà portées par
-     l'histogramme et par la carte « Prochains versements » juste au-dessus. */
-  .inv-income-table th:nth-child(3), .inv-income-table td:nth-child(3),
-  .inv-income-table th:nth-child(4), .inv-income-table td:nth-child(4),
-  .inv-income-table th:nth-child(5), .inv-income-table td:nth-child(5),
-  .inv-income-table th:nth-child(6), .inv-income-table td:nth-child(6) { display: none; }
-
-  .inv-next-list li { grid-template-columns: 26px minmax(0, 1fr) auto; grid-template-areas: "mark id amount" "mark badge badge"; row-gap: 6px; }
-  .inv-next-mark { grid-area: mark; }
-  .inv-next-id { grid-area: id; }
-  .inv-next-amount { grid-area: amount; }
-  .inv-next-list .inv-badge { grid-area: badge; justify-self: start; }
-
-  .inv-contributors li { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name value" "track track" "pct pct"; row-gap: 5px; }
-  .inv-contributor-name { grid-area: name; }
-  .inv-contributor-track { grid-area: track; }
-  .inv-contributor-value { grid-area: value; }
-  .inv-contributor-pct { grid-area: pct; text-align: left; }
-
-  /* Un tableau large n'est jamais « adapté » en mobile : il défile dans son cadre, avec la
-     première colonne épinglée pour garder le nom de l'instrument visible. */
-  .inv-table-scroll { -webkit-overflow-scrolling: touch; }
-  .inv-income-table { min-width: 0; font-size: 10px; }
-  .inv-income-table th, .inv-income-table td { padding: 10px 6px; }
-  /* 120 px et pas 150 : mesuré, au-delà la colonne « Net » sortait du cadre sur un
-     compte-titres dont les montants sont à sept chiffres. */
-  .inv-income-table td:first-child, .inv-income-table th:first-child { max-width: 120px; }
-  /* Sur téléphone, la source de la ligne est déjà portée par le badge de statut : la répéter en
-     toutes lettres volait la place des montants. */
-  .inv-income-table td:first-child small { display: none; }
 
   .inv-risks li { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label value" "track track" "badge meta"; row-gap: 6px; }
   .inv-risks li small { justify-self: end; text-align: right; }

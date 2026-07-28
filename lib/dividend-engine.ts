@@ -29,7 +29,7 @@
 //   estimé   → le mois probable, et rien d'autre.
 
 import { instrumentKey, type AccountOperation, type AccountType, type PortfolioPosition } from "./portfolio-account.ts";
-import { identityAliases, normalizeInstrumentName } from "./instrument-alias.ts";
+import { normalizeInstrumentName } from "./instrument-alias.ts";
 
 const EPS = 1e-9;
 

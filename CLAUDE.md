@@ -61,7 +61,7 @@ The app navigates entirely via React state, **not URL routes**:
 | CoinGecko → Kraken fallback | BTC/EUR price | No |
 | Resend | Email alerts on transfer requests | Yes |
 | Yahoo Finance → Stooq fallback | Stock/ETF quotes (`lib/market-quotes.ts`) — **free, no API key** | No |
-| Alpha Vantage | Legacy symbol search in `/api/admin/market` only | Yes |
+| Alpha Vantage | **Dividendes annoncés** (`DIVIDENDS`, ~25 appels/jour) + recherche de symboles héritée | Yes |
 
 ## Critical Constraints
 
@@ -93,7 +93,7 @@ See `.env.example`. Required:
 
 Optional:
 - `RESEND_API_KEY`, `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO` — email alerts
-- `ALPHA_VANTAGE_API_KEY` — market data
+- `ALPHA_VANTAGE_API_KEY` — dividendes annoncés (source gratuite principale, ~25 appels/jour) + recherche de symboles héritée. Clé gratuite : https://www.alphavantage.co/support/#api-key. Réglages associés : `ALPHA_VANTAGE_DAILY_LIMIT`, `DIVIDEND_PRIMARY_PROVIDER`, `DIVIDEND_SECONDARY_PROVIDER`, `DIVIDEND_FALLBACK_PROVIDER`, `ENABLE_DIVIDEND_PROJECTIONS`, `DIVIDEND_CACHE_TTL_HOURS` (voir `.env.example`). Toutes strictement serveur.
 - `ANTHROPIC_API_KEY` **or** `OPENAI_API_KEY` — enables the AI statement scan (`/api/investment-imports/scan`), including the Boursobank screenshot import. Server-only, never `NEXT_PUBLIC_*`. Optional tuning: `DOCUMENT_AI_PROVIDER` (`anthropic`|`openai`|`none`), `DOCUMENT_AI_MODEL`, `DOCUMENT_AI_MAX_PAGES`, `DOCUMENT_AI_MAX_FILE_SIZE_MB`, `DOCUMENT_AI_HIGH_CONFIDENCE`, `DOCUMENT_AI_LOW_CONFIDENCE`. Without a key the scan is disabled (503) and CSV/XLSX import + manual entry still work. The AI only extracts raw fields with confidence; every number is re-validated deterministically server-side (`lib/document-extraction/`), and the portfolio is still computed only by `computeAccountModel`. Files are processed transiently and never stored. `lib/document-extraction/provider.ts` is a provider abstraction — swap providers without touching the import flow.
 
 **Note:** The Supabase URL and anon/publishable key are currently hard-coded in `lib/supabase-browser.ts` (no `NEXT_PUBLIC_*` vars). These values are public by nature, but this remains technical debt because it prevents clean environment separation between development, staging, and production.
@@ -117,6 +117,13 @@ All routes under `app/api/`:
 - `/api/admin/users` — member management
 - `/api/admin/accounts` / `/api/admin/holdings` — multi-asset portfolio (admin); accounts support archive (`isActive`), `openedAt`, `monthlyTarget`; delete of an account holding operations requires `?force=true`
 - `/api/admin/market` — Alpha Vantage symbol search
+- `/api/investment-accounts/:accountId/dividends` — GET, modèle de dividendes calculé **serveur**
+  (reçus / annoncés / estimés, KPI, calendrier, contributeurs, couverture). `?accountIds=` élargit
+  au périmètre agrégé, `?window=next12m|current_year|previous_year|YYYY`, `?includeForecast=0|1`.
+  `requireFamilyMember` + partage par classe, refus 403 explicite.
+  - `/sync` — POST (**admin**) : résolution des symboles, quota, récupération, fusion,
+    projections. N'écrit que `dividend_events` ; ne supprime que ses propres projections.
+  - `/calendar` et `/positions` — GET, projections du MÊME modèle (jamais un second calcul).
 - `/api/supabase/status` — config ping / setup mode trigger
 
 ### Investment operations, imports & shared calculation engine
@@ -161,12 +168,8 @@ All routes under `app/api/`:
   stays in « Non renseigné » and is **never redistributed**; the total is always 100 %, unknown
   included. Fallback for a **direct holding only**: domicile country from the ISIN prefix, flagged
   `isEstimated` and labelled as an approximation. Gold/commodity → « Matières premières ».
-- **Income** `lib/dividend-income.ts` (pure). Three strictly separated statuses: `received` (real
-  `dividende` operations only — nothing is ever auto-created), `announced` (provider-declared
-  event), `estimated` (projection from the last comparable dividend, always badged). Eligible
-  quantity is computed **at the ex-date** from the operations, not today. An accumulating ETF
-  (`isAccumulating`) never produces a cash payment. **PEA applies no PFU per dividend**; CTO uses
-  `financial_accounts.dividend_tax_rate`, defaulting to an explicitly-announced 30 % hypothesis.
+- **Dividends** — see the dedicated section below (`lib/dividend-engine.ts`). The old
+  `lib/dividend-income.ts` and `/api/market-data/dividends*` are **gone**; do not reintroduce them.
 - **Performance** `lib/portfolio-performance.ts` (pure). Deposits/withdrawals are **external flows**
   (TWR, chain-linked modified Dietz; XIRR when signs allow). When no deposit exists or reconstructed
   cash goes negative, the screen states « Performance non fiable tant que les flux historiques ne
@@ -180,15 +183,67 @@ All routes under `app/api/`:
   (`portfolio_analyses`), regenerated only when the numbers change or on explicit request. Without a
   provider key, the deterministic observations are used — the screen is never empty and never
   unverifiable.
-- **Dividend sync** `POST /api/market-data/dividends/sync` (admin) writes **only** `corporate_actions`,
-  from a free keyless provider (`lib/market-history.ts`). Before it existed, `corporate_actions` was
-  written nowhere: the single `syncMarketData` caller hard-codes `includeCorporateActions: false`,
-  and EODHD needs a token that is not configured.
 - Migration `20260816_portfolio_exposures_insights.sql` (additive, idempotent). Verify with
   `node --env-file=.env.local scripts/verify-insights-ui.mjs` (real Supabase data, measured
   overflow + visible mobile columns). Tests: `tests/instrument-alias`, `tests/portfolio-exposure`,
-  `tests/dividend-income`, `tests/portfolio-performance`, `tests/portfolio-insights`,
-  `tests/portfolio-insights-guards`.
+  `tests/portfolio-performance`, `tests/portfolio-insights`, `tests/portfolio-insights-guards`.
+
+### Dividends (PEA **and** compte-titres — one screen, one engine)
+
+- **A dividend belongs to the INSTRUMENT, not to the account.** `corporate_actions.asset_id`
+  referenced `holdings(id)`, and `holdings.account_id` is `NOT NULL` — the table is duplicated per
+  account (63 rows for 2 accounts). Syncing the CTO attached every event to the CTO's rows, so the
+  PEA's Air Liquide — same ISIN, same company, same ex-date — had none. `dividend_events.asset_id`
+  now points at `assets(id)` (unique on ISIN): two accounts holding the same title read the same
+  event, and the sync runs once. `corporate_actions` is left untouched (it also carries splits) but
+  is no longer read by the dividend pipeline.
+- **Pure engine** `lib/dividend-engine.ts` — four statuses (`received` from real `dividende`
+  operations only, `announced`, `estimated`, `unavailable`). **One window for everything**: total,
+  monthly breakdown, monthly average and forward yield all come out of the same `[from, to]` range,
+  so `average = total ÷ months` is true by construction (the old screen summed three different
+  perimeters and its average could not be reconciled with its total).
+- **Date convention, stated once.** Received → the operation date. Announced → the **payment date**
+  when published; otherwise the month is derived from the ex-date and `scheduleBasis: "ex_date"`
+  makes the screen print « Paiement : date non publiée ». The ex-date is **never** shown as a
+  payment. A projection carries **a month only** (`estimated_month`), never an exact day.
+- **Eligible quantity** is rebuilt from the operations at the ex-date, **strictly before** it: a buy
+  executed on the ex-date is not eligible, a sell on the ex-date stays eligible. Transfers and
+  corrections count like buys and sells — a portfolio imported from a broker capture arrives
+  entirely as `correction`.
+- **Projection engine** `lib/dividend-projection.ts` (pure, no provider knowledge). Detects the
+  frequency from the **median** gap, groups history into recurring slots, and takes the **lower** of
+  the last payment and the median of the last three — no past growth is ever extrapolated.
+  Confidence high/medium/low. A suspended dividend, an irregular history, or an already-announced
+  slot produce **nothing**. Special dividends are excluded (provider label, or a documented outlier
+  rule: ≥ 2.5× the median **and** no recurring counterpart in another year).
+- **Providers** `lib/dividend-providers.ts` (server only): Alpha Vantage `DIVIDENDS` (primary — the
+  only free source publishing both ex-date and payment date; it publishes **no currency**, taken
+  from the listing and never assumed) → EODHD `/div` (currency + period) → Yahoo (history only, no
+  payment date, gated by `ENABLE_EXPERIMENTAL_YAHOO_PROVIDER`). A failure returns a **code**, never
+  an empty list disguised as "no dividend".
+- **Symbols are never guessed.** `asset_listings.alpha_vantage_symbol` / `eodhd_symbol` /
+  `yahoo_symbol` carry the venue suffix each provider requires. A bare `AI` or `SAN` is refused;
+  only a US listing without a suffix may use the plain ticker. `resolveAlphaVantageSymbols` marks
+  `needs_review` instead of picking between two equally-scored matches.
+- **Quota and queue** `lib/dividend-sync.ts`: the daily budget is counted in the existing
+  `market_data_requests` table (25/day Alpha Vantage, 20 EODHD), **decremented before the call**
+  (an error consumes the quota too). The queue serves never-synced instruments first, then the
+  stalest; `DIVIDEND_CACHE_TTL_HOURS` skips what is still fresh. With 26 positions the initial
+  sync spreads over two days and never restarts from zero. **A silent provider deletes nothing** —
+  only forecasts (`is_forecast = true`, derived by construction) are ever replaced.
+- **Tax** — gross is the reference. `account_tax_profiles` (residency, withholding, estimated rate,
+  allowance) is the **only** thing that enables a net; there is no default rate, no implicit PFU,
+  and the holder is never presumed French-resident. Without a profile the Brut/Net toggle is not
+  even rendered. PEA states that dividends stay inside the envelope.
+- **API** `GET|POST /api/investment-accounts/:accountId/dividends[/sync|/calendar|/positions]`.
+  Read is `requireFamilyMember` + per-class sharing (`resolveDividendScope`, explicit 403); sync is
+  `requireAdmin`. The model is computed **server-side** — the browser recomputes nothing and page
+  load triggers **no** provider request.
+- Migration `20260817_dividend_engine.sql` (additive, idempotent): `dividend_events`,
+  `account_tax_profiles`, `dividend_sync_state`, plus `assets.distribution_policy` and
+  `asset_listings.alpha_vantage_symbol` / `resolution_status`. Tests: `tests/dividend-engine`,
+  `tests/dividend-projection`, `tests/dividend-sync`, `tests/dividend-guards`,
+  `tests/dividend-integration`.
 
 ### Access model (family sharing) — ENFORCED
 
