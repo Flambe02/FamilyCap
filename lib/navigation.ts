@@ -1,5 +1,6 @@
 export type View =
   | "famille"
+  | "anniversaires"
   | "cadeaux-amatxi"
   | "portefeuilles"
   | "bitcoin"
@@ -58,6 +59,7 @@ export const investmentGroupMeta = {
 
 export const familyNavigation: NavLeaf[] = [
   { id: "famille", label: "Tableau de bord", icon: "house", iconLabel: "Tableau de bord", short: "Accueil" },
+  { id: "anniversaires", label: "Anniversaires", icon: "calendar", iconLabel: "Anniversaires", short: "Anniv." },
   { id: "cadeaux-amatxi", label: "Cadeaux d’Amatxi", icon: "gift", iconLabel: "Cadeaux d’Amatxi", short: "Cadeaux" },
   { id: "videos", label: "Souvenirs", icon: "square-play", iconLabel: "Souvenirs", short: "Souvenirs" },
   { id: "parametres", label: "Paramètres", icon: "settings", iconLabel: "Paramètres", short: "Paramètres" },
@@ -90,6 +92,7 @@ export const BOTTOM_NAV_ITEMS: { id: View; label: string; icon: NavIconId; short
 export function titleForView(view: View): string {
   const titles: Record<View, string> = {
     famille: "Tableau de bord",
+    anniversaires: "Anniversaires",
     "cadeaux-amatxi": "Cadeaux d’Amatxi",
     portefeuilles: "Portefeuille",
     bitcoin: "Bitcoin",

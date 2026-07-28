@@ -614,8 +614,8 @@ function renderCta({ state, canAct, joining, onNavigate, onJoin }: { state: Memb
   if (state === "no_account") return <button type="button" className="cha-cta" onClick={() => openSettingsSection("comptes", onNavigate)}>Choisir un compte</button>;
   if (state === "ready_to_join") return <button type="button" className="cha-cta" disabled={!canAct || joining} onClick={onJoin}>{joining ? "Inscription…" : "Rejoindre le défi"}</button>;
   if (state === "in_progress") return canAct
-    ? <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Continuer le défi</button>
-    : <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Voir mon investissement</button>;
+    ? <button type="button" className="cha-cta" onClick={() => followDashboardCta({ label: "", view: "investissements-pea", investmentTab: "investir" }, onNavigate)}>Saisir mon investissement</button>
+    : <button type="button" className="cha-cta" onClick={() => followDashboardCta({ label: "", view: "investissements-pea", investmentTab: "investir" }, onNavigate)}>Voir mon investissement</button>;
   if (state === "completed") return <button type="button" className="cha-cta" onClick={() => onNavigate("investissements-pea")}>Voir mon investissement</button>;
   return null;
 }
@@ -625,15 +625,30 @@ function renderCta({ state, canAct, joining, onNavigate, onJoin }: { state: Memb
  * l'écran Défis (une seule implémentation de `join`, avec ses états d'erreur). On envoie donc le
  * membre là où l'action est réellement possible, selon ce qui lui manque.
  */
-function dashboardCta(state: MemberState): { label: string; view: View; settings?: "comptes" | "rythme" } | null {
+type DashboardCta = { label: string; view: View; settings?: "comptes" | "rythme"; investmentTab?: "investir" };
+
+function dashboardCta(state: MemberState): DashboardCta | null {
   // `settings` est OBLIGATOIRE pour toute destination « parametres » : sans ancre de section, le
   // membre atterrit sur « Mon compte » au lieu de l'écran où l'action est réellement possible.
   if (state === "no_plan") return { label: "Configurer mon rythme →", view: "parametres", settings: "rythme" };
   if (state === "no_account") return { label: "Choisir un compte →", view: "parametres", settings: "comptes" };
   if (state === "ready_to_join") return { label: "Rejoindre le défi →", view: "investissements-suggestions" };
-  if (state === "in_progress") return { label: "Voir ma progression →", view: "investissements-suggestions" };
+  if (state === "in_progress") return { label: "Saisir mon investissement →", view: "investissements-pea", investmentTab: "investir" };
   if (state === "completed") return { label: "Voir mes points →", view: "investissements-suggestions" };
   return null;
+}
+
+/** Une action de défi aboutit toujours à l'écran qui permet réellement de la terminer. */
+function followDashboardCta(cta: DashboardCta, navigate: (view: View) => void) {
+  if (cta.settings) {
+    openSettingsSection(cta.settings, navigate);
+    return;
+  }
+  if (cta.investmentTab && typeof window !== "undefined") {
+    const url = new URL(window.location.href);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}#pea/${cta.investmentTab}`);
+  }
+  navigate(cta.view);
 }
 
 /**
@@ -727,7 +742,7 @@ export function ChallengesDashboardCard({ navigate, asMemberId }: { navigate: (v
             <p className="cha-dash-hint">{heroHint(state)}</p>
           )}
 
-          {cta && <button type="button" className="cha-dash-cta" onClick={() => navigate(cta.view)}>{cta.label}</button>}
+          {cta && <button type="button" className="cha-dash-cta" onClick={() => followDashboardCta(cta, navigate)}>{cta.label}</button>}
         </div>
       )}
 
@@ -838,7 +853,7 @@ export function ChallengesDashboardSection({ state: sectionState, navigate }: { 
                 <div className="cha-bar cha-dashboard-bar"><span style={{ width: `${Math.max(0, Math.min(100, progress.pct))}%` }} /></div>
               </> : <small className="cha-dashboard-hint">{heroHint(state)}</small>}
             </div>
-            <div className="cha-dashboard-action-side"><span>+{intFmt.format(challenge.pointsReward)} pts</span>{cta && <button type="button" onClick={() => { if (cta.settings) openSettingsSection(cta.settings, navigate); else navigate(cta.view); }}>{cta.label}</button>}</div>
+            <div className="cha-dashboard-action-side"><span>+{intFmt.format(challenge.pointsReward)} pts</span>{cta && <button type="button" onClick={() => followDashboardCta(cta, navigate)}>{cta.label}</button>}</div>
           </article>
         )}
 

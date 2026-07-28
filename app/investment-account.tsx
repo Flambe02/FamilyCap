@@ -29,9 +29,8 @@ import {
   type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice, type PortfolioPosition,
 } from "../lib/portfolio-account";
 import { buildPriceIndex } from "../lib/instrument-alias";
-import { computeDividendIncome } from "../lib/dividend-income";
-import { ExposureCard, DiversificationModal, CoverageStrip, useAccountExposures, useExposureModel } from "./investment-exposure";
-import { RevenusTab, useAnnouncedDividends } from "./investment-revenus";
+import { ExposureCard, DiversificationModal, useAccountExposures, useExposureModel } from "./investment-exposure";
+import { DividendsTab } from "./investment-revenus";
 import { PerformanceTab } from "./investment-performance";
 import type { ExposureModel } from "../lib/portfolio-exposure";
 import { computeMonthlyPlanProgress, type MonthlyPlanProgress } from "../lib/investment-plan";
@@ -360,30 +359,10 @@ export function InvestmentAccountShell({
   const sectors = useExposureModel(positionsForExposure, exposureState.exposures, "sector");
   const [diversificationOpen, setDiversificationOpen] = useState(false);
 
-  // Annonces de dividendes : chargées UNE fois au niveau du shell. Le bandeau de couverture et
-  // l'onglet Revenus lisent la même liste ; sinon les deux écrans pourraient annoncer deux
-  // couvertures différentes pour le même compte.
+  // Périmètre transmis à l'onglet Dividendes. Celui-ci interroge sa propre route serveur : le
+  // modèle (reçus, annoncés, projections, fiscalité) est calculé côté serveur par le moteur
+  // partagé, jamais recomposé dans le navigateur.
   const scopeAccountIds = useMemo(() => scopeAccounts.map((account) => account.id), [scopeAccounts]);
-  const announcedDividends = useAnnouncedDividends(scopeAccountIds);
-  // Couverture « dividendes » : un instrument est ANALYSÉ dès lors qu'on SAIT s'il distribue ou
-  // capitalise. Ne compter que les distributeurs ferait passer un portefeuille intégralement
-  // capitalisant pour non documenté, alors qu'il est parfaitement caractérisé.
-  const incomeCoverage = useMemo(() => {
-    const coverage = computeDividendIncome({
-      operations: scopeOps,
-      positions: model?.positions ?? [],
-      announced: announcedDividends.announced.map((row) => ({
-        id: row.id, exDate: row.ex_date, paymentDate: row.payment_date, amountPerShare: row.amount_per_share,
-        currency: row.currency, status: row.status, provider: row.provider, asset: row.asset,
-      })),
-      accountType: config.kind,
-      today: todayISO(),
-      referenceCurrency: referenceCurrencyCode,
-      fxRateAt,
-      positionsValueEur: model?.positionsValueEur ?? null,
-    }).coverage;
-    return { done: coverage.analysedInstruments, total: coverage.totalInstruments };
-  }, [scopeOps, model, announcedDividends.announced, config.kind, referenceCurrencyCode, fxRateAt]);
 
   // Compte cible d'une écriture : le compte sélectionné, ou le premier en mode agrégé.
   const writeAccounts = isAggregate ? envAccounts : selectedAccount ? [selectedAccount] : [];
@@ -533,7 +512,7 @@ export function InvestmentAccountShell({
   const headerTitle = isAggregate ? config.aggregateTitle : selectedAccount ? config.singularTitle(selectedAccount.memberName ?? selectedAccount.name) : config.singularTitle("");
   const tabs: { id: InvestmentTab; label: string }[] = [
     { id: "resume", label: "Résumé" }, { id: "positions", label: "Mes positions" }, { id: "investir", label: "Investir" },
-    { id: "revenus", label: "Revenus" }, { id: "performance", label: "Performance" }, { id: "historique", label: "Historique" },
+    { id: "revenus", label: "Dividendes" }, { id: "performance", label: "Performance" }, { id: "historique", label: "Historique" },
     { id: "infos", label: "Infos" },
   ];
 
@@ -619,7 +598,7 @@ export function InvestmentAccountShell({
             <ResumeTab config={config} model={model!} title={isAggregate ? config.aggregateTitle : selectedAccount!.name} range={range} setRange={setRange} canManage={canManage} memberCanRecord={memberCanRecord} marketLoading={marketLoading}
               monthlyProgress={monthlyProgress} hasPlan={hasPlan} onOpenRhythm={onOpenRhythm}
               geography={geography} sectors={sectors} exposureLoading={exposureState.loading} exposureAvailable={exposureState.available}
-              incomeCoverage={incomeCoverage} onOpenDiversification={() => setDiversificationOpen(true)}
+              onOpenDiversification={() => setDiversificationOpen(true)}
               onGoto={setTab} onAddInvestment={() => setModal({ open: true, type: "versement", mode: "admin" })}
               onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })}
               onReport={() => setNotice("Le report sera enregistré dans une prochaine version. Saisissez le versement le moment venu.")} recent={scopeOps} />
@@ -641,12 +620,7 @@ export function InvestmentAccountShell({
               })}
               onPurge={selectedAccount ? () => setPurgeAccount(selectedAccount) : undefined} />
           )}
-          {tab === "revenus" && (
-            <RevenusTab model={model!} operations={scopeOps} accountIds={scopeAccountIds}
-              announced={announcedDividends.announced} loading={announcedDividends.loading} onReloadAnnounced={announcedDividends.reload}
-              accountCurrency={referenceCurrencyCode} fxRates={fxRates}
-              dividendTaxRate={selectedAccount?.dividendTaxRate ?? null} canManage={canManage} />
-          )}
+          {tab === "revenus" && <DividendsTab accountIds={scopeAccountIds} canManage={canManage} />}
           {tab === "investir" && <InvestirTab config={config} model={model!} canManage={canManage} memberCanRecord={memberCanRecord} onAdd={(type) => setModal({ open: true, type, mode: "admin" })} onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })} />}
           {tab === "performance" && (
             <PerformanceTab model={model!} operations={scopeOps} accountId={selectedAccount?.id ?? null}
@@ -748,12 +722,12 @@ function regularStatus(status: MonthlyPlanProgress["status"]): { label: string; 
   return { label: "Objectif à définir", cls: "à_investir" };
 }
 
-function ResumeTab({ config, model, title, range, setRange, canManage, memberCanRecord, marketLoading, monthlyProgress, hasPlan, onOpenRhythm, geography, sectors, exposureLoading, exposureAvailable, incomeCoverage, onOpenDiversification, onGoto, onAddInvestment, onMemberAdd, onReport, recent }: {
+function ResumeTab({ config, model, title, range, setRange, canManage, memberCanRecord, marketLoading, monthlyProgress, hasPlan, onOpenRhythm, geography, sectors, exposureLoading, exposureAvailable, onOpenDiversification, onGoto, onAddInvestment, onMemberAdd, onReport, recent }: {
   config: EnvelopeConfig; model: AccountModel; title: string; range: "1M" | "3M" | "6M" | "1A" | "3A" | "TOUT";
   setRange: (value: "1M" | "3M" | "6M" | "1A" | "3A" | "TOUT") => void; canManage: boolean; memberCanRecord: boolean; marketLoading: boolean;
   monthlyProgress: MonthlyPlanProgress; hasPlan: boolean; onOpenRhythm?: () => void;
   geography: ExposureModel; sectors: ExposureModel; exposureLoading: boolean; exposureAvailable: boolean;
-  incomeCoverage: { done: number; total: number }; onOpenDiversification: () => void;
+  onOpenDiversification: () => void;
   onGoto: (tab: InvestmentTab) => void; onAddInvestment: () => void; onMemberAdd: () => void; onReport: () => void; recent: InvestmentOperation[];
 }) {
   const ranges = supportedRanges(model.timeline);
@@ -790,7 +764,6 @@ function ResumeTab({ config, model, title, range, setRange, canManage, memberCan
             <div className="btc-hero-gain"><GainPill eur={model.unrealizedGainEur} pct={model.unrealizedGainPct} muted={marketLoading} /></div>
             <small className="btc-hero-note">
               Valeur des positions {model.positionsValueEur === null ? "indisponible" : euro.format(model.positionsValueEur)}
-              {" · "}Trésorerie {euro.format(model.cashEur)}
               {" · "}Depuis l’origine ({startLabel}){multiCurrency ? " · valeurs non converties" : ""}
             </small>
           </div>
@@ -802,18 +775,12 @@ function ResumeTab({ config, model, title, range, setRange, canManage, memberCan
           <BitcoinKpi label="VALEUR DES POSITIONS" value={model.positionsValueEur === null ? "Cours non disponible" : euro.format(model.positionsValueEur)} sub={`${model.valuationCoverage.valuedPositions}/${model.valuationCoverage.totalPositions} positions valorisées`} icon="landmark" tone="teal" />
           <BitcoinKpi label={model.valuationCoverage.unvaluedPositions > 0 ? "PERFORMANCE PARTIELLE" : "PLUS / MOINS-VALUE"} value={model.unrealizedGainEur === null ? "Cours non disponible" : <GainPill eur={model.unrealizedGainEur} pct={model.unrealizedGainPct} />} sub={`Coût valorisé ${euro.format(model.valuationCoverage.valuedCostEur)}`} icon="trending-up" tone="teal" />
           <BitcoinKpi label="DIVIDENDES REÇUS" value={euro.format(model.dividendsNetEur)} sub="Net, depuis l’origine" icon="sprout" tone="teal" />
-          <BitcoinKpi label="TRÉSORERIE" value={euro.format(model.cashEur)} sub={model.cashEur < 0 ? "Des apports historiques peuvent manquer" : "Disponible"} icon="bell" tone="blue" />
           {config.sixthKpi === "fxImpact" ? (
             <BitcoinKpi label="IMPACT DU CHANGE" value={model.fxImpactEur === null ? "Non disponible" : euro.format(model.fxImpactEur)} sub={multiCurrency ? "Plusieurs devises détectées" : "Calcul à venir"} icon="swap" tone="navy" />
           ) : (
             <BitcoinKpi label={model.valuationCoverage.unvaluedPositions > 0 ? "PERFORMANCE PARTIELLE" : "PERFORMANCE DES POSITIONS"} value={model.unrealizedGainPct === null ? "Non disponible" : `${model.unrealizedGainPct >= 0 ? "+" : ""}${model.unrealizedGainPct.toFixed(2).replace(".", ",")} %`} sub={`${model.valuationCoverage.coveragePercent.toFixed(0)} % des positions valorisées`} icon="trending-up" tone="teal" />
           )}
         </div>
-        {model.cashEur < 0 && (
-          <p className="btc-chart-source" role="note">
-            Trésorerie négative : certains achats ne sont associés à aucun versement ou transfert entrant. Aucune opération n’a été créée automatiquement.
-          </p>
-        )}
         {model.valuationCoverage.unvaluedPositions > 0 && (
           <p className="btc-chart-source" role="note">
             Performance partielle : {model.valuationCoverage.unvaluedPositions} position(s), représentant un coût de {euro.format(model.valuationCoverage.unvaluedCostEur)}, sont exclues faute de cours.
@@ -870,18 +837,11 @@ function ResumeTab({ config, model, title, range, setRange, canManage, memberCan
       {/* Seconde rangée : les cartes qui restent, PUIS le bandeau de couverture, qui s'étire sur
           les colonnes libres. La rangée est donc toujours pleine — pas de trou d'un tiers de
           largeur selon l'enveloppe affichée. */}
-      <div className="btc-allocation-grid pea-alloc-grid inv-alloc-secondary">
-        {secondaryCards}
-        <CoverageStrip
-          spanColumns={3 - secondaryCards.length}
-          quotes={{ done: model.valuationCoverage.valuedPositions, total: model.valuationCoverage.totalPositions }}
-          geography={{ done: geography.coverage.documentedInstruments, total: geography.coverage.totalInstruments }}
-          sectors={{ done: sectors.coverage.documentedInstruments, total: sectors.coverage.totalInstruments }}
-          dividends={incomeCoverage}
-          costBasis={{ done: model.positions.filter((position) => position.investedEur > 0).length, total: model.positions.length }}
-          onOpenDetail={onOpenDiversification}
-        />
-      </div>
+      {secondaryCards.length > 0 && (
+        <div className="btc-allocation-grid pea-alloc-grid inv-alloc-secondary" style={{ gridTemplateColumns: `repeat(${secondaryCards.length}, minmax(0, 1fr))` }}>
+          {secondaryCards}
+        </div>
+      )}
 
       <div className="btc-lower-grid">
         <section className="panel btc-chart-card">

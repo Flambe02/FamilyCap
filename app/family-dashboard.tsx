@@ -12,6 +12,7 @@ const Settings = dynamic(() => import("./settings").then((module) => module.Sett
 const AdminMemberSettings = dynamic(() => import("./settings-admin-member").then((module) => module.AdminMemberSettings));
 const AdminUsers = dynamic(() => import("./admin-users").then((module) => module.AdminUsers));
 const ChallengesPage = dynamic(() => import("./challenges-page").then((module) => module.ChallengesPage));
+const BirthdaysPage = dynamic(() => import("./birthdays-page").then((module) => module.BirthdaysPage));
 const ChallengesDashboardSection = dynamic(() => import("./challenges-page").then((module) => module.ChallengesDashboardSection));
 const AdminChallenges = dynamic(() => import("./admin-challenges").then((module) => module.AdminChallenges));
 const BitcoinInvestmentPage = dynamic(() => import("./bitcoin-investments").then((module) => module.BitcoinInvestmentPage));
@@ -113,6 +114,7 @@ function viewForHash(rawHash: string): View | null {
   if (rawHash.startsWith("#pea")) return "investissements-pea";
   if (rawHash.startsWith("#cto")) return "investissements-comptetitres";
   if (rawHash.startsWith("#defis")) return "investissements-suggestions";
+  if (rawHash.startsWith("#anniversaires")) return "anniversaires";
   return null;
 }
 
@@ -468,7 +470,8 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
       // démarrage à froid ; en quittant Bitcoin/Défis on efface le hash d'onglet pour ne
       // pas y revenir au refresh.
       if (next === "investissements-suggestions") window.history.replaceState(null, "", base + "#defis");
-      else if (window.location.hash.startsWith("#bitcoin") || window.location.hash.startsWith("#defis")) {
+      else if (next === "anniversaires") window.history.replaceState(null, "", base + "#anniversaires");
+      else if (window.location.hash.startsWith("#bitcoin") || window.location.hash.startsWith("#defis") || window.location.hash.startsWith("#anniversaires")) {
         if (next !== "bitcoin") window.history.replaceState(null, "", base);
       }
     }
@@ -747,6 +750,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           // checklist de découverte ne s'affiche plus, pour ne pas doubler la même consigne.
           checklist={challengesEligible && challengesView.status !== "ready" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null}
         />}
+        {view === "anniversaires" && <BirthdaysPage canManage={effectiveViewer.role === "admin" && !isPreview} onOpenFamilyAccess={() => navigate("famille-acces")} />}
         {view === "cadeaux-amatxi" && <AmatxiGifts viewer={effectiveViewer} previewReadOnly={isPreview} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "portefeuilles" && <Portfolios openModal={() => setModalOpen(true)} viewer={effectiveViewer} requests={transferRequests} selectedMember={familyMember} onOpenTransactions={openFilteredTransactions} />}
         {view === "bitcoin" && (
@@ -864,6 +868,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             n'aurait plus aucun accès à la galerie ni aux cadeaux. */}
         <div className="mobile-menu-section">
           <p>Espace famille</p>
+          <button type="button" className="mobile-menu-link" onClick={() => { navigate("anniversaires"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="calendar" /></span><span>Anniversaires</span></span><span>›</span></button>
           <button type="button" className="mobile-menu-link" onClick={() => { navigate("cadeaux-amatxi"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="gift" /></span><span>Cadeaux d’Amatxi</span></span><span>›</span></button>
           <button type="button" className="mobile-menu-link" onClick={() => { navigate("videos"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="square-play" /></span><span>Souvenirs</span></span><span>›</span></button>
           <button type="button" className="mobile-menu-link" onClick={() => { navigate("famille-roster"); setMobileMenuOpen(false); }}><span className="mobile-menu-link-content"><span aria-hidden="true"><NavIcon id="users" /></span><span>Famille</span></span><span>›</span></button>

@@ -12,7 +12,8 @@
 import { computeAccountModel, type AccountModel, type AccountOperation, type InstrumentPrice } from "./portfolio-account.ts";
 import { buildPriceIndex } from "./instrument-alias.ts";
 import { computeExposureModel, UNKNOWN_CODE, type ExposureModel, type InstrumentExposure } from "./portfolio-exposure.ts";
-import { computeDividendIncome, type AnnouncedDividendRow, type DividendIncomeModel } from "./dividend-income.ts";
+import { computeDividendModel, next12mWindow, type DividendModel } from "./dividend-engine.ts";
+import { loadDividendContext } from "./dividend-server.ts";
 import { computePerformanceModel, rankPositions, type PerformanceModel } from "./portfolio-performance.ts";
 import { MINIMUM_COVERAGE_PERCENT, type PortfolioFacts } from "./portfolio-insights.ts";
 import { getLatestFxRate, type FxRateRow } from "./fx-rates.ts";
@@ -36,18 +37,13 @@ type ExposureRow = {
   instrument_isin: string | null; asset_id: string | null; dimension: string; exposure_code: string; exposure_label: string;
   weight_percent: number; source: string; source_as_of: string | null; confidence: string; is_estimated: boolean;
 };
-type CorporateActionRow = {
-  id: string; asset_id: string; ex_date: string; payment_date: string | null; amount_per_share: number | null;
-  currency: string | null; status: string | null; provider: string | null;
-};
-
 export type AccountContext = {
   account: { id: string; name: string; accountType: "PEA" | "CTO"; currency: string; memberId: string; dividendTaxRate: number | null };
   operations: AccountOperation[];
   model: AccountModel;
   geography: ExposureModel;
   sectors: ExposureModel;
-  income: DividendIncomeModel;
+  income: DividendModel;
   performance: PerformanceModel;
   /** Instruments détenus n'ayant pu être appariés à aucune ligne de référence de prix. */
   unmatchedInstruments: string[];
@@ -184,34 +180,23 @@ export async function loadAccountContext(accountId: string, today = new Date().t
     isEstimated: Boolean(row.is_estimated),
   }));
 
-  const announcedRows = holdingRows.length
-    ? await optional<CorporateActionRow>(`corporate_actions?select=id,asset_id,ex_date,payment_date,amount_per_share,currency,status,provider&action_type=eq.dividend&asset_id=in.(${holdingRows.map((holding) => holding.id).join(",")})&order=ex_date.desc`)
-    : [];
-  const holdingById = new Map(holdingRows.map((holding) => [holding.id, holding]));
-  const announced: AnnouncedDividendRow[] = announcedRows.map((row) => {
-    const holding = holdingById.get(row.asset_id) ?? null;
-    return {
-      id: row.id,
-      exDate: row.ex_date,
-      paymentDate: row.payment_date,
-      amountPerShare: row.amount_per_share === null ? null : Number(row.amount_per_share),
-      currency: row.currency,
-      status: row.status,
-      provider: row.provider,
-      asset: holding ? { name: holding.name, symbol: holding.symbol, isin: holding.isin } : null,
-    };
-  });
-
-  const income = computeDividendIncome({
+  // Dividendes : MÊME moteur que l'écran (lib/dividend-engine.ts), alimenté par le MÊME
+  // chargement (lib/dividend-server.ts). Recalculer ici avec une autre source produirait une
+  // analyse citant des chiffres que l'écran ne sait pas justifier.
+  const dividendContext = await loadDividendContext([accountId], today);
+  const income = computeDividendModel({
     operations,
     positions: model.positions,
-    announced,
+    events: dividendContext?.events ?? [],
+    instruments: dividendContext?.instruments ?? [],
     accountType,
     today,
     referenceCurrency,
     fxRateAt,
-    ctoTaxRate: accountRow.dividend_tax_rate === null || accountRow.dividend_tax_rate === undefined ? null : Number(accountRow.dividend_tax_rate),
-    positionsValueEur: model.positionsValueEur,
+    taxProfile: dividendContext?.taxProfile ?? null,
+    window: next12mWindow(today),
+    positionsValueReference: model.positionsValueEur,
+    investedReference: model.investedInAssetsEur,
   });
 
   const toReference = (operation: AccountOperation, amount: number): number | null => {
@@ -327,12 +312,12 @@ export function buildPortfolioFacts(context: AccountContext, generatedAt: string
     geography: geography.buckets.map((bucket) => ({ label: bucket.label, pct: round(bucket.pct, 1) ?? 0, isEstimated: bucket.isEstimated })),
     sectors: sectors.buckets.map((bucket) => ({ label: bucket.label, pct: round(bucket.pct, 1) ?? 0, isEstimated: bucket.isEstimated })),
     dividends: {
-      receivedThisYearEur: round(income.receivedThisYearEur) ?? 0,
-      expected12mEur: round(income.expected12mEur) ?? 0,
-      portfolioYieldPct: round(income.portfolioYieldPct),
-      topContributorName: income.quickRead.topContributorName,
-      topContributorPct: round(income.quickRead.topContributorPct, 1),
-      monthsWithoutIncome: income.quickRead.monthsWithoutIncome,
+      receivedThisYearEur: round(income.receivedThisYearReference) ?? 0,
+      expected12mEur: round(income.expectedReference) ?? 0,
+      portfolioYieldPct: round(income.forwardYieldPct),
+      topContributorName: income.contributors[0]?.name ?? null,
+      topContributorPct: round(income.contributors[0]?.pct ?? null, 1),
+      monthsWithoutIncome: income.monthly.filter((point) => point.totalReference <= 0).length,
       hasRealOperations: income.hasRealDividendOperations,
     },
     benchmark: null,

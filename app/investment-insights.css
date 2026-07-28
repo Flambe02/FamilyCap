@@ -18,7 +18,7 @@
 
 /* ---- KPI (rangée de 4) ------------------------------------------------------------- */
 .inv-kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.inv-kpi { display: flex; align-items: center; gap: 14px; padding: 18px; min-width: 0; }
+.inv-kpi { display: flex; align-items: center; gap: 16px; min-height: 108px; padding: 20px; min-width: 0; }
 .inv-kpi > div { min-width: 0; }
 .inv-kpi-icon {
   flex: 0 0 auto; width: 44px; height: 44px; display: grid; place-items: center;
@@ -98,7 +98,7 @@
 .inv-exposure-gaps li p { margin: 8px 0 0; color: #5b6d76; font-size: 10px; line-height: 1.55; }
 
 /* ---- Revenus -------------------------------------------------------------------------- */
-.inv-income-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .85fr); gap: 16px; align-items: start; }
+.inv-income-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, 1fr); gap: 16px; align-items: start; }
 .inv-income-chart, .inv-income-next, .inv-income-detail { padding: 22px; }
 .inv-income-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
 .inv-income-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -110,7 +110,10 @@
 .inv-swatch-received { background: #1d706b; }
 .inv-swatch-expected { background: #bcdfd8; }
 .inv-swatch-average { background: none; border-top: 2px dashed #6f7f88; height: 0; width: 16px; border-radius: 0; }
+.inv-bars-chart { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: start; }
+.inv-bars-axis { height: 200px; display: flex; flex-direction: column; justify-content: space-between; color: var(--muted); font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
 .inv-bars-plot { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; align-items: end; }
+.inv-bars-gridline { position: absolute; left: 0; right: 0; height: 1px; background: #edf1f1; pointer-events: none; }
 .inv-bars-average { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed #9aa8ae; pointer-events: none; }
 .inv-bars-col { display: grid; justify-items: center; gap: 6px; min-width: 0; }
 .inv-bars-stack { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 40px; }
@@ -126,7 +129,8 @@
   padding-bottom: 12px; border-bottom: 1px solid #edf1f1;
 }
 .inv-next-list li:last-child { border-bottom: 0; padding-bottom: 0; }
-.inv-next-mark { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 10px; background: var(--teal-soft); color: var(--teal); font-size: 11px; }
+.inv-next-mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; background: #f4eee5; color: var(--ink); font-size: 8px; font-weight: 900; letter-spacing: -.02em; }
+.inv-next-mark.is-announced { background: var(--teal-soft); color: var(--teal); }
 .inv-next-id { min-width: 0; }
 .inv-next-id strong { display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inv-next-id small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
@@ -172,8 +176,8 @@
 /* ---- Performance ---------------------------------------------------------------------- */
 .inv-perf-filters { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 14px 18px; }
 .inv-perf-benchmark { margin-left: auto; }
-.inv-perf-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, .8fr); gap: 16px; align-items: start; }
-.inv-perf-chart, .inv-perf-analysis { padding: 22px; }
+.inv-perf-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(360px, 1fr); gap: 16px; align-items: start; }
+.inv-perf-chart, .inv-perf-analysis { min-height: 360px; padding: 22px; }
 .inv-perf-bottom { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .inv-perf-bottom > section { padding: 22px; }
 .inv-gap { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -269,6 +273,8 @@
      une zone vide au premier regard — janvier à août sont souvent à zéro, et les mois qui
      portent réellement les revenus se seraient retrouvés hors écran. */
   .inv-bars-plot { gap: 2px; }
+  .inv-bars-chart { grid-template-columns: 36px minmax(0, 1fr); gap: 6px; }
+  .inv-bars-axis { font-size: 7px; }
   .inv-bars-stack { max-width: 20px; }
   .inv-bars-col small { font-size: 7px; letter-spacing: -.02em; }
   .inv-bars-legend { gap: 10px; font-size: 9px; }
