@@ -441,10 +441,17 @@ export async function syncAccountDividends(
       continue;
     }
 
-    const merged = flagSpecialDividends(mergeProviderEvents(groups).map((event) => ({
-      ...event,
-      dividendType: event.dividendType as DividendType,
-    })));
+    const providerEvents = mergeProviderEvents(groups);
+    // Un versement peut être annoncé avec sa seule date de paiement. Il reste enregistrable,
+    // mais ne peut pas servir à détecter une récurrence de détachement sans inventer d'ex-date.
+    const datedEvents = providerEvents
+      .filter((event): event is MergedEvent & { exDate: string } => event.exDate !== null)
+      .map((event) => ({ ...event, dividendType: event.dividendType as DividendType }));
+    const flaggedDatedEvents = flagSpecialDividends(datedEvents);
+    let datedIndex = 0;
+    const merged = providerEvents.map((event) => event.exDate !== null
+      ? flaggedDatedEvents[datedIndex++]
+      : { ...event, dividendType: event.dividendType as DividendType });
 
     const rows = merged.map((event) => ({
       asset_id: instrument.assetId,

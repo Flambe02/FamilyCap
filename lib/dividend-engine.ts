@@ -774,7 +774,7 @@ export function computeDividendModel(input: DividendModelInput): DividendModel {
       amountReference: item.amount,
       pct: contributorTotal > EPS ? (item.amount / contributorTotal) * 100 : 0,
       hasEstimate: item.hasEstimate,
-      dataQuality: item.missing ? (item.amount > EPS ? "partial" : "unavailable") : "complete",
+      dataQuality: (item.missing ? (item.amount > EPS ? "partial" : "unavailable") : "complete") as DividendContributor["dataQuality"],
     }))
     .sort((a, b) => b.amountReference - a.amountReference);
 
