@@ -65,12 +65,26 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { ...(await authHeader()), "content-type": "application/json" };
 }
 
+// L'aperçu administrateur est distinct des Paramètres self-service : il doit donc
+// relire le deep link du défi. Sinon, « Configurer mon PEA » reste sur « Mon compte ».
+function settingsIntentFromUrl(): { section: SectionId; challenge: "onboarding_account_setup" | null; accountType: "pea" | "securities" | undefined } {
+  if (typeof window === "undefined") return { section: "compte", challenge: null, accountType: undefined };
+  const params = new URLSearchParams(window.location.search);
+  const requestedSection = params.get("settings");
+  const section: SectionId = requestedSection === "comptes" || requestedSection === "rythme" ? requestedSection : "compte";
+  const challenge = params.get("challenge") === "onboarding_account_setup" ? "onboarding_account_setup" : null;
+  const requestedAccountType = params.get("accountType");
+  const accountType = requestedAccountType === "pea" || requestedAccountType === "securities" ? requestedAccountType : undefined;
+  return { section, challenge, accountType };
+}
+
 export function AdminMemberSettings({ memberName, onExit, onNavigate, onReplayOnboarding, onResumeOnboarding }: { memberName: string; onExit: () => void; onNavigate?: (view: View) => void; onReplayOnboarding?: () => void; onResumeOnboarding?: () => void }) {
   const [members, setMembers] = useState<AdminMember[] | null>(null);
   const [error, setError] = useState("");
   const [sessionExpired, setSessionExpired] = useState(false);
-  const [active, setActive] = useState<SectionId>("compte");
+  const [active, setActive] = useState<SectionId>(() => settingsIntentFromUrl().section);
   const [mobileView, setMobileView] = useState<"index" | "detail">("index");
+  const guidedIntent = settingsIntentFromUrl();
 
   const reload = useCallback(async () => {
     const response = await fetch("/api/admin/users", { headers: await authHeaders() });
@@ -151,7 +165,7 @@ export function AdminMemberSettings({ memberName, onExit, onNavigate, onReplayOn
 
             {active === "compte" && <MemberAccount member={member} onSaved={reload} />}
             {active === "securite" && <MemberSecurity member={member} onSaved={reload} />}
-            {active === "comptes" && <AccountsSettings viewer={memberAsViewer(member)} onNavigate={onNavigate} scopeOverride={member.investment_access_scope ?? "family"} />}
+            {active === "comptes" && <AccountsSettings viewer={memberAsViewer(member)} onNavigate={onNavigate} scopeOverride={member.investment_access_scope ?? "family"} guidedChallenge={guidedIntent.challenge} guidedAccountType={guidedIntent.accountType} />}
             {active === "rythme" && <InvestmentRhythmSettings viewer={memberAsViewer(member)} memberId={member.id} readOnly />}
             {active === "ledger" && <LedgerSettings viewer={memberAsViewer(member)} />}
             {active === "partage" && <MemberSharing member={member} members={members} onSaved={reload} />}

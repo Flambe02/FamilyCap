@@ -18,6 +18,7 @@ const rewardsV2Migration = read("supabase/migrations/20260809_challenges_rewards
 const peaChallengeMigration = read("supabase/migrations/20260814_onboarding_pea_challenge.sql");
 const settingsPage = read("app/settings.tsx");
 const settingsAccounts = read("app/settings-accounts.tsx");
+const adminMemberSettings = read("app/settings-admin-member.tsx");
 const challengesPage = read("app/challenges-page.tsx");
 const investmentAccount = read("app/investment-account.tsx");
 
@@ -159,6 +160,17 @@ test("le deep link Paramètres > Mes comptes > PEA survit au rechargement", () =
   assert.match(challengesPage, /url\.searchParams\.set\("settings", section\)/);
   assert.match(challengesPage, /openSettingsSection\("comptes", onNavigate, \{ challenge: mission\.slug, accountType: "pea" \}\)/);
   assert.match(settingsAccounts, /guidedChallenge === "onboarding_account_setup"/);
+});
+
+test("le deep link du défi ouvre aussi le formulaire PEA dans l'aperçu administrateur", () => {
+  assert.match(adminMemberSettings, /new URLSearchParams\(window\.location\.search\)/);
+  assert.match(adminMemberSettings, /params\.get\("settings"\)/);
+  assert.match(adminMemberSettings, /params\.get\("challenge"\)/);
+  assert.match(adminMemberSettings, /useState<SectionId>\(\(\) => settingsIntentFromUrl\(\)\.section\)/);
+  assert.match(adminMemberSettings, /guidedChallenge=\{guidedIntent\.challenge\}/);
+  assert.match(adminMemberSettings, /guidedAccountType=\{guidedIntent\.accountType\}/);
+  // L'aperçu conserve son scope pour éviter toute écriture self-service sous l'identité admin.
+  assert.match(adminMemberSettings, /scopeOverride=\{member\.investment_access_scope \?\? "family"\}/);
 });
 
 test("la réussite d'un import ou d'une opération reste confirmée par le serveur", () => {
