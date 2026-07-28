@@ -41,11 +41,13 @@ export function toFamilyRole(role: string | null | undefined): Viewer["role"] {
 }
 
 /**
- * Un membre investisseur voit-il les défis, le classement et la checklist d'accueil ?
- * Point unique de cette règle : elle était écrite en clair à trois endroits, et c'est cette
- * duplication qui a laissé passer le rôle « member ». Elle tolère les deux vocabulaires.
+ * Tout profil familial voit les défis, le classement et la checklist d'accueil.
+ * Les permissions d'ÉCRITURE restent vérifiées par les routes concernées : la visibilité du
+ * parcours « Bien démarrer » ne doit pas dépendre du droit d'enregistrer une opération.
  */
 export function isChallengeEligible(role: string | null | undefined): boolean {
-  const familyRole = toFamilyRole(role);
-  return familyRole === "adult" || familyRole === "child";
+  // `toFamilyRole()` garde le repli le moins privilégié (`viewer`) pour un rôle inconnu ; ce
+  // rôle doit néanmoins pouvoir découvrir et suivre ses étapes, comme Amatxi.
+  void toFamilyRole(role);
+  return true;
 }

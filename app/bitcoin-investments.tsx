@@ -73,6 +73,10 @@ export function BitcoinInvestmentPage({
   onOpenTransactions: (shortcut: Omit<TransactionShortcut, "requestId">) => void;
 }) {
   const isAdmin = viewer.role === "admin";
+  // Amatxi (role `viewer`) voit tout le Bitcoin de la famille comme l'admin — c'est elle qui offre
+  // les cadeaux — mais ne peut jamais rien modifier ici : `canManageGifts`/`canRecordPersonalBtc`
+  // (props, calculés dans family-dashboard.tsx) restent strictement réservés à l'admin.
+  const canViewAll = isAdmin || viewer.role === "viewer";
   const [tab, setTabState] = useState<BitcoinTab>(() => tabFromHash() ?? "resume");
   const [period, setPeriod] = useState<"1M" | "6M" | "1A" | "TOUT">("TOUT");
   const [memberFilter, setMemberFilter] = useState<string>("Tous");
@@ -103,7 +107,7 @@ export function BitcoinInvestmentPage({
   // Périmètre "moi seul" : pilote tout le Résumé/Performance/Conservation/Investir — un
   // membre ne doit voir QUE son propre portefeuille dans ces écrans, jamais l'agrégat famille.
   const ownScope = useMemo(() => {
-    if (isAdmin) return { records, memberBalances, totalBtc, totalValueEur: totalBitcoinValueEur };
+    if (canViewAll) return { records, memberBalances, totalBtc, totalValueEur: totalBitcoinValueEur };
     const sRecords = records.filter((record) => record.member_name === viewer.name);
     const sBalances = memberBalances.filter((balance) => balance.name === viewer.name);
     const sTotalBtc = sBalances.reduce((sum, balance) => sum + balance.btc, 0);
@@ -111,14 +115,14 @@ export function BitcoinInvestmentPage({
       ? sBalances.reduce((sum, balance) => sum + (balance.currentValueEur ?? 0), 0)
       : bitcoinEur !== null ? sTotalBtc * bitcoinEur : null;
     return { records: sRecords, memberBalances: sBalances, totalBtc: sTotalBtc, totalValueEur: sTotalValue };
-  }, [isAdmin, viewer.name, records, memberBalances, totalBtc, totalBitcoinValueEur, bitcoinEur]);
+  }, [canViewAll, viewer.name, records, memberBalances, totalBtc, totalBitcoinValueEur, bitcoinEur]);
 
   // Périmètre "partagé" : soi + les membres qui ont ouvert leur classe BTC au viewer (partage
   // familial par classe, renvoyé par /api/gifts). Sert UNIQUEMENT à la liste « Répartition par
   // membre » du Résumé — c'est le seul endroit où on montre les BTC d'un autre membre.
   // Repli sûr sur soi uniquement si la liste des membres partagés n'est pas disponible.
   const sharedScope = useMemo(() => {
-    if (isAdmin) return { records, memberBalances, totalBtc, totalValueEur: totalBitcoinValueEur };
+    if (canViewAll) return { records, memberBalances, totalBtc, totalValueEur: totalBitcoinValueEur };
     const allowed = viewableMembers && viewableMembers.length > 0 ? new Set(viewableMembers) : new Set([viewer.name]);
     const sRecords = records.filter((record) => allowed.has(record.member_name));
     const sBalances = memberBalances.filter((balance) => allowed.has(balance.name));
@@ -127,7 +131,7 @@ export function BitcoinInvestmentPage({
       ? sBalances.reduce((sum, balance) => sum + (balance.currentValueEur ?? 0), 0)
       : bitcoinEur !== null ? sTotalBtc * bitcoinEur : null;
     return { records: sRecords, memberBalances: sBalances, totalBtc: sTotalBtc, totalValueEur: sTotalValue };
-  }, [isAdmin, viewer.name, viewableMembers, records, memberBalances, totalBtc, totalBitcoinValueEur, bitcoinEur]);
+  }, [canViewAll, viewer.name, viewableMembers, records, memberBalances, totalBtc, totalBitcoinValueEur, bitcoinEur]);
 
   const model = useMemo(() => computeBitcoinModel({
     records: ownScope.records, bitcoinEur, memberBalances: ownScope.memberBalances,
@@ -147,14 +151,14 @@ export function BitcoinInvestmentPage({
   // ramené au Résumé.
   const tabs: { id: BitcoinTab; label: string }[] = [
     { id: "resume", label: "Résumé" },
-    ...(isAdmin ? [{ id: "membres" as BitcoinTab, label: "Détail par membre" }] : []),
+    ...(canViewAll ? [{ id: "membres" as BitcoinTab, label: "Détail par membre" }] : []),
     { id: "conservation", label: "Conservation" },
     { id: "performance", label: "Performance" },
     { id: "historique", label: "Historique" },
     { id: "comprendre", label: "Comprendre" },
     { id: "investir", label: "Investir" },
   ];
-  const activeTab: BitcoinTab = tab === "membres" && !isAdmin ? "resume" : tab;
+  const activeTab: BitcoinTab = tab === "membres" && !canViewAll ? "resume" : tab;
 
   const valueLabel = model.valueEur === null ? (marketLoading ? "Mise à jour…" : "Cours indisponible") : euro.format(model.valueEur);
 
@@ -167,7 +171,7 @@ export function BitcoinInvestmentPage({
           <div className="btc-header-copy">
             <div className="btc-header-titleline">
               <h1>Bitcoin</h1>
-              <span className={`btc-role-pill ${isAdmin ? "admin" : "member"}`}>{isPreview ? `Aperçu ${viewer.name}` : isAdmin ? "Vue admin" : "Vue membre"}</span>
+              <span className={`btc-role-pill ${canViewAll ? "admin" : "member"}`}>{isPreview ? `Aperçu ${viewer.name}` : isAdmin ? "Vue admin" : canViewAll ? "Vue Amatxi" : "Vue membre"}</span>
             </div>
             <p>Suivez vos BTC : cadeaux d’Amatxi, investissements personnels, conservation et performance.</p>
           </div>
@@ -197,11 +201,11 @@ export function BitcoinInvestmentPage({
         <ResumeTab
           model={model} memberBreakdown={memberBreakdown} valueLabel={valueLabel} bitcoinEur={bitcoinEur} marketLoading={marketLoading}
           pendingCount={pendingTransfers.length} pendingBtc={pendingBtc} binanceKpiBtc={binanceKpiBtc}
-          period={period} setPeriod={setPeriod} isAdmin={isAdmin} onGoto={setTab}
+          period={period} setPeriod={setPeriod} isAdmin={canViewAll} onGoto={setTab}
         />
       )}
 
-      {activeTab === "membres" && isAdmin && (
+      {activeTab === "membres" && canViewAll && (
         <MembresTab model={model} memberFilter={memberFilter} setMemberFilter={setMemberFilter} onOpenMemberDetail={onOpenMemberDetail} onGoto={setTab} />
       )}
 
@@ -219,7 +223,7 @@ export function BitcoinInvestmentPage({
 
       {activeTab === "historique" && (
         <TransactionsView
-          transactions={transactions} isAdmin={isAdmin} viewerName={viewer.name} onAdd={() => openModal()}
+          transactions={transactions} canViewAll={canViewAll} canManage={isAdmin} viewerName={viewer.name} onAdd={() => openModal()}
           onTransferRequest={onTransferRequest} onOpenPortfolio={(member) => onOpenMemberDetail(member)}
           shortcut={transactionShortcut} reloadKey={transactionsReloadKey}
         />

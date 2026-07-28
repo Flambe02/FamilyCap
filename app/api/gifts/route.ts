@@ -220,8 +220,12 @@ export async function GET(request: Request) {
     const historyKeys = new Set(GIFT_HISTORY.map((gift) => `${gift.member}|${gift.occasion}|${gift.giftDate}`));
     const extraRecords = records.filter((record) => record.is_deleted !== true && !historyKeys.has(keyOf(record)));
     const merged = [...historyRecords, ...extraRecords].sort((left, right) => String(right.gift_date).localeCompare(String(left.gift_date)));
-    const visibleRecords = viewer.role === "admin" ? merged : merged.map((record) => { const gift = { ...record }; for (const privateField of ["public_address", "txid", "blockchain_status", "confirmations", "transfer_date"]) delete gift[privateField]; return gift; });
-    const deletedRecords = viewer.role === "admin" ? records.filter((record) => record.is_deleted === true) : [];
+    // Amatxi (role `viewer`) voit les cadeaux comme l'admin — adresse publique et TxID inclus —
+    // puisque c'est elle qui les offre. Elle n'obtient ici qu'un droit de LECTURE : aucun verbe
+    // d'écriture de cette route ne teste ce booléen, ils exigent tous `requireAdmin` plus bas.
+    const canSeeAdminDetails = viewer.role === "admin" || viewer.role === "viewer";
+    const visibleRecords = canSeeAdminDetails ? merged : merged.map((record) => { const gift = { ...record }; for (const privateField of ["public_address", "txid", "blockchain_status", "confirmations", "transfer_date"]) delete gift[privateField]; return gift; });
+    const deletedRecords = canSeeAdminDetails ? records.filter((record) => record.is_deleted === true) : [];
     return Response.json({ records: visibleRecords, deletedRecords, viewableMembers, persistence: "supabase" });
   } catch (error) {
     return authErrorResponse(error);

@@ -104,6 +104,9 @@ function toEditingInput(entry: GiftEntry): GiftEditingInput {
 
 export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }: { viewer: Viewer; previewReadOnly?: boolean; onOpenPortfolio?: (member: string) => void }) {
   const isAdmin = viewer.role === "admin";
+  // Amatxi (role `viewer`) voit tous les cadeaux de tous les membres comme l'admin — c'est elle qui
+  // les offre — mais ne peut jamais en ajouter/modifier : `canManage` reste strictement admin.
+  const canSeeAll = isAdmin || viewer.role === "viewer";
   const canManage = isAdmin && !previewReadOnly;
   const [databaseRecords, setDatabaseRecords] = useState<GiftEntry[]>([]);
   const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
@@ -173,7 +176,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
     return databaseRecords.filter((record) => !record.is_deleted).sort((a, b) => b.giftDate.localeCompare(a.giftDate));
   }, [databaseRecords]);
 
-  const scopedGifts = useMemo(() => isAdmin ? allGifts : allGifts.filter((gift) => gift.member === viewer.name), [allGifts, isAdmin, viewer.name]);
+  const scopedGifts = useMemo(() => canSeeAll ? allGifts : allGifts.filter((gift) => gift.member === viewer.name), [allGifts, canSeeAll, viewer.name]);
   const members = useMemo(() => [...new Set(scopedGifts.map((gift) => gift.member))].sort(), [scopedGifts]);
   const occasions = useMemo(() => [...new Set(scopedGifts.map((gift) => gift.occasion))], [scopedGifts]);
   const years = useMemo(() => [...new Set(scopedGifts.map((gift) => gift.giftDate.slice(0, 4)))].sort().reverse(), [scopedGifts]);
@@ -220,7 +223,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
             <p className="amatxi-member-summary">
               <span className="amatxi-member-summary-icon" aria-hidden="true">{ICONS.gift}</span>
               <span>
-                {summary.firstYear ? `Depuis ${summary.firstYear}, ` : ""}Amatxi {isAdmin ? "a offert" : "t’a offert"} <strong>{euro.format(summary.totalEur)}</strong>.
+                {summary.firstYear ? `Depuis ${summary.firstYear}, ` : ""}Amatxi {canSeeAll ? "a offert" : "t’a offert"} <strong>{euro.format(summary.totalEur)}</strong>.
                 {" "}Ces cadeaux représentent aujourd’hui {summary.currentValueEur === null ? <strong>{summary.totalBtc.toFixed(8)} BTC</strong> : <strong>{euro.format(summary.currentValueEur)}</strong>}.
               </span>
             </p>
@@ -238,7 +241,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
           <SummaryCard label="Valeur aujourd’hui" value={summary.currentValueEur === null ? (loading ? "Mise à jour…" : "Cours indisponible") : euro.format(summary.currentValueEur)} note={bitcoinEur ? `1 BTC = ${euro.format(bitcoinEur)}` : undefined} tone="amber" icon={ICONS.trendingUp} />
           <SummaryCard label="Bitcoin reçu" value={`${summary.totalBtc.toFixed(8)} BTC`} tone="neutral" icon="₿" />
           <SummaryCard label="Cadeaux" value={String(summary.count)} tone="coral" icon={ICONS.gift} />
-          {isAdmin && <SummaryCard label="Bénéficiaires" value={String(summary.beneficiaries)} tone="neutral" icon={ICONS.users} />}
+          {canSeeAll && <SummaryCard label="Bénéficiaires" value={String(summary.beneficiaries)} tone="neutral" icon={ICONS.users} />}
           <SummaryCard label="Conservés sur Binance" value={String(summary.binanceCount)} tone="amber" icon={ICONS.diamond} />
           <SummaryCard label="Transférés sur Ledger" value={String(summary.ledgerCount)} tone="teal" icon={ICONS.shieldCheck} />
         </section>
@@ -246,7 +249,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
 
       {summary.count > 0 && (
         <section className="panel amatxi-filters" aria-label="Filtrer les cadeaux">
-          {isAdmin && (
+          {canSeeAll && (
             <label className="amatxi-filter-field">Membre
               <select value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)}><option>Tous</option>{members.map((name) => <option key={name}>{name}</option>)}</select>
             </label>
@@ -312,7 +315,7 @@ export function AmatxiGifts({ viewer, previewReadOnly = false, onOpenPortfolio }
         <GiftDetailPanel
           gift={detail}
           bitcoinEur={bitcoinEur}
-          isAdmin={isAdmin}
+          isAdmin={canSeeAll}
           canManage={canManage}
           onClose={() => setDetail(null)}
           onEdit={() => { setModal(detail); setDetail(null); }}

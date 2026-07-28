@@ -765,7 +765,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             memberBalances={memberBalances}
             viewableMembers={viewableBtcMembers}
             transferRequests={transferRequests}
-            transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)}
+            transactions={effectiveViewer.role === "admin" || effectiveViewer.role === "viewer" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)}
             transactionShortcut={transactionShortcut}
             transactionsReloadKey={transactionsReloadKey}
             viewer={effectiveViewer}
@@ -781,7 +781,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           />
           </>
         )}
-        {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} isAdmin={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
+        {view === "transactions" && <TransactionsView transactions={effectiveViewer.role === "admin" || effectiveViewer.role === "viewer" ? transactions : transactions.filter((transaction) => transaction.member === effectiveViewer.name)} canViewAll={effectiveViewer.role === "admin" || effectiveViewer.role === "viewer"} canManage={effectiveViewer.role === "admin"} viewerName={effectiveViewer.name} shortcut={transactionShortcut} reloadKey={transactionsReloadKey} onAdd={() => canManageGifts ? setModalOpen(true) : setToast(isPreview ? "Aperçu : aucune modification n’est autorisée." : "Seul l’administrateur peut ajouter une opération.")} onTransferRequest={requestTransfer} onOpenPortfolio={(member) => { setFamilyMember(member); setView("portefeuilles"); }} />}
         {view === "investissements-pea" && (
           <>
             {canRecordPersonalBtc && <ContextualTip tipId="pea" memberId={effectiveViewer.id} title={onboardingCopy.tips.pea.title} body={onboardingCopy.tips.pea.body} cta={onboardingCopy.tips.pea.cta} />}

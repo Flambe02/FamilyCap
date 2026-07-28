@@ -64,7 +64,11 @@ const memberBirthdays = FAMILY_MEMBERS.map((member) => ({ member: member.name, m
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 
-export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onTransferRequest, onOpenPortfolio, shortcut, reloadKey }: { transactions: TransactionRecord[]; isAdmin: boolean; viewerName: string; onAdd: () => void; onTransferRequest: (transaction: TransactionRecord) => void; onOpenPortfolio?: (member: string) => void; shortcut?: TransactionShortcut | null; reloadKey?: number }) {
+// `canViewAll` pilote la LECTURE (tous les membres, solde Ledger complet, colonne Localisation) —
+// vrai pour un admin ET pour Amatxi (role `viewer`, qui offre les cadeaux BTC). `canManage` pilote
+// L'ÉCRITURE (saisir/supprimer une opération) — vrai UNIQUEMENT pour un admin. Les deux call-sites
+// (bitcoin-investments.tsx, family-dashboard.tsx) doivent les calculer séparément.
+export function TransactionsView({ transactions, canViewAll, canManage, viewerName, onAdd, onTransferRequest, onOpenPortfolio, shortcut, reloadKey }: { transactions: TransactionRecord[]; canViewAll: boolean; canManage: boolean; viewerName: string; onAdd: () => void; onTransferRequest: (transaction: TransactionRecord) => void; onOpenPortfolio?: (member: string) => void; shortcut?: TransactionShortcut | null; reloadKey?: number }) {
   const [memberFilter, setMemberFilter] = useState(shortcut?.member ?? "Tous");
   const [locationFilter, setLocationFilter] = useState<string>(shortcut?.location ?? "Tous");
   const [scopeFilter, setScopeFilter] = useState<TransactionShortcut["scope"]>(shortcut?.scope ?? "all");
@@ -85,7 +89,7 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
       const headers: Record<string, string> = data.session ? { authorization: "Bearer " + data.session.access_token } : {};
       const [giftResponse, ledgerResponse] = await Promise.all([
         fetch("/api/gifts", { signal: controller.signal, headers }),
-        fetch(isAdmin ? "/api/ledger" : "/api/ledger?priceOnly=1", { signal: controller.signal, headers }),
+        fetch(canViewAll ? "/api/ledger" : "/api/ledger?priceOnly=1", { signal: controller.signal, headers }),
       ]);
       if (!giftResponse.ok || !ledgerResponse.ok) throw new Error("Historique financier indisponible");
       const giftResult = await giftResponse.json() as { records?: GiftApiRecord[]; deletedRecords?: GiftApiRecord[] };
@@ -145,7 +149,7 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
       if (!(error instanceof DOMException && error.name === "AbortError")) console.error(error);
     });
     return () => controller.abort();
-  }, [isAdmin, reloadKey]);
+  }, [canViewAll, reloadKey]);
 
   const detailedTransactions = useMemo(() => {
     const giftsByEvent = new Map<string, TransactionRecord>();
@@ -189,7 +193,7 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
   }, [transactions, giftTransactions, ledgerTransactions, deletedGiftKeys]);
 
   const filtered = useMemo(() => detailedTransactions.filter((transaction) => {
-    const memberMatches = isAdmin ? memberFilter === "Tous" || transaction.member === memberFilter : transaction.member === viewerName;
+    const memberMatches = canViewAll ? memberFilter === "Tous" || transaction.member === memberFilter : transaction.member === viewerName;
     const location = transactionLocation(transaction);
     const locationMatches = locationFilter === "Tous" || location === locationFilter;
     const scopeMatches = scopeFilter === "all"
@@ -198,7 +202,7 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
       || (scopeFilter === "needs-action" && transaction.authorRole !== "Blockchain" && (transaction.status === "À compléter" || location === "À classer"))
       || (scopeFilter === "blockchain" && transaction.authorRole === "Blockchain");
     return memberMatches && locationMatches && scopeMatches;
-  }), [detailedTransactions, memberFilter, locationFilter, scopeFilter, isAdmin, viewerName]);
+  }), [detailedTransactions, memberFilter, locationFilter, scopeFilter, canViewAll, viewerName]);
 
   /* Mobile — vue membre : total personnel (indépendant des filtres) + filtre rapide indépendant de l'ancien mécanisme admin. */
   const memberOwnTransactions = useMemo(() => detailedTransactions.filter((transaction) => transaction.member === viewerName), [detailedTransactions, viewerName]);
@@ -233,7 +237,7 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
 
   async function deleteGiftTransaction(transaction: TransactionRecord) {
     const location = transactionLocation(transaction);
-    if (!isAdmin || transaction.authorRole === "Blockchain" || location === "Ledger") return;
+    if (!canManage || transaction.authorRole === "Blockchain" || location === "Ledger") return;
     const formattedDate = dateFormat.format(new Date(`${transaction.date}T00:00:00Z`));
     if (!window.confirm(`Supprimer définitivement du suivi le cadeau ${transaction.kind.toLowerCase()} de ${transaction.member} du ${formattedDate} ?`)) return;
     setDeletingTransactionId(transaction.id);
@@ -267,8 +271,8 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
     }
   }
   return (
-    <div className={`page-stack transactions-page ${isAdmin ? "admin-transactions" : "member-transactions"}`}>
-      {!isAdmin && <MemberMovementsMobile
+    <div className={`page-stack transactions-page ${canViewAll ? "admin-transactions" : "member-transactions"}`}>
+      {!canViewAll && <MemberMovementsMobile
         transactions={memberQuickFiltered}
         totalValueEur={memberTotalValue}
         totalBtc={memberTotalBtc}
@@ -290,23 +294,23 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
       <section className="transactions-guide panel">
         <div>
           <span className="soft-pill">REGISTRE PARTAGÉ</span>
-          <h2>{isAdmin ? <>Toutes les opérations,<br />expliquées simplement.</> : <>Tes cadeaux Bitcoin,<br />tout simplement.</>}</h2>
-          <p>{isAdmin ? "Chaque ligne indique qui a investi, pour quel enfant, où se trouve l’actif et qui a saisi l’information." : "Retrouve les cadeaux qui te sont attribués et suis leur évolution, sans jargon administratif."}</p>
+          <h2>{canViewAll ? <>Toutes les opérations,<br />expliquées simplement.</> : <>Tes cadeaux Bitcoin,<br />tout simplement.</>}</h2>
+          <p>{canViewAll ? "Chaque ligne indique qui a investi, pour quel enfant, où se trouve l’actif et qui a saisi l’information." : "Retrouve les cadeaux qui te sont attribués et suis leur évolution, sans jargon administratif."}</p>
         </div>
-        {isAdmin && <div className="entry-steps" aria-label="Étapes de saisie">
+        {canManage && <div className="entry-steps" aria-label="Étapes de saisie">
           <span><b>1</b><small>Cliquer sur<br />« Ajouter »</small></span>
           <i>→</i>
           <span><b>2</b><small>Recopier<br />l’opération</small></span>
           <i>→</i>
           <span><b>3</b><small>Vérifier puis<br />enregistrer</small></span>
         </div>}
-        {isAdmin && <button className="primary-button" onClick={onAdd}>＋ Saisir une opération</button>}
+        {canManage && <button className="primary-button" onClick={onAdd}>＋ Saisir une opération</button>}
       </section>
 
       <section className="panel transactions-panel">
         <header className="transactions-toolbar">
           <div><span>HISTORIQUE</span><h2>{filtered.length} transactions affichées</h2>{shortcut && (memberFilter !== "Tous" || locationFilter !== "Tous" || scopeFilter !== "all") && <button type="button" className="active-transaction-shortcut" onClick={clearShortcut}><b>{shortcut.label}</b><span>Effacer le filtre ×</span></button>}</div>
-          {isAdmin && <div className="transaction-filters">
+          {canViewAll && <div className="transaction-filters">
             <label>Enfant<select value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)}><option>Tous</option>{memberNames.map((name) => <option key={name}>{name}</option>)}</select></label>
             <label>Localisation<select value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}><option>Tous</option><option>Ledger</option><option>Binance</option><option>À classer</option></select></label>
           </div>}
@@ -314,7 +318,7 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
         {mutationMessage && <p className={`transactions-feedback ${mutationMessage.tone}`} role={mutationMessage.tone === "error" ? "alert" : "status"}>{mutationMessage.text}</p>}
         <div className="responsive-table">
           <table className="transactions-table">
-            <thead><tr><th>Date</th><th>Bénéficiaire</th><th>Opération</th><th>Montant / PRU</th><th>Quantité</th><th>Valeur actuelle</th><th>Saisie par</th>{isAdmin && <th>Localisation</th>}<th /></tr></thead>
+            <thead><tr><th>Date</th><th>Bénéficiaire</th><th>Opération</th><th>Montant / PRU</th><th>Quantité</th><th>Valeur actuelle</th><th>Saisie par</th>{canViewAll && <th>Localisation</th>}<th /></tr></thead>
             <tbody>{filtered.map((transaction) => {
               const memberSummary = transaction.authorRole === "Blockchain" ? "Transaction publique Ledger" : transaction.account === "Binance commun" ? "Bitcoin attribué · transfert à venir" : "Cadeau Bitcoin enregistré";
               const needsAdminAction = transaction.authorRole !== "Blockchain" && transaction.status !== "Confirmée";
@@ -325,28 +329,29 @@ export function TransactionsView({ transactions, isAdmin, viewerName, onAdd, onT
               const performance = currentValue !== null && hasPurchasePrice ? currentValue - transaction.amount : null;
               const location = transactionLocation(transaction);
               const occasionEmoji = transaction.kind === "Anniversaire" ? "🎂" : transaction.kind === "Noël" ? "🎄" : null;
-              const canDelete = isAdmin && transaction.authorRole !== "Blockchain" && location !== "Ledger";
+              const canDelete = canManage && transaction.authorRole !== "Blockchain" && location !== "Ledger";
               const blockchainUrl = transaction.authorRole === "Blockchain" && transaction.reference && /^[0-9a-f]{64}$/i.test(transaction.reference)
                 ? `https://blockstream.info/tx/${transaction.reference}`
                 : null;
               return <tr key={transaction.id}>
                 <td data-label="Date">{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</td>
                 <td data-label="Bénéficiaire"><strong>{transaction.member}</strong></td>
-                <td data-label="Opération"><div className="transaction-kind">{occasionEmoji && <span className={"occasion-emoji " + (transaction.kind === "Noël" ? "christmas" : "birthday")} aria-hidden="true">{occasionEmoji}</span>}<div><strong>{transaction.kind}</strong><small>{transaction.asset} · {isAdmin ? transaction.account : memberSummary}</small></div></div></td>
+                <td data-label="Opération"><div className="transaction-kind">{occasionEmoji && <span className={"occasion-emoji " + (transaction.kind === "Noël" ? "christmas" : "birthday")} aria-hidden="true">{occasionEmoji}</span>}<div><strong>{transaction.kind}</strong><small>{transaction.asset} · {canViewAll ? transaction.account : memberSummary}</small></div></div></td>
                 <td className="number-cell transaction-investment" data-label="Montant / PRU"><strong>{hasPurchasePrice ? euro.format(transaction.amount) : "—"}</strong><small>{averagePurchasePrice ? "PRU " + euro.format(averagePurchasePrice) + " / BTC" : "PRU à rattacher"}</small></td>
                 <td className="number-cell" data-label="Quantité">{transaction.quantity ? transaction.quantity.toFixed(8) + " BTC" : "À saisir"}</td>
                 <td className="number-cell transaction-current-value" data-label="Valeur actuelle"><strong>{currentValue === null ? "—" : euro.format(currentValue)}</strong><small className={performance === null ? "performance neutral" : performance >= 0 ? "performance positive" : "performance negative"}>{performance === null ? (currentValue === null ? "Cours indisponible" : "Transfert sans PRU") : (performance >= 0 ? "+" : "") + euro.format(performance)}</small></td>
                 <td data-label="Saisie par">{blockchainUrl ? <a className="author-chip blockchain-link" href={blockchainUrl} target="_blank" rel="noreferrer" title="Voir la transaction sur la blockchain">Blockchain<span aria-hidden="true">↗</span></a> : <span className={transaction.authorRole === "Enfant" ? "author-chip child" : "author-chip"}>{transaction.author}</span>}</td>
-                {isAdmin && <td data-label="Localisation"><span className={"transaction-location " + (location === "Ledger" ? "ledger" : location === "Binance" ? "binance" : "unclassified")}>{location}</span></td>}
-                <td><div className="transaction-actions">{isAdmin && needsAdminAction && <button className="admin-work-button" onClick={() => onOpenPortfolio?.(transaction.member)}>{transaction.status === "À transférer" ? "Préparer le transfert" : "Classer / valider"}</button>}{canDelete && <button type="button" className="admin-delete-button" disabled={deletingTransactionId === transaction.id} onClick={() => void deleteGiftTransaction(transaction)}>{deletingTransactionId === transaction.id ? "Suppression…" : "Supprimer"}</button>}{!isAdmin && transaction.status === "À transférer" && <button className="request-transfer-button" onClick={() => onTransferRequest(transaction)}>Demander le transfert</button>}</div></td>
+                {canViewAll && <td data-label="Localisation"><span className={"transaction-location " + (location === "Ledger" ? "ledger" : location === "Binance" ? "binance" : "unclassified")}>{location}</span></td>}
+                <td><div className="transaction-actions">{canManage && needsAdminAction && <button className="admin-work-button" onClick={() => onOpenPortfolio?.(transaction.member)}>{transaction.status === "À transférer" ? "Préparer le transfert" : "Classer / valider"}</button>}{canDelete && <button type="button" className="admin-delete-button" disabled={deletingTransactionId === transaction.id} onClick={() => void deleteGiftTransaction(transaction)}>{deletingTransactionId === transaction.id ? "Suppression…" : "Supprimer"}</button>}{!canViewAll && transaction.status === "À transférer" && <button className="request-transfer-button" onClick={() => onTransferRequest(transaction)}>Demander le transfert</button>}</div></td>
               </tr>;
             })}</tbody>
           </table>
         </div>
         {filtered.length === 0 && <div className="empty-transactions">Aucune opération ne correspond à ces filtres.</div>}
-        {isAdmin && filtered.length > 0 && <AdminMovementsMobile
+        {canViewAll && filtered.length > 0 && <AdminMovementsMobile
           transactions={adminMobileSorted}
           bitcoinEur={bitcoinEur}
+          canManage={canManage}
           sortDir={mobileSortDir}
           onToggleSort={() => setMobileSortDir((current) => current === "desc" ? "asc" : "desc")}
           onOpenPortfolio={onOpenPortfolio}
@@ -456,9 +461,10 @@ function MemberMovementsMobile({ transactions, totalValueEur, totalBtc, received
   </div>;
 }
 
-function AdminMovementsMobile({ transactions, bitcoinEur, sortDir, onToggleSort, onOpenPortfolio, onDelete, deletingId }: {
+function AdminMovementsMobile({ transactions, bitcoinEur, canManage, sortDir, onToggleSort, onOpenPortfolio, onDelete, deletingId }: {
   transactions: TransactionRecord[];
   bitcoinEur: number | null;
+  canManage: boolean;
   sortDir: "desc" | "asc";
   onToggleSort: () => void;
   onOpenPortfolio?: (member: string) => void;
@@ -498,8 +504,8 @@ function AdminMovementsMobile({ transactions, bitcoinEur, sortDir, onToggleSort,
           <div><small>LOCALISATION</small><strong>{location === "À classer" ? "Non classée" : location}</strong></div>
         </div>
         <div className="amv-card-actions">
-          {needsAdminAction && <button type="button" className="admin-work-button" onClick={() => onOpenPortfolio?.(transaction.member)}>{transaction.status === "À transférer" ? "↗ Préparer le transfert" : "✓ Classer / valider"}</button>}
-          {canDelete && <button type="button" className="admin-delete-button" disabled={deletingId === transaction.id} onClick={() => onDelete(transaction)}>{deletingId === transaction.id ? "Suppression…" : "🗑 Supprimer"}</button>}
+          {canManage && needsAdminAction && <button type="button" className="admin-work-button" onClick={() => onOpenPortfolio?.(transaction.member)}>{transaction.status === "À transférer" ? "↗ Préparer le transfert" : "✓ Classer / valider"}</button>}
+          {canManage && canDelete && <button type="button" className="admin-delete-button" disabled={deletingId === transaction.id} onClick={() => onDelete(transaction)}>{deletingId === transaction.id ? "Suppression…" : "🗑 Supprimer"}</button>}
         </div>
       </article>;
     })}</div>

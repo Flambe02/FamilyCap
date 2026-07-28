@@ -75,6 +75,20 @@ export async function requireAdmin(request: Request) {
   return member;
 }
 
+/**
+ * Lecture des soldes Bitcoin réels (adresses/xpub, `/api/ledger`) pour un admin OU pour Amatxi
+ * (role `viewer`) : elle doit voir le portefeuille de chaque petit-enfant comme l'administrateur,
+ * sans jamais obtenir de droit d'écriture — cette fonction ne protège QUE des routes en lecture.
+ * N'importe quelle route qui écrit doit continuer à utiliser `requireAdmin`, jamais celle-ci.
+ */
+export async function requireAdminOrBtcViewer(request: Request) {
+  const member = await requireFamilyMember(request);
+  if (member.role !== "admin" && member.role !== "viewer") {
+    throw Response.json({ error: "Accès refusé" }, { status: 403 });
+  }
+  return member;
+}
+
 const SESSION_EXPIRED_MESSAGE = "Ta session a expiré. Reconnecte-toi pour continuer.";
 
 // Un token expiré — ou signé sous une ancienne clé de signature après une rotation des clés
@@ -181,6 +195,11 @@ export async function viewableInvestmentScope(viewer: AuthenticatedMember): Prom
 
 /** Liste des `member_id` visibles par le viewer pour UNE classe. `null` = admin (aucun filtre). */
 export async function viewableMemberIdsForClass(viewer: AuthenticatedMember, assetClass: AssetClass): Promise<string[] | null> {
+  // Amatxi (role `viewer`) voit tout le Bitcoin de la famille comme un administrateur — elle est
+  // celle qui offre les cadeaux BTC — mais reste sur le périmètre partagé normal pour PEA/CTO, hors
+  // de son rôle. Ce raccourci est volontairement local à cette fonction : `viewableInvestmentScope`
+  // (utilisée aussi par le portefeuille PEA/CTO) n'est pas touchée.
+  if (assetClass === "btc" && viewer.role === "viewer") return null;
   const scope = await viewableInvestmentScope(viewer);
   if (scope === null) return null;
   const ids: string[] = [];

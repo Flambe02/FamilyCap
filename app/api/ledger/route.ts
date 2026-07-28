@@ -1,4 +1,4 @@
-import { authErrorResponse, requireAdmin } from "../../../lib/auth-server";
+import { authErrorResponse, requireAdminOrBtcViewer } from "../../../lib/auth-server";
 import { supabaseRest } from "../../../lib/supabase-rest";
 import { deriveRange, parseExtendedKey, type ScriptType } from "../../../lib/bitcoin-xpub";
 import type { HDKey } from "@scure/bip32";
@@ -225,7 +225,7 @@ async function getBitcoinEurPrice() {
 export async function GET(request: Request) {
   const priceOnly = new URL(request.url).searchParams.get("priceOnly") === "1";
   if (!priceOnly) {
-    try { await requireAdmin(request); } catch (error) { return authErrorResponse(error); }
+    try { await requireAdminOrBtcViewer(request); } catch (error) { return authErrorResponse(error); }
   }
   try {
     if (priceOnly) {
