@@ -24,7 +24,7 @@
 import { supabaseRest } from "./supabase-rest.ts";
 import {
   alphaVantageDailyLimit, dividendCacheTtlHours, dividendProviderChain, projectionsEnabled,
-  AlphaVantageDividendProvider,
+  AlphaVantageDividendProvider, orderDividendProviders,
   type DividendProvider, type NormalizedDividend, type ProviderInstrument,
 } from "./dividend-providers.ts";
 import { flagSpecialDividends, projectDividends, type HistoricalDividendPoint } from "./dividend-projection.ts";
@@ -91,6 +91,7 @@ async function recordProviderCall(provider: string, requestKey: string, now: Dat
 export function providerDailyLimit(provider: string): number | null {
   if (provider === "alpha_vantage") return alphaVantageDailyLimit();
   if (provider === "eodhd") return EODHD_DAILY_LIMIT;
+  if (provider === "dividland") return 4;
   return null; // Yahoo : pas de quota contractuel, il est déjà encadré par le nombre de positions
 }
 
@@ -178,11 +179,22 @@ async function ensureCatalogEntries(context: DividendContext): Promise<number> {
     classification_status: "inferred",
     source: "holdings",
   }));
+  // `assets.isin` est unique via un index D'EXPRESSION (`upper(isin)`, migration 20260811) : Postgres
+  // refuse une cible ON CONFLICT qui ne nomme pas littéralement cette expression (erreur 42P10).
+  // Repli identique à `asset_listings` plus bas : une ligne à la fois, un doublon échoue sans bruit.
   await supabaseRest("assets?on_conflict=isin", {
     method: "POST",
     headers: { prefer: "resolution=merge-duplicates,return=minimal" },
     body: JSON.stringify(assetRows),
-  }).catch(() => undefined);
+  }).catch(async () => {
+    for (const row of assetRows) {
+      await supabaseRest("assets", {
+        method: "POST",
+        headers: { prefer: "return=minimal" },
+        body: JSON.stringify(row),
+      }).catch(() => undefined);
+    }
+  });
 
   const created = await supabaseRest<Array<{ id: string; isin: string | null }>>(
     `assets?select=id,isin&isin=in.(${[...byIsin.keys()].map(encodeURIComponent).join(",")})`,
@@ -197,9 +209,15 @@ async function ensureCatalogEntries(context: DividendContext): Promise<number> {
       // symbole deviné ici ferait interroger un homonyme d'une autre place.
       const eodhd = holding.provider_symbol?.trim() || holding.market_symbol?.trim() || null;
       const yahoo = holding.yahoo_symbol?.trim() || holding.market_symbol?.trim() || null;
+      // Alpha Vantage accepte un ticker NU (sans suffixe de place) pour une cotation américaine —
+      // c'est exactement `market_symbol` pour AAPL, MSFT, GOOG… Un symbole AVEC suffixe ("AI.PA")
+      // reste écarté : ce n'est pas un ticker, c'est déjà un symbole propre à un autre fournisseur.
+      const bareMarketSymbol = holding.market_symbol && !holding.market_symbol.includes(".")
+        ? holding.market_symbol.trim() || null
+        : null;
       return {
         asset_id: assetId,
-        ticker: holding.symbol?.trim() || null,
+        ticker: holding.symbol?.trim() || bareMarketSymbol || null,
         exchange: holding.exchange ?? null,
         mic_code: holding.mic_code ?? null,
         currency: (holding.currency || "EUR").toUpperCase(),
@@ -236,14 +254,38 @@ async function ensureCatalogEntries(context: DividendContext): Promise<number> {
 // ==========================================================================================
 // Écritures
 // ==========================================================================================
-async function saveEventRows(_assetId: string, rows: Array<Record<string, unknown>>): Promise<void> {
+async function saveEventRows(assetId: string, rows: Array<Record<string, unknown>>): Promise<void> {
   if (rows.length === 0) return;
-  // `on_conflict` sur la clé fournisseur : re-synchroniser met à jour, ne duplique jamais.
-  await supabaseRest("dividend_events?on_conflict=asset_id,source_provider,source_event_id", {
-    method: "POST",
-    headers: { prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify(rows),
-  });
+  // La clé fournisseur (`asset_id, source_provider, source_event_id`) n'est unique que via un
+  // index PARTIEL (`where account_id is null and source_event_id is not null`, migration 20260817).
+  // PostgREST ne peut pas cibler un index partiel avec `on_conflict` — Postgres répond 42P10, comme
+  // pour `assets`/`asset_listings` plus haut. On relit donc les événements déjà connus pour CET
+  // instrument et on choisit UPDATE ou INSERT ligne à ligne : re-synchroniser met à jour, ne
+  // duplique jamais.
+  const existing = await supabaseRest<Array<{ id: string; source_provider: string; source_event_id: string | null }>>(
+    `dividend_events?select=id,source_provider,source_event_id&asset_id=eq.${encodeURIComponent(assetId)}&account_id=is.null`,
+  ).catch(() => []);
+  const existingIdByKey = new Map(
+    (existing ?? []).map((row) => [`${row.source_provider}::${row.source_event_id ?? ""}`, row.id]),
+  );
+
+  for (const row of rows) {
+    const key = `${row.source_provider}::${row.source_event_id ?? ""}`;
+    const id = existingIdByKey.get(key);
+    if (id) {
+      await supabaseRest(`dividend_events?id=eq.${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { prefer: "return=minimal" },
+        body: JSON.stringify(row),
+      });
+    } else {
+      await supabaseRest("dividend_events", {
+        method: "POST",
+        headers: { prefer: "return=minimal" },
+        body: JSON.stringify(row),
+      });
+    }
+  }
 }
 
 async function replaceForecastRows(assetId: string, rows: Array<Record<string, unknown>>): Promise<void> {
@@ -349,8 +391,12 @@ export async function syncAccountDividends(
       continue;
     }
 
-    const lastSuccess = state.get(instrument.assetId)?.lastSuccessAt ?? null;
-    if (!options.force && lastSuccess && now.getTime() - Date.parse(lastSuccess) < ttlMs) {
+    const lastState = state.get(instrument.assetId);
+    const lastSuccess = lastState?.lastSuccessAt ?? null;
+    // DividLand est un secours personnel à faible cadence : une fiche validée est conservée sept
+    // jours, même si le cache général est plus court. Les sources primaires gardent leur TTL usuel.
+    const effectiveTtlMs = lastState?.provider === "dividland" ? Math.max(ttlMs, 7 * 24 * 3_600_000) : ttlMs;
+    if (!options.force && lastSuccess && now.getTime() - Date.parse(lastSuccess) < effectiveTtlMs) {
       outcomes.push({
         assetId: instrument.assetId, name: instrument.name, isin: instrument.isin, provider: null, symbol: null,
         status: "cached", eventsWritten: 0, forecasts: 0,
@@ -369,6 +415,8 @@ export async function syncAccountDividends(
       alphaVantageSymbol: listing?.alpha_vantage_symbol ?? null,
       eodhdSymbol: listing?.eodhd_symbol ?? null,
       yahooSymbol: listing?.yahoo_symbol ?? null,
+      dividlandSlug: listing?.dividland_slug ?? null,
+      assetType: instrument.assetType,
     };
     const listingCurrency = providerInstrument.currency;
 
@@ -377,8 +425,14 @@ export async function syncAccountDividends(
     let usedSymbol: string | null = null;
     let quotaDeferred = false;
     let lastError = "";
+    // Distinct de « le catalogue connaît un symbole » : `providerInstrument.eodhdSymbol` reste
+    // renseigné même quand EODHD n'est pas configuré (aucune clé). Seul `attempted` reflète qu'un
+    // fournisseur RÉELLEMENT interrogé a accepté ce symbole — c'est ce qui distingue « le
+    // fournisseur ne connaît aucun dividende » (interrogé, réponse vide) de « aucun symbole
+    // fournisseur validé » (jamais interrogé, ex. un titre parisien sans résolution Alpha Vantage).
+    let attempted = false;
 
-    for (const provider of providers) {
+    for (const provider of orderDividendProviders(providers, providerInstrument)) {
       const limit = providerDailyLimit(provider.name);
       const used = usage.get(provider.name) ?? 0;
       if (limit !== null && used >= limit) {
@@ -387,6 +441,7 @@ export async function syncAccountDividends(
       }
       const symbol = provider.symbolFor(providerInstrument);
       if (!symbol) continue;
+      attempted = true;
       if (limit !== null) {
         // Décompté AVANT l'appel : une réponse en erreur consomme le quota du fournisseur aussi
         // sûrement qu'une réponse utile. Ne compter que les succès ferait dépasser la limite.
@@ -419,7 +474,7 @@ export async function syncAccountDividends(
         ? "quota_deferred"
         : providers.length === 0
           ? "provider_error"
-          : providerInstrument.alphaVantageSymbol || providerInstrument.eodhdSymbol || providerInstrument.yahooSymbol
+          : attempted
             ? lastError ? "provider_error" : "no_data"
             : "unresolved";
       outcomes.push({
@@ -600,7 +655,19 @@ export async function resolveAlphaVantageSymbols(
   const budget = Math.max(0, Math.min(options.limit ?? 5, dailyLimit - used));
   const results: Array<{ name: string; isin: string | null; status: "resolved" | "needs_review" | "failed"; symbol: string | null; message: string }> = [];
 
-  for (const instrument of context.instruments) {
+  // File progressive, comme la synchronisation : jamais tenté d'abord, puis le plus ancien. Sans
+  // cela, un échec ("SODEXO introuvable chez Alpha Vantage") consommait le même budget de 5 à
+  // CHAQUE clic, empêchant les instruments jamais tentés d'obtenir leur première chance.
+  const queue = [...context.instruments].sort((a, b) => {
+    const left = context.listingByAsset.get(a.assetId)?.last_resolved_at ?? "";
+    const right = context.listingByAsset.get(b.assetId)?.last_resolved_at ?? "";
+    if (left === right) return a.name.localeCompare(b.name);
+    if (!left) return -1;
+    if (!right) return 1;
+    return left.localeCompare(right);
+  });
+
+  for (const instrument of queue) {
     if (results.length >= budget) break;
     const listing = context.listingByAsset.get(instrument.assetId) ?? null;
     if (!listing || listing.alpha_vantage_symbol) continue;
@@ -635,18 +702,19 @@ export async function resolveAlphaVantageSymbols(
       continue;
     }
     const needsReview = resolution.code === "ambiguous";
-    if (needsReview) {
-      await supabaseRest(`asset_listings?id=eq.${encodeURIComponent(listing.id)}`, {
-        method: "PATCH",
-        headers: { prefer: "return=minimal" },
-        body: JSON.stringify({
-          resolution_status: "needs_review",
-          last_resolved_at: now.toISOString(),
-          resolution_note: `${resolution.message}${resolution.candidates ? ` Candidats : ${resolution.candidates.join(", ")}` : ""}`.slice(0, 300),
-          updated_at: now.toISOString(),
-        }),
-      }).catch(() => undefined);
-    }
+    // Toute tentative — ambiguë OU en échec net — horodate la cotation : c'est ce qui fait avancer
+    // la file ci-dessus. Sans cela, un échec net (« aucune cotation trouvée ») serait retenté à
+    // CHAQUE clic avant que les instruments jamais essayés n'aient leur tour.
+    await supabaseRest(`asset_listings?id=eq.${encodeURIComponent(listing.id)}`, {
+      method: "PATCH",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify({
+        resolution_status: needsReview ? "needs_review" : "unresolved",
+        last_resolved_at: now.toISOString(),
+        resolution_note: `${resolution.message}${resolution.candidates ? ` Candidats : ${resolution.candidates.join(", ")}` : ""}`.slice(0, 300),
+        updated_at: now.toISOString(),
+      }),
+    }).catch(() => undefined);
     results.push({
       name: instrument.name, isin: instrument.isin,
       status: needsReview ? "needs_review" : "failed",

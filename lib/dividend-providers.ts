@@ -20,7 +20,7 @@
 import type { DividendType } from "./dividend-engine.ts";
 import { fetchDividendHistory } from "./market-history.ts";
 
-export type DividendProviderName = "alpha_vantage" | "eodhd" | "yahoo";
+export type DividendProviderName = "alpha_vantage" | "eodhd" | "dividland" | "yahoo";
 
 export type DividendFailureCode =
   | "not_configured"
@@ -62,6 +62,9 @@ export type ProviderInstrument = {
   alphaVantageSymbol: string | null;
   eodhdSymbol: string | null;
   yahooSymbol: string | null;
+  /** Fiche DividLand validée manuellement, au format `123-NOM-DE-LA-SOCIETE`. */
+  dividlandSlug?: string | null;
+  assetType?: string | null;
 };
 
 export interface DividendProvider {
@@ -117,6 +120,28 @@ async function fetchJson(url: string): Promise<unknown> {
       throw new ProviderHttpError("timeout", "Le fournisseur n’a pas répondu à temps.");
     }
     throw new ProviderHttpError("unavailable", "Le fournisseur est injoignable.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchHtml(url: string): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { "user-agent": USER_AGENT, accept: "text/html,application/xhtml+xml" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (response.status === 429) throw new ProviderHttpError("rate_limited", "Limite d’appels DividLand atteinte.");
+    if (response.status === 404) throw new ProviderHttpError("not_found", "Fiche DividLand introuvable.");
+    if (!response.ok) throw new ProviderHttpError("http_error", `Réponse HTTP ${response.status}.`);
+    return await response.text();
+  } catch (error) {
+    if (error instanceof ProviderHttpError) throw error;
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) throw new ProviderHttpError("timeout", "DividLand n’a pas répondu à temps.");
+    throw new ProviderHttpError("unavailable", "DividLand est injoignable.");
   } finally {
     clearTimeout(timer);
   }
@@ -352,6 +377,87 @@ function periodToType(period: unknown): DividendType {
 }
 
 // ==========================================================================================
+// DIVIDLAND — secours personnel français, serveur uniquement
+// ==========================================================================================
+const DIVIDLAND_BASE = "https://www.dividland.fr/company/";
+
+function htmlText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ").replace(/&euro;/gi, "€").replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ").trim();
+}
+
+const FRENCH_MONTHS: Record<string, string> = {
+  janvier: "01", février: "02", fevrier: "02", mars: "03", avril: "04", mai: "05", juin: "06",
+  juillet: "07", août: "08", aout: "08", septembre: "09", octobre: "10", novembre: "11", décembre: "12", decembre: "12",
+};
+
+function frenchDate(value: string): string | null {
+  const match = value.trim().match(/(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+(\d{4})/i);
+  if (!match) return null;
+  const month = FRENCH_MONTHS[match[2].toLowerCase()];
+  return month ? `${match[3]}-${month}-${match[1].padStart(2, "0")}` : null;
+}
+
+/**
+ * Extrait uniquement des versements datés. Une simple mention de montant reste une annonce
+ * éditoriale tant que la fiche ne publie pas de détachement/paiement : elle n'est jamais
+ * transformée en date inventée ni en encaissement.
+ */
+export function parseDividlandDividendPage(html: string, sourceUrl: string): NormalizedDividend[] {
+  const text = htmlText(html);
+  const eventPattern = /(\d{1,2}\s+[A-Za-zÀ-ÿ]+\s+\d{4})\s+Détachement\s+([^€]{1,48}?)\s+DIVIDENDE\s*:\s*([\d.,]+)\s*€\s*\/\s*action[\s\S]{0,180}?PAIEMENT\s*:\s*(\d{1,2}\s+[A-Za-zÀ-ÿ]+\s+\d{4})/gi;
+  const dividends: NormalizedDividend[] = [];
+  for (const match of text.matchAll(eventPattern)) {
+    const exDate = frenchDate(match[1]);
+    const paymentDate = frenchDate(match[4]);
+    const amount = Number(match[3].replace(/\s/g, "").replace(",", "."));
+    if (!exDate || !paymentDate || !Number.isFinite(amount) || amount <= 0) continue;
+    const label = match[2].toLowerCase();
+    const dividendType: DividendType = label.includes("acompte") ? "interim" : label.includes("solde") ? "final" : "ordinary";
+    dividends.push({
+      providerEventId: `dividland:${exDate}:${paymentDate}:${amount.toFixed(8)}`,
+      declarationDate: null,
+      exDate,
+      recordDate: null,
+      paymentDate,
+      amountPerShare: amount,
+      currency: "EUR",
+      dividendType,
+      isSpecial: /exceptionnel|special/i.test(label),
+      sourceUrl,
+    });
+  }
+  return dividends;
+}
+
+export class DividlandDividendProvider implements DividendProvider {
+  readonly name = "dividland" as const;
+
+  isConfigured(): boolean { return process.env.DIVIDENDS_DIVIDLAND_ENABLED === "true"; }
+
+  symbolFor(instrument: ProviderInstrument): string | null {
+    // Aucune recherche par nom : seule une fiche approuvée pour l'ISIN français exact est utilisable.
+    if (!instrument.isin?.toUpperCase().startsWith("FR") || /^(etf|fund)$/i.test(instrument.assetType ?? "")) return null;
+    const slug = instrument.dividlandSlug?.trim();
+    return slug && /^\d+-[A-Za-z0-9%_-]+$/i.test(slug) ? slug : null;
+  }
+
+  async fetchDividends(symbol: string): Promise<DividendFetchResult> {
+    if (!this.isConfigured()) return { ok: false, provider: this.name, symbol, code: "disabled", message: "DividLand est désactivé (DIVIDENDS_DIVIDLAND_ENABLED)." };
+    const sourceUrl = `${DIVIDLAND_BASE}${encodeURIComponent(symbol)}/`;
+    try {
+      const dividends = parseDividlandDividendPage(await fetchHtml(sourceUrl), sourceUrl);
+      return { ok: true, provider: this.name, symbol, dividends };
+    } catch (error) {
+      return failure(this.name, symbol, error);
+    }
+  }
+}
+
+// ==========================================================================================
 // YAHOO — secours technique, uniquement si le projet l'a déjà autorisé
 // ==========================================================================================
 /**
@@ -424,6 +530,7 @@ function providerByName(name: string): DividendProvider | null {
   switch (name.trim().toLowerCase()) {
     case "alpha_vantage": return new AlphaVantageDividendProvider();
     case "eodhd": return new EodhdDividendProvider();
+    case "dividland": return new DividlandDividendProvider();
     case "yahoo": return new YahooDividendProvider();
     default: return null;
   }
@@ -439,6 +546,7 @@ export function dividendProviderChain(): DividendProvider[] {
     process.env.DIVIDEND_PRIMARY_PROVIDER ?? "alpha_vantage",
     process.env.DIVIDEND_SECONDARY_PROVIDER ?? "eodhd",
     process.env.DIVIDEND_FALLBACK_PROVIDER ?? "yahoo",
+    process.env.DIVIDEND_FRANCE_FALLBACK_PROVIDER ?? "dividland",
   ];
   const chain: DividendProvider[] = [];
   for (const name of names) {
@@ -451,17 +559,30 @@ export function dividendProviderChain(): DividendProvider[] {
 }
 
 /** Diagnostic affichable : quel fournisseur est prêt, lequel ne l'est pas et pourquoi. */
-export function providerAvailability(): Array<{ name: DividendProviderName; role: "primary" | "secondary" | "fallback"; configured: boolean }> {
-  const roles: Array<{ role: "primary" | "secondary" | "fallback"; name: string }> = [
+export function providerAvailability(): Array<{ name: DividendProviderName; role: "primary" | "secondary" | "fallback" | "france_fallback"; configured: boolean }> {
+  const roles: Array<{ role: "primary" | "secondary" | "fallback" | "france_fallback"; name: string }> = [
     { role: "primary", name: process.env.DIVIDEND_PRIMARY_PROVIDER ?? "alpha_vantage" },
     { role: "secondary", name: process.env.DIVIDEND_SECONDARY_PROVIDER ?? "eodhd" },
     { role: "fallback", name: process.env.DIVIDEND_FALLBACK_PROVIDER ?? "yahoo" },
+    { role: "france_fallback", name: process.env.DIVIDEND_FRANCE_FALLBACK_PROVIDER ?? "dividland" },
   ];
-  const result: Array<{ name: DividendProviderName; role: "primary" | "secondary" | "fallback"; configured: boolean }> = [];
+  const result: Array<{ name: DividendProviderName; role: "primary" | "secondary" | "fallback" | "france_fallback"; configured: boolean }> = [];
   for (const entry of roles) {
     const provider = providerByName(entry.name);
     if (!provider) continue;
     result.push({ name: provider.name, role: entry.role, configured: provider.isConfigured() });
   }
   return result;
+}
+
+/** Priorité réellement adaptée à la cotation : jamais une chaîne globale aveugle. */
+export function orderDividendProviders(providers: DividendProvider[], instrument: ProviderInstrument): DividendProvider[] {
+  const frenchOrEuronext = instrument.isin?.toUpperCase().startsWith("FR") || instrument.micCode?.toUpperCase() === "XPAR" || /euronext/i.test(instrument.exchange ?? "") || /^(etf|fund)$/i.test(instrument.assetType ?? "");
+  const usStock = instrument.isin?.toUpperCase().startsWith("US") && !/^(etf|fund)$/i.test(instrument.assetType ?? "");
+  const preference = frenchOrEuronext
+    ? ["eodhd", "dividland", "alpha_vantage", "yahoo"]
+    : usStock
+      ? ["alpha_vantage", "eodhd", "yahoo", "dividland"]
+      : ["eodhd", "alpha_vantage", "yahoo", "dividland"];
+  return [...providers].sort((left, right) => preference.indexOf(left.name) - preference.indexOf(right.name));
 }

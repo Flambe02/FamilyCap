@@ -44,7 +44,8 @@ export type AssetRow = {
 export type ListingRow = {
   id: string; asset_id: string; ticker: string | null; exchange: string | null; mic_code: string | null;
   currency: string; eodhd_symbol: string | null; yahoo_symbol: string | null;
-  alpha_vantage_symbol?: string | null; resolution_status?: string | null; last_resolved_at?: string | null;
+  alpha_vantage_symbol?: string | null; dividland_company_id?: string | null; dividland_slug?: string | null;
+  resolution_status?: string | null; last_resolved_at?: string | null;
 };
 
 export type DividendContext = {
@@ -151,12 +152,15 @@ async function loadListings(assetIds: string[]): Promise<ListingRow[]> {
   const filter = `asset_id=in.(${assetIds.join(",")})`;
   try {
     return await supabaseRest<ListingRow[]>(
-      `asset_listings?select=id,asset_id,ticker,exchange,mic_code,currency,eodhd_symbol,yahoo_symbol,alpha_vantage_symbol,resolution_status,last_resolved_at&${filter}`,
+      `asset_listings?select=id,asset_id,ticker,exchange,mic_code,currency,eodhd_symbol,yahoo_symbol,alpha_vantage_symbol,dividland_company_id,dividland_slug,resolution_status,last_resolved_at&${filter}`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (!/alpha_vantage_symbol|resolution_status|last_resolved_at|42703|PGRST20[0-9]/.test(message)) return [];
-    return await optional<ListingRow>(`asset_listings?select=id,asset_id,ticker,exchange,mic_code,currency,eodhd_symbol,yahoo_symbol&${filter}`);
+    if (!/dividland_company_id|dividland_slug|42703|PGRST20[0-9]/.test(message)) {
+      if (!/alpha_vantage_symbol|resolution_status|last_resolved_at/.test(message)) return [];
+      return await optional<ListingRow>(`asset_listings?select=id,asset_id,ticker,exchange,mic_code,currency,eodhd_symbol,yahoo_symbol&${filter}`);
+    }
+    return await optional<ListingRow>(`asset_listings?select=id,asset_id,ticker,exchange,mic_code,currency,eodhd_symbol,yahoo_symbol,alpha_vantage_symbol,resolution_status,last_resolved_at&${filter}`);
   }
 }
 

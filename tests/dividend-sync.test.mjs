@@ -7,15 +7,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  AlphaVantageDividendProvider, EodhdDividendProvider, YahooDividendProvider,
+  AlphaVantageDividendProvider, DividlandDividendProvider, EodhdDividendProvider, YahooDividendProvider,
   alphaVantageDailyLimit, dividendCacheTtlHours, dividendProviderChain, projectionsEnabled,
-  providerAvailability,
+  orderDividendProviders, parseDividlandDividendPage, providerAvailability,
 } from "../lib/dividend-providers.ts";
 import { mergeProviderEvents, normalizeCurrency, providerDailyLimit, EODHD_DAILY_LIMIT } from "../lib/dividend-sync.ts";
 
 const ENV_KEYS = [
   "ALPHA_VANTAGE_API_KEY", "EODHD_API_TOKEN", "ENABLE_EXPERIMENTAL_YAHOO_PROVIDER",
   "DIVIDEND_PRIMARY_PROVIDER", "DIVIDEND_SECONDARY_PROVIDER", "DIVIDEND_FALLBACK_PROVIDER",
+  "DIVIDEND_FRANCE_FALLBACK_PROVIDER", "DIVIDENDS_DIVIDLAND_ENABLED",
   "ALPHA_VANTAGE_DAILY_LIMIT", "DIVIDEND_CACHE_TTL_HOURS", "ENABLE_DIVIDEND_PROJECTIONS",
 ];
 
@@ -89,14 +90,34 @@ test("18 ter — un fournisseur non configuré est écarté de la chaîne, jamai
   await withEnv({}, () => {
     assert.deepEqual(dividendProviderChain().map((provider) => provider.name), []);
     const availability = providerAvailability();
-    assert.deepEqual(availability.map((entry) => entry.configured), [false, false, false]);
-    assert.deepEqual(availability.map((entry) => entry.role), ["primary", "secondary", "fallback"]);
+    assert.deepEqual(availability.map((entry) => entry.configured), [false, false, false, false]);
+    assert.deepEqual(availability.map((entry) => entry.role), ["primary", "secondary", "fallback", "france_fallback"]);
   });
   await withEnv({ ALPHA_VANTAGE_API_KEY: "k", EODHD_API_TOKEN: "t", ENABLE_EXPERIMENTAL_YAHOO_PROVIDER: "true" }, () => {
     assert.deepEqual(dividendProviderChain().map((provider) => provider.name), ["alpha_vantage", "eodhd", "yahoo"]);
   });
   await withEnv({ EODHD_API_TOKEN: "t" }, () => {
     assert.deepEqual(dividendProviderChain().map((provider) => provider.name), ["eodhd"]);
+  });
+});
+
+test("DividLand ne lit qu'une fiche française explicitement associée et extrait les versements datés", async () => {
+  const provider = new DividlandDividendProvider();
+  assert.equal(provider.isConfigured(), false, "le drapeau reste nécessaire avant toute requête");
+  await withEnv({ DIVIDENDS_DIVIDLAND_ENABLED: "true" }, async () => {
+    assert.equal(provider.symbolFor(listing({ dividlandSlug: "4-AIR%20LIQUIDE", assetType: "stock" })), "4-AIR%20LIQUIDE");
+    assert.equal(provider.symbolFor(listing({ dividlandSlug: "4-AIR%20LIQUIDE", assetType: "etf" })), null);
+    const html = `<article>19 Mai 2025 Détachement Classique DIVIDENDE : 3,30 € / action PAIEMENT : 21 Mai 2025</article>`;
+    const rows = parseDividlandDividendPage(html, "https://www.dividland.fr/company/4-AIR%20LIQUIDE/");
+    assert.deepEqual(rows.map(({ exDate, paymentDate, amountPerShare, currency }) => ({ exDate, paymentDate, amountPerShare, currency })), [{ exDate: "2025-05-19", paymentDate: "2025-05-21", amountPerShare: 3.3, currency: "EUR" }]);
+  });
+});
+
+test("la priorité dépend de l'instrument : EODHD/DividLand en France, Alpha Vantage aux États-Unis", async () => {
+  await withEnv({ ALPHA_VANTAGE_API_KEY: "k", EODHD_API_TOKEN: "t", DIVIDENDS_DIVIDLAND_ENABLED: "true" }, () => {
+    const chain = dividendProviderChain();
+    assert.deepEqual(orderDividendProviders(chain, listing({ dividlandSlug: "4-AIR%20LIQUIDE", assetType: "stock" })).map((provider) => provider.name).slice(0, 3), ["eodhd", "dividland", "alpha_vantage"]);
+    assert.equal(orderDividendProviders(chain, listing({ isin: "US0378331005", ticker: "AAPL", currency: "USD", micCode: "XNAS", exchange: null, assetType: "stock" }))[0].name, "alpha_vantage");
   });
 });
 
