@@ -27,20 +27,21 @@ type AccountRow = {
   id: string; name: string; institution: string | null; account_type: string; currency: string; member_id: string;
   account_number_last4?: string | null; iban_last4?: string | null; opened_at?: string | null;
   monthly_target?: number | null; opening_balance?: number | null; notes?: string | null;
+  dividend_tax_rate?: number | null;
 };
 
 // Colonnes de base (toujours présentes) + colonnes de contexte ajoutées par les migrations
 // 20260725 (opened_at / monthly_target) et 20260730 (opening_balance). On tente la sélection
 // riche ; si une colonne manque (migration pas encore jouée), on retombe sur la base sans erreur.
 const ACCOUNT_SELECT_BASE = "id,name,institution,account_type,currency,member_id";
-const ACCOUNT_SELECT_FULL = `${ACCOUNT_SELECT_BASE},account_number_last4,iban_last4,opened_at,monthly_target,opening_balance,notes`;
+const ACCOUNT_SELECT_FULL = `${ACCOUNT_SELECT_BASE},account_number_last4,iban_last4,opened_at,monthly_target,opening_balance,notes,dividend_tax_rate`;
 
 async function fetchAccounts(filter: string): Promise<AccountRow[]> {
   try {
     return await supabaseRest<AccountRow[]>(`financial_accounts?select=${ACCOUNT_SELECT_FULL}&is_active=eq.true${filter}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (/opening_balance|opened_at|monthly_target|account_number_last4|iban_last4|42703|PGRST20[0-9]/.test(message)) {
+    if (/opening_balance|opened_at|monthly_target|account_number_last4|iban_last4|dividend_tax_rate|42703|PGRST20[0-9]/.test(message)) {
       return await supabaseRest<AccountRow[]>(`financial_accounts?select=${ACCOUNT_SELECT_BASE}&is_active=eq.true${filter}`);
     }
     throw error;
@@ -127,6 +128,9 @@ export async function GET(request: Request) {
       monthlyTarget: account.monthly_target === null || account.monthly_target === undefined ? null : Number(account.monthly_target),
       openingBalance: account.opening_balance === null || account.opening_balance === undefined ? null : Number(account.opening_balance),
       notes: account.notes ?? null,
+      // `null` = taux non paramétré. L'écran Revenus applique alors l'hypothèse PFU 30 % en
+      // l'annonçant explicitement, plutôt que de présenter un net comme certain.
+      dividendTaxRate: account.dividend_tax_rate === null || account.dividend_tax_rate === undefined ? null : Number(account.dividend_tax_rate),
     }));
     const quoteRows = holdingRows.length ? await fetchQuotes(holdingRows.map((holding) => holding.id)) : [];
     const latestQuoteByAsset = new Map<string, QuoteRow>();

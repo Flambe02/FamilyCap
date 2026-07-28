@@ -147,6 +147,49 @@ All routes under `app/api/`:
   - `holdings` stays a **price reference**: an import writes `quantity: 0` and only ever updates `last_price` / `last_price_at` / `market_provider`. There is no second positions table. Regression-tested in `tests/statement-to-operations.test.mjs`.
   - Migration 20260808 adds `commit_investment_import()`, a **transactional RPC** (batch + instruments + operations in one transaction). Without it the route falls back to the historical sequential write and reports `atomic: false`.
 
+### Exposure, income and performance (Résumé / Revenus / Performance)
+
+- **Position ↔ price-reference matching is ALIAS-BASED** (`lib/instrument-alias.ts`, `buildPriceIndex`).
+  `instrumentKey()` picks ONE key (ISIN → else ticker → else name) and each side computed it
+  independently: an operation carrying `isin: null, ticker: "SAN"` (key `tkr:SAN`) never met its
+  `holdings` row identified by an ISIN. The position stayed unpriced, out of the valuation and
+  invisible to the dividend pipeline, with no error anywhere — that was the Sanofi bug. The index
+  now maps every alias of a reference and resolves a position through its own aliases, strongest
+  first; a name-only match is reported (`matchedOn`).
+- **Exposure** `lib/portfolio-exposure.ts` (pure). Three rules: an ETF is **never** attached to its
+  listing country (only its index composition counts, from `instrument_exposures`); unknown weight
+  stays in « Non renseigné » and is **never redistributed**; the total is always 100 %, unknown
+  included. Fallback for a **direct holding only**: domicile country from the ISIN prefix, flagged
+  `isEstimated` and labelled as an approximation. Gold/commodity → « Matières premières ».
+- **Income** `lib/dividend-income.ts` (pure). Three strictly separated statuses: `received` (real
+  `dividende` operations only — nothing is ever auto-created), `announced` (provider-declared
+  event), `estimated` (projection from the last comparable dividend, always badged). Eligible
+  quantity is computed **at the ex-date** from the operations, not today. An accumulating ETF
+  (`isAccumulating`) never produces a cash payment. **PEA applies no PFU per dividend**; CTO uses
+  `financial_accounts.dividend_tax_rate`, defaulting to an explicitly-announced 30 % hypothesis.
+- **Performance** `lib/portfolio-performance.ts` (pure). Deposits/withdrawals are **external flows**
+  (TWR, chain-linked modified Dietz; XIRR when signs allow). When no deposit exists or reconstructed
+  cash goes negative, the screen states « Performance non fiable tant que les flux historiques ne
+  sont pas rapprochés » and hides TWR/XIRR/annualised — the exact breakdown (unrealized, realized,
+  dividends, fees) stays published because it was never wrong. Ranking by % **and** by € (a coût nul
+  position leaves the % ranking, keeps the € one; a position without a quote leaves both and is listed).
+- **AI analysis** — the model NEVER receives raw operations. `lib/portfolio-facts-server.ts` builds a
+  deterministic object server-side from the existing engines; `lib/portfolio-insights.ts` validates
+  the answer and **rejects** any observation citing a number absent from that object, naming an
+  unknown asset, or phrasing an order/promise/personal advice. Cache keyed on the facts hash
+  (`portfolio_analyses`), regenerated only when the numbers change or on explicit request. Without a
+  provider key, the deterministic observations are used — the screen is never empty and never
+  unverifiable.
+- **Dividend sync** `POST /api/market-data/dividends/sync` (admin) writes **only** `corporate_actions`,
+  from a free keyless provider (`lib/market-history.ts`). Before it existed, `corporate_actions` was
+  written nowhere: the single `syncMarketData` caller hard-codes `includeCorporateActions: false`,
+  and EODHD needs a token that is not configured.
+- Migration `20260816_portfolio_exposures_insights.sql` (additive, idempotent). Verify with
+  `node --env-file=.env.local scripts/verify-insights-ui.mjs` (real Supabase data, measured
+  overflow + visible mobile columns). Tests: `tests/instrument-alias`, `tests/portfolio-exposure`,
+  `tests/dividend-income`, `tests/portfolio-performance`, `tests/portfolio-insights`,
+  `tests/portfolio-insights-guards`.
+
 ### Access model (family sharing) — ENFORCED
 
 `investment_access_scope` (`family` | `selected`) on `family_members` + `investment_access_grants` (owner→viewer) define who may see whose investments. The SQL function `can_view_member_investments()` is the RLS-level rule; **the real boundary is in application code**: `lib/auth-server.ts::viewableMemberIds()` replicates it because server routes use the service-role key and bypass RLS. Admin → all family; member → self + members shared `family` + explicit grants; **fail-closed** (self only) if the sharing tables are missing. `/api/portfolio` already applies this filter, and the PEA/CTO shell further restricts a member's view to their own accounts.

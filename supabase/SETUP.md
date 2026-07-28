@@ -70,6 +70,37 @@ Vérifier que 1 puis 2 sont bien passées **avant** 3 (3 dépend de `account_ope
 - **Fonctionnement** : l'admin dépose un PDF/image, l'IA extrait des champs **bruts** avec un niveau de confiance ; le serveur revalide tout de façon déterministe (dates, nombres, cohérence quantité×prix et brut/frais/taxes/net, ISIN, devise, doublons) et réutilise la **même prévisualisation** que le CSV. Rien n'est enregistré avant validation humaine ; le fichier n'est **pas conservé**. Aucun calcul de portefeuille/PMP/performance n'est fait par l'IA — uniquement par `computeAccountModel`.
 - **Limites** : privilégier les relevés numériques nets (FR/EN/PT). Écriture manuscrite, photos floues, documents coupés ou protégés par mot de passe non garantis → l'app propose alors le CSV/XLSX ou la saisie manuelle.
 
+### Répartition géographique / sectorielle, revenus et performance (migration 20260816)
+
+Exécuter `migrations/20260816_portfolio_exposures_insights.sql` dans le **SQL Editor**. Elle est
+**additive et rejouable** : aucune table ni colonne existante n'est supprimée, `account_operations`
+n'est pas touchée, et aucune quantité ni montant n'est modifié.
+
+Ce qu'elle apporte :
+
+- `instrument_exposures` — exposition géographique et sectorielle d'un instrument, avec `source`,
+  `source_as_of`, `confidence` et `is_estimated`. **Un ETF n'est jamais rattaché à son pays de
+  cotation** : seule la composition de son indice fait foi. Amorçage inclus pour les instruments
+  réellement détenus (expositions définitionnelles marquées `is_estimated = false` ; répartitions
+  régionales indicatives marquées `true` et datées).
+- `benchmark_series` — historique d'un indice de référence. **Créée vide** : tant qu'elle n'est pas
+  alimentée, l'écran Performance affiche « comparaison indisponible » plutôt qu'une courbe
+  reconstituée. Alimentation par `POST /api/market-data/benchmarks` (admin).
+- `portfolio_analyses` — cache de l'analyse pédagogique, indexé par empreinte des données. L'analyse
+  n'est régénérée que si les chiffres changent, ou sur action explicite.
+- `financial_accounts.dividend_tax_rate` — taux d'imposition des dividendes du **compte-titres**
+  (0 à 1). `NULL` = non paramétré : l'écran applique alors l'hypothèse PFU 30 % **en l'annonçant**.
+  Colonne ignorée pour un PEA, où aucun prélèvement n'est appliqué par dividende.
+
+RLS : expositions et benchmarks sont des métadonnées de marché, lisibles par tout membre
+authentifié (aucune donnée financière personnelle) ; `portfolio_analyses` suit le périmètre du
+compte (titulaire ou administrateur). L'écriture reste réservée aux services serveur.
+
+**Après la migration**, pour peupler les dividendes : ouvrir un compte PEA/CTO → onglet **Revenus**
+→ « Synchroniser les dividendes » (admin). La route lit un fournisseur gratuit et sans clé, écrit
+uniquement dans `corporate_actions`, et **ignore les ETF capitalisants**. Elle n'écrit jamais dans
+`account_operations` : un dividende détaché n'est pas un dividende encaissé.
+
 ### Vérifications après déploiement
 
 - `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` présentes côté serveur (jamais exposées au navigateur ni préfixées `NEXT_PUBLIC_`).

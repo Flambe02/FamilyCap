@@ -25,11 +25,16 @@ function rememberOnboardingAction(slug: string) {
   if (typeof window !== "undefined") window.sessionStorage.setItem("capfamily:onboarding-action", slug);
 }
 import {
-  computeAccountModel, windowAccountTimeline, supportedRanges, priceKeyOf, instrumentKey,
+  computeAccountModel, windowAccountTimeline, supportedRanges, instrumentKey,
   type AccountModel, type AccountOperation, type AccountOperationType, type AccountType, type InstrumentPrice, type PortfolioPosition,
 } from "../lib/portfolio-account";
+import { buildPriceIndex } from "../lib/instrument-alias";
+import { computeDividendIncome } from "../lib/dividend-income";
+import { ExposureCard, DiversificationModal, CoverageStrip, useAccountExposures, useExposureModel } from "./investment-exposure";
+import { RevenusTab, useAnnouncedDividends } from "./investment-revenus";
+import { PerformanceTab } from "./investment-performance";
+import type { ExposureModel } from "../lib/portfolio-exposure";
 import { computeMonthlyPlanProgress, type MonthlyPlanProgress } from "../lib/investment-plan";
-import { FLAT_TAX_RATE, dividendToReceive, heldQuantityFor, withEstimatedDividends, yearOf } from "../lib/dividend-projection";
 import { FX_FOOTNOTE, getLatestFxRate, shortRateDate, staleRateNotice, type FxRateRow } from "../lib/fx-rates";
 // Sélection d'un actif coté : remplace les champs libres Nom / Ticker / ISIN / Devise de la modale.
 import { AssetSearchField } from "./asset-search-field";
@@ -58,6 +63,9 @@ export type InvestmentAccount = {
   // correspondante n'existe pas). Affichées dans l'onglet « Infos », jamais injectées au moteur.
   accountNumberLast4?: string | null; ibanLast4?: string | null; openedAt?: string | null;
   monthlyTarget?: number | null; openingBalance?: number | null; notes?: string | null;
+  // Taux d'imposition des dividendes du compte-titres (0 → 1). `null` = non paramétré : l'écran
+  // Revenus applique alors l'hypothèse PFU 30 % en l'annonçant. Toujours ignoré pour un PEA.
+  dividendTaxRate?: number | null;
 };
 export type InvestmentHolding = { id?: string; account_id: string; asset_type?: string | null; name?: string | null; symbol?: string | null; isin?: string | null; quantity: number; average_cost: number | null; last_price: number | null; last_price_at?: string | null; currency: string; exchange?: string | null; providerSymbol?: string | null; yahooSymbol?: string | null; micCode?: string | null; dataProvider?: string | null; quoteMode?: "eod" | "delayed" | "realtime" | "manual" | null; country?: string | null; marketStatus?: string | null; dataDelayMinutes?: number | null; fetchedAt?: string | null; fxRateToReference?: number | null; referenceCurrency?: string | null };
 export type InvestmentOperation = AccountOperation;
@@ -296,10 +304,23 @@ export function InvestmentAccountShell({
     () => operations.filter((op) => scopeIds.has(op.accountId)).map((op) => ({ ...op, accountName: accountNameById.get(op.accountId) ?? null })),
     [operations, scopeIds, accountNameById],
   );
+  // Appariement position ↔ référence de cours PAR ALIAS (lib/instrument-alias.ts), et non plus
+  // par une clé unique calculée de chaque côté. Une opération sans ISIN (`ticker: SAN`) et une
+  // ligne `holdings` identifiée par son ISIN décrivent le même titre : avec une clé unique elles
+  // ne se rencontraient jamais, et la position restait sans cours, hors valorisation et invisible
+  // du pipeline dividendes. C'est le défaut qui rendait Sanofi muet dans le PEA.
+  const priceIndex = useMemo(
+    () => buildPriceIndex(
+      holdings.filter((item) => scopeIds.has(item.account_id)),
+      (holding) => ({ isin: holding.isin ?? null, symbol: holding.symbol ?? null, name: holding.name ?? null }),
+      scopeOps,
+    ),
+    [holdings, scopeIds, scopeOps],
+  );
   const priceByKey = useMemo(() => {
     const map = new Map<string, InstrumentPrice>();
-    for (const holding of holdings.filter((item) => scopeIds.has(item.account_id))) {
-      map.set(priceKeyOf({ isin: holding.isin ?? null, symbol: holding.symbol ?? null, name: holding.name ?? null }), {
+    for (const [key, holding] of priceIndex.byKey) {
+      map.set(key, {
         lastPrice: holding.last_price, lastPriceAt: holding.last_price_at ?? null, assetType: holding.asset_type ?? null, name: holding.name ?? null,
         assetId: holding.id ?? null, providerSymbol: holding.providerSymbol ?? null, yahooSymbol: holding.yahooSymbol ?? null, exchange: holding.exchange ?? null, micCode: holding.micCode ?? null,
         dataProvider: holding.dataProvider ?? null, quoteMode: holding.quoteMode ?? null, country: holding.country ?? null,
@@ -308,7 +329,7 @@ export function InvestmentAccountShell({
       });
     }
     return map;
-  }, [holdings, scopeIds]);
+  }, [priceIndex]);
 
   const referenceCurrencyCode = selectedAccount?.currency ?? "EUR";
 
@@ -329,6 +350,40 @@ export function InvestmentAccountShell({
     () => (hasScope ? computeAccountModel({ operations: scopeOps, priceByKey, accountType: config.kind, today: todayISO(), referenceCurrency: referenceCurrencyCode, fxRateAt }) : null),
     [hasScope, scopeOps, priceByKey, config.kind, referenceCurrencyCode, fxRateAt],
   );
+
+  // Expositions géographiques et sectorielles : chargées une fois pour le périmètre affiché et
+  // partagées entre le Résumé (carte + détail) et la Performance (concentration, risques).
+  // Les recalculer dans chaque écran aurait produit deux camemberts pouvant diverger.
+  const positionsForExposure = useMemo(() => model?.positions ?? [], [model]);
+  const exposureState = useAccountExposures(positionsForExposure);
+  const geography = useExposureModel(positionsForExposure, exposureState.exposures, "geography");
+  const sectors = useExposureModel(positionsForExposure, exposureState.exposures, "sector");
+  const [diversificationOpen, setDiversificationOpen] = useState(false);
+
+  // Annonces de dividendes : chargées UNE fois au niveau du shell. Le bandeau de couverture et
+  // l'onglet Revenus lisent la même liste ; sinon les deux écrans pourraient annoncer deux
+  // couvertures différentes pour le même compte.
+  const scopeAccountIds = useMemo(() => scopeAccounts.map((account) => account.id), [scopeAccounts]);
+  const announcedDividends = useAnnouncedDividends(scopeAccountIds);
+  // Couverture « dividendes » : un instrument est ANALYSÉ dès lors qu'on SAIT s'il distribue ou
+  // capitalise. Ne compter que les distributeurs ferait passer un portefeuille intégralement
+  // capitalisant pour non documenté, alors qu'il est parfaitement caractérisé.
+  const incomeCoverage = useMemo(() => {
+    const coverage = computeDividendIncome({
+      operations: scopeOps,
+      positions: model?.positions ?? [],
+      announced: announcedDividends.announced.map((row) => ({
+        id: row.id, exDate: row.ex_date, paymentDate: row.payment_date, amountPerShare: row.amount_per_share,
+        currency: row.currency, status: row.status, provider: row.provider, asset: row.asset,
+      })),
+      accountType: config.kind,
+      today: todayISO(),
+      referenceCurrency: referenceCurrencyCode,
+      fxRateAt,
+      positionsValueEur: model?.positionsValueEur ?? null,
+    }).coverage;
+    return { done: coverage.analysedInstruments, total: coverage.totalInstruments };
+  }, [scopeOps, model, announcedDividends.announced, config.kind, referenceCurrencyCode, fxRateAt]);
 
   // Compte cible d'une écriture : le compte sélectionné, ou le premier en mode agrégé.
   const writeAccounts = isAggregate ? envAccounts : selectedAccount ? [selectedAccount] : [];
@@ -563,6 +618,8 @@ export function InvestmentAccountShell({
           {tab === "resume" && (
             <ResumeTab config={config} model={model!} title={isAggregate ? config.aggregateTitle : selectedAccount!.name} range={range} setRange={setRange} canManage={canManage} memberCanRecord={memberCanRecord} marketLoading={marketLoading}
               monthlyProgress={monthlyProgress} hasPlan={hasPlan} onOpenRhythm={onOpenRhythm}
+              geography={geography} sectors={sectors} exposureLoading={exposureState.loading} exposureAvailable={exposureState.available}
+              incomeCoverage={incomeCoverage} onOpenDiversification={() => setDiversificationOpen(true)}
               onGoto={setTab} onAddInvestment={() => setModal({ open: true, type: "versement", mode: "admin" })}
               onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })}
               onReport={() => setNotice("Le report sera enregistré dans une prochaine version. Saisissez le versement le moment venu.")} recent={scopeOps} />
@@ -584,9 +641,17 @@ export function InvestmentAccountShell({
               })}
               onPurge={selectedAccount ? () => setPurgeAccount(selectedAccount) : undefined} />
           )}
-          {tab === "revenus" && <RevenusTab model={model!} operations={scopeOps} accountIds={scopeAccounts.map((account) => account.id)} />}
+          {tab === "revenus" && (
+            <RevenusTab model={model!} operations={scopeOps} accountIds={scopeAccountIds}
+              announced={announcedDividends.announced} loading={announcedDividends.loading} onReloadAnnounced={announcedDividends.reload}
+              accountCurrency={referenceCurrencyCode} fxRates={fxRates}
+              dividendTaxRate={selectedAccount?.dividendTaxRate ?? null} canManage={canManage} />
+          )}
           {tab === "investir" && <InvestirTab config={config} model={model!} canManage={canManage} memberCanRecord={memberCanRecord} onAdd={(type) => setModal({ open: true, type, mode: "admin" })} onMemberAdd={() => setModal({ open: true, type: "achat", mode: "member" })} />}
-          {tab === "performance" && <PerformanceTab model={model!} />}
+          {tab === "performance" && (
+            <PerformanceTab model={model!} operations={scopeOps} accountId={selectedAccount?.id ?? null}
+              accountCurrency={referenceCurrencyCode} fxRates={fxRates} exposures={exposureState.exposures} canManage={canManage} />
+          )}
         </>
       )}
 
@@ -666,6 +731,7 @@ export function InvestmentAccountShell({
             return null;
           }} />
       )}
+      {diversificationOpen && <DiversificationModal geography={geography} sectors={sectors} onClose={() => setDiversificationOpen(false)} />}
       {notice && <div className="toast" role="status">✓ {notice}</div>}
     </div>
   );
@@ -682,10 +748,12 @@ function regularStatus(status: MonthlyPlanProgress["status"]): { label: string; 
   return { label: "Objectif à définir", cls: "à_investir" };
 }
 
-function ResumeTab({ config, model, title, range, setRange, canManage, memberCanRecord, marketLoading, monthlyProgress, hasPlan, onOpenRhythm, onGoto, onAddInvestment, onMemberAdd, onReport, recent }: {
+function ResumeTab({ config, model, title, range, setRange, canManage, memberCanRecord, marketLoading, monthlyProgress, hasPlan, onOpenRhythm, geography, sectors, exposureLoading, exposureAvailable, incomeCoverage, onOpenDiversification, onGoto, onAddInvestment, onMemberAdd, onReport, recent }: {
   config: EnvelopeConfig; model: AccountModel; title: string; range: "1M" | "3M" | "6M" | "1A" | "3A" | "TOUT";
   setRange: (value: "1M" | "3M" | "6M" | "1A" | "3A" | "TOUT") => void; canManage: boolean; memberCanRecord: boolean; marketLoading: boolean;
   monthlyProgress: MonthlyPlanProgress; hasPlan: boolean; onOpenRhythm?: () => void;
+  geography: ExposureModel; sectors: ExposureModel; exposureLoading: boolean; exposureAvailable: boolean;
+  incomeCoverage: { done: number; total: number }; onOpenDiversification: () => void;
   onGoto: (tab: InvestmentTab) => void; onAddInvestment: () => void; onMemberAdd: () => void; onReport: () => void; recent: InvestmentOperation[];
 }) {
   const ranges = supportedRanges(model.timeline);
@@ -699,6 +767,17 @@ function ResumeTab({ config, model, title, range, setRange, canManage, memberCan
   const allocSegments = model.allocation.map((bucket) => ({ label: bucket.label, value: bucket.valueEur, color: bucket.color }));
   const topPositions = model.positions.slice(0, 5);
   const startLabel = model.startDate ? dateOf(model.startDate) : "—";
+
+  // Cartes de la seconde rangée. La répartition sectorielle n'y figure que si elle APPREND
+  // quelque chose : un camembert aux quatre cinquièmes « Non renseigné » occupe une carte entière
+  // pour dire qu'on ne sait pas. Cette information reste portée par le bandeau de couverture, à
+  // sa juste échelle — une ligne, pas un graphique.
+  const secondaryCards = [
+    config.thirdCard === "currency" ? <CurrencyCard key="currency" model={model} /> : null,
+    sectors.buckets.length > 0 && sectors.unknownPct < 70
+      ? <ExposureCard key="sector" model={sectors} dimension="sector" loading={exposureLoading} available={exposureAvailable} onOpenDetail={onOpenDiversification} />
+      : null,
+  ].filter((card): card is React.ReactElement => card !== null);
 
   return (
     <>
@@ -781,14 +860,27 @@ function ResumeTab({ config, model, title, range, setRange, canManage, memberCan
           <button type="button" className="btc-link" onClick={() => onGoto("positions")}>Voir toutes les positions →</button>
         </section>
 
-        {config.thirdCard === "currency" ? (
-          <CurrencyCard model={model} />
-        ) : config.thirdCard === "geo" ? (
-          <section className="panel btc-alloc-card">
-            <h3 className="btc-panel-kicker">RÉPARTITION GÉOGRAPHIQUE</h3>
-            <EmptyState icon="🌍" title="Bientôt disponible" description="La répartition géographique sera disponible lorsque les informations des actifs auront été complétées." />
-          </section>
-        ) : null}
+        {/* La géographie occupe la 3ᵉ colonne des DEUX enveloppes : c'est la question la plus
+            utile posée à un portefeuille d'actions, et la placer au même endroit partout évite
+            d'avoir à la chercher en passant du PEA au compte-titres. La répartition par devise,
+            propre au compte-titres, descend d'une rangée. */}
+        <ExposureCard model={geography} dimension="geography" loading={exposureLoading} available={exposureAvailable} onOpenDetail={onOpenDiversification} />
+      </div>
+
+      {/* Seconde rangée : les cartes qui restent, PUIS le bandeau de couverture, qui s'étire sur
+          les colonnes libres. La rangée est donc toujours pleine — pas de trou d'un tiers de
+          largeur selon l'enveloppe affichée. */}
+      <div className="btc-allocation-grid pea-alloc-grid inv-alloc-secondary">
+        {secondaryCards}
+        <CoverageStrip
+          spanColumns={3 - secondaryCards.length}
+          quotes={{ done: model.valuationCoverage.valuedPositions, total: model.valuationCoverage.totalPositions }}
+          geography={{ done: geography.coverage.documentedInstruments, total: geography.coverage.totalInstruments }}
+          sectors={{ done: sectors.coverage.documentedInstruments, total: sectors.coverage.totalInstruments }}
+          dividends={incomeCoverage}
+          costBasis={{ done: model.positions.filter((position) => position.investedEur > 0).length, total: model.positions.length }}
+          onOpenDetail={onOpenDiversification}
+        />
       </div>
 
       <div className="btc-lower-grid">
@@ -1517,128 +1609,6 @@ function HistoriqueTab({ config, operations, accountNameById, canManage, onImpor
 }
 
 // ==========================================================================================
-// REVENUS (dividendes)
-// ==========================================================================================
-type AnnouncedDividend = { id: string; ex_date: string; payment_date: string | null; amount_per_share: number | null; currency: string | null; status: string; asset: { name: string; symbol: string | null; isin: string | null } | null };
-
-// « Déc. 2026 » : mois en toutes lettres, mis en évidence dans sa propre colonne (voir le libellé
-// « montre bien les mois » — un mois isolé se repère bien plus vite qu'enfoui dans une date complète).
-const monthYearFormat = new Intl.DateTimeFormat("fr-FR", { month: "short", year: "numeric", timeZone: "UTC" });
-function monthYearLabel(iso: string): string {
-  const label = monthYearFormat.format(new Date(`${iso}T00:00:00Z`));
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
-function RevenusTab({ model, operations, accountIds }: { model: AccountModel; operations: InvestmentOperation[]; accountIds: string[] }) {
-  const dividends = operations.filter((op) => op.type === "dividende").sort((a, b) => b.date.localeCompare(a.date));
-  const [announced, setAnnounced] = useState<AnnouncedDividend[]>([]);
-  const [announcedLoading, setAnnouncedLoading] = useState(true);
-  const accountIdsKey = accountIds.join(",");
-  const year = new Date().getFullYear();
-  const paidThisYear = dividends.filter((op) => op.date.startsWith(String(year))).reduce((sum, op) => {
-    const amount = Math.abs(Number(op.netAmount ?? op.grossAmount ?? 0));
-    const rate = op.currency === "EUR" ? 1 : op.exchangeRate;
-    return sum + (Number.isFinite(rate) && Number(rate) > 0 ? amount * Number(rate) : 0);
-  }, 0);
-  useEffect(() => {
-    let active = true;
-    authenticatedFetch(`/api/market-data/dividends?accountIds=${encodeURIComponent(accountIdsKey)}`)
-      .then((response) => response.ok ? response.json() : { dividends: [] })
-      .then((data: { dividends?: AnnouncedDividend[] }) => { if (active) setAnnounced(data.dividends ?? []); })
-      .catch(() => { if (active) setAnnounced([]); })
-      .finally(() => { if (active) setAnnouncedLoading(false); });
-    return () => { active = false; };
-  }, [accountIdsKey]);
-
-  // Complète les annonces réelles par une projection « Estimé » quand la période équivalente de
-  // l'année en cours n'a pas encore été communiquée par le fournisseur — jamais stocké, jamais
-  // présenté comme confirmé (lib/dividend-projection.ts).
-  const projected = useMemo(() => withEstimatedDividends(announced, todayISO()), [announced]);
-  const hasEstimated = projected.some((event) => event.estimated);
-  const isCto = model.accountType === "CTO";
-
-  return (
-    <>
-      <section className="panel btc-synth">
-        <h3 className="btc-panel-kicker">DIVIDENDES</h3>
-        <div className="btc-synth-grid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
-          <div><small>Dividendes bruts</small><strong>{euro.format(model.dividendsGrossEur)}</strong></div>
-          <div><small>Encaissés cette année</small><strong>{euro.format(paidThisYear)}</strong></div>
-          <div><small>Opérations réelles</small><strong>{dividends.length}</strong></div>
-        </div>
-      </section>
-      <section className="panel btc-ops-card">
-        <h3 className="btc-panel-kicker">DIVIDENDES ANNONCÉS</h3>
-        <p className="btc-chart-source">
-          {isCto
-            ? `Brut et net (après un prélèvement forfaitaire simplifié de ${Math.round(FLAT_TAX_RATE * 100)} %), sur la base de vos positions actuelles — une indication, pas une confirmation du fournisseur.`
-            : "Montant brut, sur la base de vos positions actuelles — dans un PEA, il n’est pas soumis au prélèvement forfaitaire tant que le plan reste ouvert."}
-          {hasEstimated && " Les lignes « Estimé » reprennent le dernier montant connu du fournisseur pour la même période, faute de confirmation pour l’année en cours."}
-        </p>
-        {announcedLoading ? (
-          <p className="inv-muted">Chargement des annonces…</p>
-        ) : projected.length === 0 ? (
-          <EmptyState title="Aucun dividende annoncé" description="Les annonces EODHD apparaîtront après une synchronisation réussie." />
-        ) : (
-          <ul className="btc-ops">
-            {projected.slice(0, 12).map((event) => {
-              const heldQty = heldQuantityFor(model.positions, event.asset);
-              const { gross, net } = dividendToReceive({ amountPerShare: event.amount_per_share, quantityHeld: heldQty, accountType: model.accountType });
-              const currency = event.currency ?? "EUR";
-              return (
-                <li key={event.id}>
-                  <span className="btc-ops-mark" aria-hidden="true">◌</span>
-                  <div className="btc-ops-info">
-                    <strong>{event.asset?.name ?? "Actif"}</strong>
-                    <small>
-                      {event.estimated ? (
-                        <><span className="div-estimated-badge">Estimé</span> d’après {yearOf(event.ex_date) - 1}{event.payment_date ? ` · paiement prévu ${dateOf(event.payment_date)}` : ""}</>
-                      ) : (
-                        <>Détachement {dateOf(event.ex_date)}{event.payment_date ? ` · paiement ${dateOf(event.payment_date)}` : ""}</>
-                      )}
-                    </small>
-                  </div>
-                  <div className="btc-ops-amount">
-                    {gross === null ? (
-                      <b>Montant non communiqué</b>
-                    ) : heldQty <= 0 ? (
-                      <small>Non détenu actuellement</small>
-                    ) : (
-                      <>
-                        <b>{money(gross, currency)}</b><small>brut</small>
-                        {net !== null && <><b>{money(net, currency)}</b><small>net</small></>}
-                      </>
-                    )}
-                  </div>
-                  <div className="btc-ops-meta"><span>{monthYearLabel(event.ex_date)}</span></div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-      <section className="panel btc-ops-card">
-        <h3 className="btc-panel-kicker">DÉTAIL DES DIVIDENDES</h3>
-        {dividends.length === 0 ? (
-          <EmptyState icon="💶" title="Aucun dividende enregistré pour le moment." description="Les dividendes reçus apparaîtront ici dès leur saisie." />
-        ) : (
-          <ul className="btc-ops">
-            {dividends.map((op) => (
-              <li key={op.id}>
-                <span className="btc-ops-mark" aria-hidden="true">💶</span>
-                <div className="btc-ops-info"><strong>{op.assetName ?? "Dividende"}</strong><small>{op.ticker ?? op.isin ?? ""}{op.accountName ? ` · ${op.accountName}` : ""}</small></div>
-                <div className="btc-ops-amount"><b>+{euro.format(Math.abs(Number(op.netAmount ?? op.grossAmount ?? 0)))}{op.currency && op.currency !== "EUR" ? ` ${op.currency}` : ""}</b><small>net</small></div>
-                <div className="btc-ops-meta"><time>{dateOf(op.date)}</time></div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </>
-  );
-}
-
-// ==========================================================================================
 // INVESTIR
 // ==========================================================================================
 const INVEST_CARD_META: Record<AccountOperationType, { icon: string; title: string; desc: string }> = {
@@ -1716,39 +1686,6 @@ function InvestirTab({ config, model, canManage, memberCanRecord, onAdd, onMembe
           );
         })}
       </div>
-    </>
-  );
-}
-
-// ==========================================================================================
-// PERFORMANCE DES POSITIONS
-// ==========================================================================================
-function PerformanceTab({ model }: { model: AccountModel }) {
-  const coverage = model.valuationCoverage;
-  const isPartial = coverage.unvaluedPositions > 0;
-  return (
-    <>
-      <section className="panel btc-synth">
-        <h3 className="btc-panel-kicker">PERFORMANCE DES POSITIONS</h3>
-        <div className="btc-synth-grid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
-          <div><small>Valeur des positions</small><strong>{model.positionsValueEur === null ? "Non disponible" : euro.format(model.positionsValueEur)}</strong></div>
-          <div><small>Coût des positions valorisées</small><strong>{euro.format(coverage.valuedCostEur)}</strong></div>
-          <div><small>Plus / moins-value</small><strong>{model.unrealizedGainEur === null ? "Non disponible" : <GainPill eur={model.unrealizedGainEur} pct={model.unrealizedGainPct} />}</strong></div>
-          <div><small>Dividendes nets</small><strong>{euro.format(model.dividendsNetEur)}</strong></div>
-          <div><small>Frais</small><strong>{euro.format(model.feesEur)}</strong></div>
-          <div><small>Couverture de valorisation</small><strong>{coverage.valuedPositions} / {coverage.totalPositions} position(s)</strong><em>{coverage.coveragePercent.toFixed(0)} % du coût valorisé</em></div>
-        </div>
-      </section>
-      <section className="panel">
-        <h3 className="btc-panel-kicker">PÉRIMÈTRE DE CALCUL</h3>
-        {isPartial ? (
-          <p className="inv-detail-warn">
-            Performance partielle : {coverage.unvaluedPositions} position(s) sans cours valide, pour un coût de {euro.format(coverage.unvaluedCostEur)}, sont exclue(s) du calcul. Elles ne sont jamais valorisées à zéro.
-          </p>
-        ) : (
-          <p className="inv-detail-note">Toutes les positions détenues ont un cours valide. La performance compare leur valeur à leur prix de revient.</p>
-        )}
-      </section>
     </>
   );
 }
