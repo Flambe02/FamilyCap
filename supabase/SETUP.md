@@ -26,6 +26,7 @@
 Les migrations suivantes sont additives et rejouables. Les exécuter dans le **SQL Editor** après les précédentes :
 
 - `migrations/20260721_gift_source.sql`, `migrations/20260721_notification_preferences.sql`
+- `migrations/20260820_invitation_login_truth.sql` : corrige le statut et la « dernière connexion » des invitations ; une invitation reste en attente tant que le membre ne s'est pas réellement connecté.
 - `migrations/20260722_account_operations.sql`
 - `migrations/20260723_user_onboarding.sql`
 - `migrations/20260724_family_videos.sql` : espace **Souvenirs**. Crée `family_videos`, `family_video_recipients`, `family_video_views`, la RLS et la fonction `public.can_view_video()`. **Aucune vidéo n’est stockée** : seules les métadonnées YouTube et les droits d’accès le sont. **Aucune variable d’environnement supplémentaire n’est nécessaire** (pas de clé YouTube Data API : l’identifiant vidéo et la miniature sont dérivés de l’URL ; la durée est facultative et saisie à la main).

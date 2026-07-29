@@ -161,6 +161,9 @@ export async function GET(request: Request) {
         product_access: Object.fromEntries(products.filter((item) => item.member_id === member.id).map((item) => [item.product, item.access_level])),
         invitation: invitation ? { id: invitation.id, status: invitation.status, sentAt: invitation.sent_at, expiresAt: invitation.expires_at, acceptedAt: invitation.accepted_at } : null,
         auth: authUser ? { id: authUser.id, createdAt: authUser.created_at, emailConfirmedAt: authUser.email_confirmed_at, lastSignInAt: authUser.last_sign_in_at, providers: authUser.identities?.map((identity) => identity.provider) ?? [], mfaConfigured: mfaById.get(authUser.id) ?? false, bannedUntil: authUser.banned_until ?? null } : null,
+        // Source unique de vérité : ne jamais renvoyer une date stockée dans family_members,
+        // car les anciennes invitations pouvaient y inscrire leur date de création.
+        last_sign_in_at: authUser?.last_sign_in_at ?? null,
       };
     }) });
   } catch (error) { return authErrorResponse(error); }

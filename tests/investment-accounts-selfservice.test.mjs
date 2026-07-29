@@ -73,6 +73,22 @@ test("la route admin d'origine n'est ni modifiée ni affaiblie", async () => {
   assert.equal((admin.match(/await requireAdmin\(request\)/g) ?? []).length, 4);
 });
 
+test("la gestion admin d'un membre peut supprimer son PEA, avec confirmation et garde d'historique", async () => {
+  const ui = await source("app/settings-accounts.tsx");
+  const admin = await source("app/api/admin/accounts/route.ts");
+  // L'aperçu est toujours exécuté avec la session admin : il peut donc gérer le compte existant
+  // du membre sans ouvrir la création self-service à une autre identité.
+  assert.match(ui, /const canEdit = viewer\.role === "admin" \|\| isAdminPreview/);
+  assert.match(ui, /const canDelete = canEdit && account\.accountType === "pea"/);
+  assert.match(ui, /Supprimer définitivement le PEA/);
+  assert.match(ui, /\/api\/admin\/accounts\?id=\$\{encodeURIComponent\(account\.id\)\}/);
+  // En cas d'opérations, l'UI ne force pas la suppression : le compte doit d'abord être vidé.
+  assert.match(ui, /requiresConfirmation/);
+  assert.match(ui, /Utilisez d’abord « Tout effacer »/);
+  assert.match(admin, /if \(!force\)/);
+  assert.match(admin, /Ce compte contient des opérations/);
+});
+
 test("le formulaire guidé écrit via la route self-service pour un membre, admin pour un admin", async () => {
   const ui = await source("app/settings-accounts.tsx");
   // Le routage des deux chemins est verrouillé ici car il ne peut pas être exercé en navigateur :

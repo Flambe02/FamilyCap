@@ -151,14 +151,13 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
   const [detail, setDetail] = useState<{ account: PortfolioAccount; valueEur: number | null } | null>(null);
   const [message, setMessage] = useState<{ text: string; tone: "success" | "error" | "info" } | null>(null);
   const [creating, setCreating] = useState<"pea" | "securities" | null>(null);
-  // `canEdit` = édition d'un compte EXISTANT (nom, établissement, objectif…) : reste admin.
-  const canEdit = viewer.role === "admin";
-
-  // APERÇU ADMIN (AdminMemberSettings passe toujours `scopeOverride`) : aucune écriture. C'est un
-  // garde-fou de correction, pas de confort — la route self-service force `member_id` sur la
-  // SESSION appelante, donc un enregistrement depuis l'aperçu créerait le compte au nom de
-  // l'administrateur et non du membre affiché.
+  // `scopeOverride` est fourni uniquement par AdminMemberSettings : la session reste celle de
+  // l'administrateur, donc les routes /api/admin/accounts peuvent gérer le compte ciblé sans
+  // jamais usurper l'identité du membre affiché.
   const isAdminPreview = scopeOverride !== undefined;
+  const canEdit = viewer.role === "admin" || isAdminPreview;
+  // La création self-service reste interdite dans l'aperçu : elle forcerait le member_id de
+  // l'administrateur. Les comptes existants, eux, passent par la route admin sécurisée.
   const canWrite = !isAdminPreview;
   const isAdmin = viewer.role === "admin";
 
@@ -320,6 +319,11 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
             setMessage({ text: `Portefeuille vidé : ${removed} opération(s) supprimée(s). Le compte est conservé.`, tone: "success" });
             try { await load(); } catch { /* la liste reste inchangée si le rechargement échoue */ }
           }}
+          onDeleted={async () => {
+            setDetail(null);
+            setMessage({ text: `${detail.account.name ?? "Le PEA"} a été supprimé.`, tone: "success" });
+            try { await load(); } catch { /* la liste reste inchangée si le rechargement échoue */ }
+          }}
         />
       )}
     </SettingsSection>
@@ -330,9 +334,10 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
 // édition (nom, établissement, date d'ouverture, objectif mensuel, solde de départ, note).
 // L'écriture passe par /api/admin/accounts (PATCH, requireAdmin). Les identifiants (n° de compte,
 // IBAN) restent en lecture seule : seuls leurs 4 derniers caractères ont été enregistrés.
-function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved, onPurged }: {
+function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved, onPurged, onDeleted }: {
   account: PortfolioAccount; valueEur: number | null; canEdit: boolean;
   onClose: () => void; onSaved: (updated: PortfolioAccount) => void; onPurged: (removed: number) => void;
+  onDeleted: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(account.name ?? "");
@@ -348,12 +353,16 @@ function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved, onPu
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState("");
   const [purging, setPurging] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const ccy = (account.currency || "EUR").toUpperCase();
   const typeLabel = TYPE_LABELS[account.accountType] ?? account.accountType;
   const ro = !editing;
   const todayISO = new Date().toISOString().slice(0, 10);
   const canPurge = canEdit && (account.accountType === "pea" || account.accountType === "securities");
+  const canDelete = canEdit && account.accountType === "pea";
   const accountName = (account.name ?? "").trim();
 
   async function purge() {
@@ -370,6 +379,27 @@ function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved, onPu
     } catch {
       setPurging(false);
       setError("Réseau indisponible.");
+    }
+  }
+
+  async function deleteAccount() {
+    setError("");
+    setDeleting(true);
+    try {
+      const headers = await authHeaders();
+      const response = await fetch(`/api/admin/accounts?id=${encodeURIComponent(account.id)}`, { method: "DELETE", headers });
+      const body = (await response.json().catch(() => ({}))) as { error?: string; requiresConfirmation?: boolean };
+      if (!response.ok) {
+        setError(body.requiresConfirmation
+          ? "Ce PEA contient des opérations. Utilisez d’abord « Tout effacer », puis supprimez le compte."
+          : body.error ?? "Suppression impossible.");
+        return;
+      }
+      onDeleted();
+    } catch {
+      setError("Réseau indisponible.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -493,6 +523,34 @@ function AccountDetailModal({ account, valueEur, canEdit, onClose, onSaved, onPu
                   <button type="button" className="set-btn" onClick={() => { setPurgeOpen(false); setPurgeConfirm(""); }} disabled={purging}>Annuler</button>
                   <button type="button" className="set-btn-danger" disabled={purging || purgeConfirm.trim() !== accountName} onClick={() => void purge()}>
                     {purging ? "Suppression…" : "Effacer définitivement"}
+                  </button>
+                </div>
+              </div>
+            )}
+        </div>
+      )}
+
+      {canDelete && !editing && (
+        <div className="set-danger">
+          <div>
+            <h3>Supprimer ce PEA</h3>
+            <p>
+              Retire définitivement le compte de {account.memberName ?? "ce membre"}. Si des opérations sont encore enregistrées,
+              videz d’abord le portefeuille ci-dessus afin de ne pas supprimer son historique par erreur.
+            </p>
+          </div>
+          {!deleteOpen
+            ? <button type="button" className="set-btn-danger" onClick={() => { setDeleteOpen(true); setDeleteConfirm(""); setError(""); }}>Supprimer le PEA</button>
+            : (
+              <div className="set-fields" style={{ gridColumn: "1 / -1", gridTemplateColumns: "1fr" }}>
+                <label className="set-field">
+                  <span>Saisissez «&nbsp;{accountName}&nbsp;» pour confirmer</span>
+                  <input value={deleteConfirm} onChange={(event) => setDeleteConfirm(event.target.value)} placeholder={accountName} autoComplete="off" />
+                </label>
+                <div className="set-modal-actions">
+                  <button type="button" className="set-btn" onClick={() => { setDeleteOpen(false); setDeleteConfirm(""); }} disabled={deleting}>Annuler</button>
+                  <button type="button" className="set-btn-danger" disabled={deleting || deleteConfirm.trim() !== accountName} onClick={() => void deleteAccount()}>
+                    {deleting ? "Suppression…" : "Supprimer définitivement le PEA"}
                   </button>
                 </div>
               </div>
