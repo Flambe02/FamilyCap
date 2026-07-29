@@ -21,6 +21,8 @@ const settingsAccounts = read("app/settings-accounts.tsx");
 const adminMemberSettings = read("app/settings-admin-member.tsx");
 const challengesPage = read("app/challenges-page.tsx");
 const investmentAccount = read("app/investment-account.tsx");
+const familyDashboard = read("app/family-dashboard.tsx");
+const challengeJourney = read("app/onboarding-challenge-flow.tsx");
 
 // ---- Migration additive : seed idempotent des 4 missions ---------------------------------
 test("les 4 missions sont seedées via une clé métier stable (slug), pas le titre", () => {
@@ -177,4 +179,14 @@ test("la réussite d'un import ou d'une opération reste confirmée par le serve
   assert.match(investmentAccount, /capfamily:onboarding-action/);
   assert.match(challengesPage, /mission\.status === "done"/);
   assert.match(challengesPage, /capfamily:onboarding-action/);
+});
+
+test("le CTA du tableau de bord ouvre un parcours dédié, sans dépendre de la rubrique Paramètres", () => {
+  assert.match(familyDashboard, /OnboardingChallengeFlow/);
+  assert.match(familyDashboard, /onStartMission=\{openChallengeMission\}/);
+  assert.match(challengesPage, /onStartMission \? onStartMission\(nextMission\) : navigateToOnboardingMission/);
+  assert.match(challengeJourney, /\/api\/investment-accounts/);
+  assert.match(challengeJourney, /\/api\/challenges\/onboarding/);
+  assert.match(challengeJourney, /Valider et gagner mes points/);
+  assert.match(challengeJourney, /Continuer avec le défi suivant/);
 });

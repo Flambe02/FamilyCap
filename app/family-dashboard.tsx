@@ -14,6 +14,7 @@ const AdminUsers = dynamic(() => import("./admin-users").then((module) => module
 const ChallengesPage = dynamic(() => import("./challenges-page").then((module) => module.ChallengesPage));
 const BirthdaysPage = dynamic(() => import("./birthdays-page").then((module) => module.BirthdaysPage));
 const ChallengesDashboardSection = dynamic(() => import("./challenges-page").then((module) => module.ChallengesDashboardSection));
+const OnboardingChallengeFlow = dynamic(() => import("./onboarding-challenge-flow").then((module) => module.OnboardingChallengeFlow));
 const AdminChallenges = dynamic(() => import("./admin-challenges").then((module) => module.AdminChallenges));
 const BitcoinInvestmentPage = dynamic(() => import("./bitcoin-investments").then((module) => module.BitcoinInvestmentPage));
 const PeaInvestmentPage = dynamic(() => import("./pea-investments").then((module) => module.PeaInvestmentPage));
@@ -30,7 +31,7 @@ import type { FxRateRow } from "../lib/fx-rates";
 import { getAccessToken } from "../lib/supabase-session";
 import { OnboardingFlow } from "./onboarding/onboarding-flow";
 import { OnboardingChecklist } from "./onboarding/onboarding-checklist";
-import type { ChallengesDashboardSummary } from "./challenges-page";
+import type { ChallengesDashboardSummary, OnboardingMissionDto } from "./challenges-page";
 import { ContextualTip } from "./onboarding/contextual-tips";
 import { loadOnboardingState } from "../lib/onboarding/onboarding-client";
 import { onboardingCopy } from "../lib/onboarding/onboarding-copy";
@@ -226,6 +227,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   // sur « soi seul ». `null` hors aperçu.
   const previewMemberId = previewMemberRecord?.id ?? null;
   const [onboardingOverlay, setOnboardingOverlay] = useState<null | { mode: "tour" | "required"; state?: OnboardingState }>(null);
+  const [activeChallengeMission, setActiveChallengeMission] = useState<OnboardingMissionDto | null>(null);
   const [checklistToken, setChecklistToken] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
@@ -479,6 +481,20 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
     // Navigation par état (SPA sans routes) : sans cela on arrive sur le nouvel écran à la
     // position de défilement de l'ancien — c'est-à-dire souvent au milieu de la page.
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  function openChallengeMission(mission: OnboardingMissionDto) {
+    setActiveChallengeMission(mission);
+  }
+
+  function openChallengeMissionArea(mission: OnboardingMissionDto) {
+    setActiveChallengeMission(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      const tab = mission.slug === "onboarding_existing_portfolio" ? "import" : "investir";
+      window.history.replaceState(null, "", `${url.pathname}${url.search}#pea/${tab}`);
+    }
+    navigate("investissements-pea");
   }
 
   function handleGiftSaved(result: GiftSaveResult) {
@@ -745,7 +761,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           marketLoading={familyMarketLoading}
           // La section est rendue dès que le membre y a droit — le contenu s'adapte au statut.
           // La conditionner aux DONNÉES la faisait disparaître sur la moindre défaillance.
-          challengesSection={challengesEligible ? <ChallengesDashboardSection state={challengesView} navigate={navigate} /> : null}
+          challengesSection={challengesEligible ? <ChallengesDashboardSection state={challengesView} navigate={navigate} onStartMission={openChallengeMission} /> : null}
           // Dès que les Défis sont chargés, ils portent déjà la carte « Bien démarrer » : la
           // checklist de découverte ne s'affiche plus, pour ne pas doubler la même consigne.
           checklist={challengesEligible && challengesView.status !== "ready" ? <OnboardingChecklist key={checklistToken} viewer={effectiveViewer} navigate={navigate} onResume={resumeOnboarding} /> : null}
@@ -822,7 +838,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             />
           </>
         )}
-        {view === "investissements-suggestions" && <ChallengesPage canAct={memberCanRecordOperation} onNavigate={navigate} asMemberId={isPreview && viewer.role === "admin" ? previewMemberId ?? undefined : undefined} />}
+        {view === "investissements-suggestions" && <ChallengesPage canAct={memberCanRecordOperation} onNavigate={navigate} asMemberId={isPreview && viewer.role === "admin" ? previewMemberId ?? undefined : undefined} onStartMission={openChallengeMission} />}
         {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
         {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={effectiveViewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}
         {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} birthdays={familyBirthdays} />}
@@ -901,6 +917,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
       </aside>
 
       {onboardingOverlay && <OnboardingFlow viewer={effectiveViewer} mode={onboardingOverlay.mode} initialState={onboardingOverlay.state} onDone={closeOnboardingOverlay} onDefer={closeOnboardingOverlay} onExitTour={closeOnboardingOverlay} />}
+      {activeChallengeMission && <OnboardingChallengeFlow viewer={effectiveViewer} initialMission={activeChallengeMission} readOnly={!memberCanRecordOperation} onClose={() => setActiveChallengeMission(null)} onOpenMissionArea={openChallengeMissionArea} onRefresh={() => { setFamilyReloadToken((token) => token + 1); setChecklistToken((token) => token + 1); }} />}
       {modalOpen && canManageGifts && <InvestmentModal defaultMember={familyMember} defaultSource={modalSource} onClose={closeGiftModal} onSaved={handleGiftSaved} />}
       {personalModalOpen && canRecordPersonalBtc && <InvestmentModal personalMode memberInvestor={effectiveViewer.name} adminForMember={isPreview ? effectiveViewer.name : undefined} onClose={() => setPersonalModalOpen(false)} onSaved={handlePersonalInvestmentSaved} />}
       {toast && <div className="toast" role="status">✓ {toast}</div>}

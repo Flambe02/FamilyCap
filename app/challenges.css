@@ -341,3 +341,39 @@
 .cha-dashboard-board-empty p { margin: 0; font-size: 12.5px; line-height: 1.45; }
 @media (max-width: 980px) { .cha-dashboard-section { grid-template-columns: minmax(0, 1fr); } .cha-dashboard-leaderboard { min-height: 0; } }
 @media (max-width: 560px) { .cha-dashboard-section { gap: 14px; } .cha-dashboard-missions, .cha-dashboard-leaderboard { padding: 18px; } .cha-dashboard-head h3 { font-size: 18px; } .cha-dashboard-head { margin-bottom: 14px; } .cha-dashboard-head .home-card-link { font-size: 12px; } .cha-dashboard-action { grid-template-columns: 38px minmax(0, 1fr); gap: 10px; } .cha-dashboard-action-icon { width: 38px; height: 38px; border-radius: 13px; } .cha-dashboard-action-side { grid-column: 2; min-width: 0; flex-direction: row; align-items: center; } .cha-dashboard-action-side button { min-height: 44px; } }
+
+/* Parcours dédié « Bien démarrer » : indépendant des Paramètres et centré sur une action. */
+.cha-journey-backdrop { z-index: 120; display: grid; place-items: center; padding: 24px; background: rgba(4, 29, 43, .58); }
+.cha-journey { width: min(100%, 620px); max-height: min(760px, calc(100vh - 48px)); overflow: auto; border: 1px solid rgba(255,255,255,.55); border-radius: 22px; background: #fffdf9; box-shadow: 0 24px 80px rgba(3, 25, 38, .32); }
+.cha-journey:focus { outline: none; }
+.cha-journey-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; border-bottom: 1px solid #e7ecea; color: #657681; font-size: 12px; font-weight: 700; }
+.cha-journey-head div { display: flex; align-items: center; gap: 10px; }
+.cha-journey-head strong { color: #183c53; font-variant-numeric: tabular-nums; }
+.cha-journey-head button { width: 34px; height: 34px; border: 0; border-radius: 50%; background: #edf3f1; color: #183c53; font-size: 23px; line-height: 1; cursor: pointer; }
+.cha-journey-head button:disabled { cursor: wait; opacity: .55; }
+.cha-journey-progress { height: 6px; background: #e8efec; }
+.cha-journey-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #168766, #e4aa41); transition: width .25s ease; }
+.cha-journey-body { display: flex; flex-direction: column; align-items: flex-start; padding: 38px 42px 42px; }
+.cha-journey-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 17px; background: #e7f4ef; color: #168766; font-size: 25px; }
+.cha-journey-kicker { margin: 22px 0 7px; color: #a66c17; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.cha-journey-body h2 { margin: 0; color: #07354a; font-family: var(--font-display-stack); font-size: clamp(26px, 5vw, 34px); line-height: 1.08; }
+.cha-journey-body > p:not(.cha-journey-kicker):not(.cha-journey-error) { margin: 12px 0 0; color: #647782; font-size: 15px; line-height: 1.55; }
+.cha-journey-readonly { margin-top: 22px !important; padding: 13px 15px; border-radius: 12px; background: #fff3d5; color: #785514 !important; font-size: 13px !important; }
+.cha-journey-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.cha-journey-primary, .cha-journey-secondary { min-height: 44px; border-radius: 11px; padding: 0 17px; font: 800 13px/1 inherit; cursor: pointer; }
+.cha-journey-primary { border: 1px solid #167d64; background: #167d64; color: #fff; }
+.cha-journey-primary:hover { background: #126b56; }
+.cha-journey-primary:disabled { cursor: wait; opacity: .65; }
+.cha-journey-secondary { border: 1px solid #d4dfda; background: #fff; color: #23485b; }
+.cha-journey-form { gap: 15px; }
+.cha-journey-form > p { margin-top: 0 !important; }
+.cha-journey-form label { display: grid; width: 100%; gap: 7px; color: #23485b; font-size: 12px; font-weight: 800; }
+.cha-journey-form label small { color: #7a8b94; font-weight: 600; }
+.cha-journey-form input, .cha-journey-form select { width: 100%; min-height: 45px; border: 1px solid #d7e1de; border-radius: 10px; padding: 0 12px; background: #fff; color: #17364a; font: 500 14px/1 inherit; }
+.cha-journey-form input:focus, .cha-journey-form select:focus, .cha-journey-primary:focus-visible, .cha-journey-secondary:focus-visible, .cha-journey-head button:focus-visible { outline: 3px solid rgba(226, 165, 52, .55); outline-offset: 2px; }
+.cha-journey-error { width: 100%; margin: 0; padding: 10px 12px; border-radius: 10px; background: #fce9e6; color: #ad3727; font-size: 13px; }
+.cha-journey-success { align-items: center; text-align: center; }
+.cha-journey-success > span { font-size: 48px; }
+.cha-journey-success > strong { margin-top: 16px; color: #168766; font-size: 25px; }
+.cha-journey-success .cha-journey-actions { justify-content: center; }
+@media (max-width: 600px) { .cha-journey-backdrop { align-items: end; padding: 0; } .cha-journey { max-height: calc(100vh - 20px); border-bottom-right-radius: 0; border-bottom-left-radius: 0; } .cha-journey-body { padding: 30px 22px 32px; } .cha-journey-actions { width: 100%; } .cha-journey-primary, .cha-journey-secondary { flex: 1 1 100%; } }

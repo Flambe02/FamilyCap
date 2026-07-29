@@ -29,7 +29,7 @@ type PointsResp = {
 };
 type LeaderRow = { rank: number; memberId: string; name: string; photoUrl: string | null; points: number; challengesCompleted: number; isCurrentMember?: boolean };
 type HistoryItem = { id: string; title: string; startsOn: string | null; endsOn: string | null; status: string; pointsReward: number; joined: boolean; participantStatus: string | null; pointsEarned: number };
-type OnboardingMissionDto = { slug: string; title: string; description: string; points: number; cta: string; view: View; status: "todo" | "done"; successMessage: string };
+export type OnboardingMissionDto = { slug: "onboarding_account_setup" | "onboarding_existing_portfolio" | "onboarding_monthly_plan" | "onboarding_first_purchase"; title: string; description: string; points: number; cta: string; view: View; status: "todo" | "done"; successMessage: string };
 type OnboardingResp = { available: boolean; missions: OnboardingMissionDto[]; completedCount: number; totalCount: number; earnedPoints: number; totalPoints: number; justCompleted: string[] };
 
 /** Contrat unique pour la section dashboard et la pastille de points du header. */
@@ -196,7 +196,7 @@ function navigateToPortfolioImport(onNavigate: (view: View) => void) {
   onNavigate("investissements-pea");
 }
 
-export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boolean; onNavigate: (view: View) => void; asMemberId?: string }) {
+export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission }: { canAct: boolean; onNavigate: (view: View) => void; asMemberId?: string; onStartMission?: (mission: OnboardingMissionDto) => void }) {
   const [current, setCurrent] = useState<CurrentResp | null>(null);
   const [points, setPoints] = useState<PointsResp | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingResp | null>(null);
@@ -427,7 +427,7 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boo
         <section className="panel cha-onboard-success-screen" role="status">
           <span aria-hidden="true">🎉</span>
           <div><h3>{completedMission.slug === "onboarding_account_setup" ? "Ton PEA est configuré !" : completedMission.slug === "onboarding_existing_portfolio" ? "Première opération ajoutée !" : "Défi terminé !"}</h3><p>{completedMission.slug === "onboarding_existing_portfolio" ? "Ton portefeuille commence à prendre vie." : "Bravo, tu viens de terminer une étape de ton parcours d’investissement."}</p><strong>+{completedMission.points} points</strong>{points && <small>{points.totalPoints} points au total · {onboarding?.completedCount ?? 0} défi(s) sur {onboarding?.totalCount ?? 4} terminé(s)</small>}</div>
-          <div className="cha-onboard-success-actions"><button type="button" className="cha-onboard-cta" onClick={() => { const next = onboarding?.missions.find((mission) => mission.status === "todo"); if (next) navigateToOnboardingMission(next, onNavigate); else setCompletedMission(null); }}>Continuer avec le défi suivant</button><button type="button" className="cha-onboard-cta" onClick={() => setCompletedMission(null)}>Voir tous mes défis</button></div>
+          <div className="cha-onboard-success-actions"><button type="button" className="cha-onboard-cta" onClick={() => { const next = onboarding?.missions.find((mission) => mission.status === "todo"); if (next) onStartMission ? onStartMission(next) : navigateToOnboardingMission(next, onNavigate); else setCompletedMission(null); }}>Continuer avec le défi suivant</button><button type="button" className="cha-onboard-cta" onClick={() => setCompletedMission(null)}>Voir tous mes défis</button></div>
         </section>
       )}
       {rulesPanel}
@@ -470,8 +470,8 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId }: { canAct: boo
                     <span className="cha-onboard-item-points">{mission.status === "done" ? `+${mission.points} pts` : `${mission.points} pts`}</span>
                     {mission.status === "done"
                       ? <span className="cha-onboard-done-mark" aria-hidden="true"><CheckIcon /></span>
-                      : mission.slug === "onboarding_existing_portfolio" ? <span className="cha-onboard-choice"><button type="button" className="cha-onboard-cta" onClick={() => navigateToOnboardingMission(mission, onNavigate)}>Saisir une opération</button><button type="button" className="cha-onboard-cta" onClick={() => navigateToPortfolioImport(onNavigate)}>Importer un relevé</button></span>
-                      : <button type="button" className="cha-onboard-cta" onClick={() => navigateToOnboardingMission(mission, onNavigate)}>{mission.cta}</button>}
+                      : mission.slug === "onboarding_existing_portfolio" ? <span className="cha-onboard-choice"><button type="button" className="cha-onboard-cta" onClick={() => onStartMission ? onStartMission(mission) : navigateToOnboardingMission(mission, onNavigate)}>Saisir une opération</button><button type="button" className="cha-onboard-cta" onClick={() => navigateToPortfolioImport(onNavigate)}>Importer un relevé</button></span>
+                      : <button type="button" className="cha-onboard-cta" onClick={() => onStartMission ? onStartMission(mission) : navigateToOnboardingMission(mission, onNavigate)}>{mission.cta}</button>}
                   </div>
                 </li>
               ))}
@@ -797,7 +797,7 @@ const UNAVAILABLE_COPY: Record<"api" | "network" | "setup", string> = {
   setup: "Les défis ne sont pas encore activés sur ce compte.",
 };
 
-export function ChallengesDashboardSection({ state: sectionState, navigate }: { state: ChallengesSectionState; navigate: (view: View) => void }) {
+export function ChallengesDashboardSection({ state: sectionState, navigate, onStartMission }: { state: ChallengesSectionState; navigate: (view: View) => void; onStartMission?: (mission: OnboardingMissionDto) => void }) {
   if (sectionState.status !== "ready") {
     // La section garde sa PLACE et sa forme (deux panneaux) quel que soit le statut : le
     // tableau de bord ne doit jamais se réorganiser selon la disponibilité d'une API.
@@ -866,7 +866,7 @@ export function ChallengesDashboardSection({ state: sectionState, navigate }: { 
               <div className="cha-dashboard-progress-label"><span>{intFmt.format(onboarding.earnedPoints)} / {intFmt.format(onboarding.totalPoints)} pts</span><b>{onboardingPct} %</b></div>
               <div className="cha-bar cha-dashboard-bar"><span style={{ width: `${onboardingPct}%` }} /></div>
             </div>
-            <div className="cha-dashboard-action-side"><span>+{intFmt.format(nextMission.points)} pts</span><button type="button" onClick={() => navigateToOnboardingMission(nextMission, navigate)}>{nextMission.cta} →</button></div>
+            <div className="cha-dashboard-action-side"><span>+{intFmt.format(nextMission.points)} pts</span><button type="button" onClick={() => onStartMission ? onStartMission(nextMission) : navigateToOnboardingMission(nextMission, navigate)}>{nextMission.cta} →</button></div>
           </article>
         )}
 
