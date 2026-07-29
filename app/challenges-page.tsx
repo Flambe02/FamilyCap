@@ -228,7 +228,10 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
     // A completed import or operation may already have reconciled server-side.
     // This client marker never grants a reward: it only restores the success
     // screen after the server has confirmed the mission is done.
-    const pendingAction = !asMemberId && typeof window !== "undefined" ? window.sessionStorage.getItem("capfamily:onboarding-action") : null;
+    // L'action peut avoir été saisie par le membre lui-même ou par l'administrateur dans son
+    // aperçu. Dans les deux cas, ce marqueur ne fait qu'ouvrir l'écran de succès APRÈS que la
+    // réponse serveur du membre ciblé confirme réellement la mission.
+    const pendingAction = typeof window !== "undefined" ? window.sessionStorage.getItem("capfamily:onboarding-action") : null;
     const confirmedPendingMission = pendingAction ? onboardingData.missions.find((mission) => mission.slug === pendingAction && mission.status === "done") : null;
     if (confirmedPendingMission) {
       setCompletedMission(confirmedPendingMission);
@@ -427,7 +430,7 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
         <section className="panel cha-onboard-success-screen" role="status">
           <span aria-hidden="true">🎉</span>
           <div><h3>{completedMission.slug === "onboarding_account_setup" ? "Ton PEA est configuré !" : completedMission.slug === "onboarding_existing_portfolio" ? "Première opération ajoutée !" : "Défi terminé !"}</h3><p>{completedMission.slug === "onboarding_existing_portfolio" ? "Ton portefeuille commence à prendre vie." : "Bravo, tu viens de terminer une étape de ton parcours d’investissement."}</p><strong>+{completedMission.points} points</strong>{points && <small>{points.totalPoints} points au total · {onboarding?.completedCount ?? 0} défi(s) sur {onboarding?.totalCount ?? 4} terminé(s)</small>}</div>
-          <div className="cha-onboard-success-actions"><button type="button" className="cha-onboard-cta" onClick={() => { const next = onboarding?.missions.find((mission) => mission.status === "todo"); if (next) onStartMission ? onStartMission(next) : navigateToOnboardingMission(next, onNavigate); else setCompletedMission(null); }}>Continuer avec le défi suivant</button><button type="button" className="cha-onboard-cta" onClick={() => setCompletedMission(null)}>Voir tous mes défis</button></div>
+          <div className="cha-onboard-success-actions"><button type="button" className="cha-onboard-cta" onClick={() => { const next = onboarding?.missions.find((mission) => mission.status === "todo"); if (!next) { setCompletedMission(null); return; } if (onStartMission) onStartMission(next); else navigateToOnboardingMission(next, onNavigate); }}>Continuer avec le défi suivant</button><button type="button" className="cha-onboard-cta" onClick={() => setCompletedMission(null)}>Voir tous mes défis</button></div>
         </section>
       )}
       {rulesPanel}

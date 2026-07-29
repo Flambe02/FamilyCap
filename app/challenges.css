@@ -359,6 +359,7 @@
 .cha-journey-body h2 { margin: 0; color: #07354a; font-family: var(--font-display-stack); font-size: clamp(26px, 5vw, 34px); line-height: 1.08; }
 .cha-journey-body > p:not(.cha-journey-kicker):not(.cha-journey-error) { margin: 12px 0 0; color: #647782; font-size: 15px; line-height: 1.55; }
 .cha-journey-readonly { margin-top: 22px !important; padding: 13px 15px; border-radius: 12px; background: #fff3d5; color: #785514 !important; font-size: 13px !important; }
+.cha-journey-admin-note { margin-top: 22px !important; padding: 13px 15px; border-radius: 12px; background: #e7f4ef; color: #176750 !important; font-size: 13px !important; }
 .cha-journey-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
 .cha-journey-primary, .cha-journey-secondary { min-height: 44px; border-radius: 11px; padding: 0 17px; font: 800 13px/1 inherit; cursor: pointer; }
 .cha-journey-primary { border: 1px solid #167d64; background: #167d64; color: #fff; }

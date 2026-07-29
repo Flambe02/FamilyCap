@@ -273,6 +273,10 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
     : { status: "loading" };
   const memberChallengesSummary = challengesEligible && challengesView.status === "ready" ? challengesView.summary : null;
   const canManageGifts = viewer.role === "admin" && !isPreview;
+  // En aperçu, l'admin peut accomplir le parcours au nom du membre affiché. Les routes appelées
+  // restent toutes protégées par requireAdmin et déterminent le titulaire côté serveur.
+  const canManagePreviewInvestments = viewer.role === "admin" && isPreview && Boolean(previewMemberId);
+  const canManageInvestments = canManageGifts || canManagePreviewInvestments;
   // Un membre non-admin enregistre lui-même ses achats Bitcoin personnels ; l'identité et
   // l'origine sont forcées côté serveur. Un administrateur en aperçu bénéficie du même accès
   // (parité complète "comme si connecté via son compte"), via un contournement Cas A (voir
@@ -809,7 +813,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             marketLoading={familyMarketLoading}
             viewer={effectiveViewer}
             isPreview={isPreview}
-            canManage={canManageGifts}
+            canManage={canManageInvestments}
             memberCanRecord={memberCanRecordOperation}
             investmentPlan={investmentPlan}
             onReload={() => setFamilyReloadToken((token) => token + 1)}
@@ -829,7 +833,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
               marketLoading={familyMarketLoading}
               viewer={effectiveViewer}
               isPreview={isPreview}
-              canManage={canManageGifts}
+              canManage={canManageInvestments}
               memberCanRecord={memberCanRecordOperation}
               investmentPlan={investmentPlan}
               onReload={() => setFamilyReloadToken((token) => token + 1)}
@@ -917,7 +921,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
       </aside>
 
       {onboardingOverlay && <OnboardingFlow viewer={effectiveViewer} mode={onboardingOverlay.mode} initialState={onboardingOverlay.state} onDone={closeOnboardingOverlay} onDefer={closeOnboardingOverlay} onExitTour={closeOnboardingOverlay} />}
-      {activeChallengeMission && <OnboardingChallengeFlow viewer={effectiveViewer} initialMission={activeChallengeMission} readOnly={!memberCanRecordOperation} onClose={() => setActiveChallengeMission(null)} onOpenMissionArea={openChallengeMissionArea} onRefresh={() => { setFamilyReloadToken((token) => token + 1); setChecklistToken((token) => token + 1); }} />}
+        {activeChallengeMission && <OnboardingChallengeFlow viewer={effectiveViewer} initialMission={activeChallengeMission} canWrite={memberCanRecordOperation || canManageInvestments} adminTargetMemberId={viewer.role === "admin" ? effectiveViewer.id : undefined} onClose={() => setActiveChallengeMission(null)} onOpenMissionArea={openChallengeMissionArea} onRefresh={() => { setFamilyReloadToken((token) => token + 1); setChecklistToken((token) => token + 1); }} />}
       {modalOpen && canManageGifts && <InvestmentModal defaultMember={familyMember} defaultSource={modalSource} onClose={closeGiftModal} onSaved={handleGiftSaved} />}
       {personalModalOpen && canRecordPersonalBtc && <InvestmentModal personalMode memberInvestor={effectiveViewer.name} adminForMember={isPreview ? effectiveViewer.name : undefined} onClose={() => setPersonalModalOpen(false)} onSaved={handlePersonalInvestmentSaved} />}
       {toast && <div className="toast" role="status">✓ {toast}</div>}

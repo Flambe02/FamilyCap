@@ -24,14 +24,17 @@ function destinationForMission(slug: MissionSlug): "portfolio" | "purchase" | nu
 export function OnboardingChallengeFlow({
   viewer,
   initialMission,
-  readOnly,
+  canWrite,
+  adminTargetMemberId,
   onClose,
   onOpenMissionArea,
   onRefresh,
 }: {
   viewer: Viewer;
   initialMission: OnboardingMissionDto;
-  readOnly: boolean;
+  canWrite: boolean;
+  /** L'admin configure le membre actuellement prévisualisé via les routes admin sécurisées. */
+  adminTargetMemberId?: string;
   onClose: () => void;
   onOpenMissionArea: (mission: OnboardingMissionDto) => void;
   onRefresh: () => void;
@@ -47,19 +50,21 @@ export function OnboardingChallengeFlow({
   const [progress, setProgress] = useState<MissionProgress | null>(null);
   const [points, setPoints] = useState<Points | null>(null);
   const [saving, setSaving] = useState(false);
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [accountsReady, setAccountsReady] = useState(false);
   const [error, setError] = useState("");
   const dialogRef = useDialogA11y(true, () => { if (!saving) onClose(); });
 
   const isAccountMission = mission.slug === "onboarding_account_setup";
   const isPlanMission = mission.slug === "onboarding_monthly_plan";
   const area = destinationForMission(mission.slug);
+  const isAdminManaged = Boolean(adminTargetMemberId);
+  const previewQuery = isAdminManaged ? `?asMember=${encodeURIComponent(adminTargetMemberId!)}` : "";
+  const loadingAccounts = isPlanMission && !accountsReady;
 
   useEffect(() => {
-    if (!isPlanMission || readOnly) return;
+    if (!isPlanMission || !canWrite) return;
     let cancelled = false;
-    setLoadingAccounts(true);
-    void authenticatedFetch("/api/portfolio")
+    void authenticatedFetch(`/api/portfolio${previewQuery}`)
       .then(async (response) => {
         const body = await response.json() as { accounts?: Account[]; error?: string };
         if (!response.ok) throw new Error(body.error ?? "Comptes indisponibles.");
@@ -71,14 +76,14 @@ export function OnboardingChallengeFlow({
         setTargetAccountId((current) => current || available[0]?.id || "");
       })
       .catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "Comptes indisponibles."); })
-      .finally(() => { if (!cancelled) setLoadingAccounts(false); });
+      .finally(() => { if (!cancelled) setAccountsReady(true); });
     return () => { cancelled = true; };
-  }, [isPlanMission, readOnly, viewer.name]);
+  }, [isPlanMission, canWrite, previewQuery, viewer.name]);
 
   async function refreshReward(): Promise<MissionProgress> {
     const [onboardingResponse, pointsResponse] = await Promise.all([
-      authenticatedFetch("/api/challenges/onboarding"),
-      authenticatedFetch("/api/challenges/points"),
+      authenticatedFetch(`/api/challenges/onboarding${previewQuery}`),
+      authenticatedFetch(`/api/challenges/points${previewQuery}`),
     ]);
     const onboardingBody = await onboardingResponse.json() as MissionProgress & { available?: boolean; error?: string };
     const pointsBody = pointsResponse.ok ? await pointsResponse.json() as Points : null;
@@ -93,15 +98,21 @@ export function OnboardingChallengeFlow({
 
   async function submitAccount(event: FormEvent) {
     event.preventDefault();
-    if (readOnly || saving) return;
+    if (!canWrite || saving) return;
     if (!institution.trim()) { setError("Indique ton établissement financier."); return; }
     setSaving(true);
     setError("");
     try {
-      const response = await authenticatedFetch("/api/investment-accounts", {
+      const response = await authenticatedFetch(isAdminManaged ? "/api/admin/accounts" : "/api/investment-accounts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: accountName.trim() || "Mon PEA", accountType: "pea", institution: institution.trim(), openedAt: openedAt || undefined }),
+        body: JSON.stringify({
+          ...(isAdminManaged ? { memberId: adminTargetMemberId } : {}),
+          name: accountName.trim() || "Mon PEA",
+          accountType: "pea",
+          institution: institution.trim(),
+          openedAt: openedAt || undefined,
+        }),
       });
       const body = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Enregistrement impossible.");
@@ -116,18 +127,21 @@ export function OnboardingChallengeFlow({
 
   async function submitPlan(event: FormEvent) {
     event.preventDefault();
-    if (readOnly || saving) return;
+    if (!canWrite || saving) return;
     const target = Number(monthlyTarget.replace(",", "."));
     if (!(target > 0)) { setError("Choisis un montant mensuel supérieur à 0."); return; }
     if (!targetAccountId) { setError("Choisis le PEA auquel rattacher ton objectif."); return; }
     setSaving(true);
     setError("");
     try {
-      const response = await authenticatedFetch("/api/investment-plan", {
+      const response = await authenticatedFetch(
+        isAdminManaged ? `/api/investment-plan?memberId=${encodeURIComponent(adminTargetMemberId!)}` : "/api/investment-plan",
+        {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ monthlyTarget: target, targetAccountId, targetDay: null, instrumentPreference: "etf", remindersEnabled: true, leaderboardOptIn: true }),
-      });
+        },
+      );
       const body = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Enregistrement impossible.");
       await refreshReward();
@@ -168,8 +182,11 @@ export function OnboardingChallengeFlow({
             <p className="cha-journey-kicker">+{mission.points} points</p>
             <h2 id="cha-journey-title">{mission.title}</h2>
             <p>{mission.description}</p>
-            {readOnly ? <p className="cha-journey-readonly">Aperçu administrateur : ce parcours est visible, mais seul {viewer.name} peut enregistrer ses informations et gagner les points.</p> : (
-              <div className="cha-journey-actions"><button type="button" className="cha-journey-primary" onClick={() => area ? onOpenMissionArea(mission) : setPhase("form")}>{area ? mission.cta : "Commencer"}</button><button type="button" className="cha-journey-secondary" onClick={onClose}>Plus tard</button></div>
+            {!canWrite ? <p className="cha-journey-readonly">Ce parcours est visible, mais ton profil ne peut pas enregistrer ces informations.</p> : (
+              <>
+                {isAdminManaged && <p className="cha-journey-admin-note">Vous configurez ce défi pour {viewer.name}. Les informations et les points seront enregistrés sur son profil.</p>}
+                <div className="cha-journey-actions"><button type="button" className="cha-journey-primary" onClick={() => area ? onOpenMissionArea(mission) : setPhase("form")}>{area ? mission.cta : "Commencer"}</button><button type="button" className="cha-journey-secondary" onClick={onClose}>Plus tard</button></div>
+              </>
             )}
           </div>
         )}

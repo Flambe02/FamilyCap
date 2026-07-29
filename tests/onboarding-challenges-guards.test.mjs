@@ -193,3 +193,20 @@ test("le CTA du tableau de bord ouvre un parcours dédié, sans dépendre de la 
   assert.match(challengesCss, /\.cha-journey-backdrop \{ position: fixed; inset: 0;/);
   assert.match(challengesCss, /@media \(max-width: 600px\).*\.cha-journey-backdrop \{ padding: 16px;/);
 });
+
+test("l'aperçu admin peut réellement terminer le parcours au nom du membre affiché", () => {
+  // L'écriture du compte doit utiliser la route admin (qui force requireAdmin et member_id),
+  // jamais la route self-service de l'admin connecté.
+  assert.match(challengeJourney, /adminTargetMemberId/);
+  assert.match(challengeJourney, /\/api\/admin\/accounts/);
+  assert.match(challengeJourney, /memberId: adminTargetMemberId/);
+  // Le plan est également ciblé côté serveur, et le rafraîchissement lit les points du membre.
+  assert.match(challengeJourney, /\/api\/investment-plan\?memberId=/);
+  assert.match(challengeJourney, /\?asMember=/);
+  assert.match(familyDashboard, /canManagePreviewInvestments/);
+  assert.match(familyDashboard, /canManage=\{canManageInvestments\}/);
+  assert.match(familyDashboard, /canWrite=\{memberCanRecordOperation \|\| canManageInvestments\}/);
+  // Après une importation ou une opération PEA, la confirmation serveur réapparaît aussi dans
+  // l'aperçu admin pour proposer le défi suivant.
+  assert.equal(challengesPage.includes("!asMemberId && typeof window"), false);
+});
