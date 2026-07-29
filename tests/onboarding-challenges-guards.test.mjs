@@ -23,6 +23,7 @@ const challengesPage = read("app/challenges-page.tsx");
 const investmentAccount = read("app/investment-account.tsx");
 const familyDashboard = read("app/family-dashboard.tsx");
 const challengeJourney = read("app/onboarding-challenge-flow.tsx");
+const challengesCss = read("app/challenges.css");
 
 // ---- Migration additive : seed idempotent des 4 missions ---------------------------------
 test("les 4 missions sont seedées via une clé métier stable (slug), pas le titre", () => {
@@ -189,4 +190,6 @@ test("le CTA du tableau de bord ouvre un parcours dédié, sans dépendre de la 
   assert.match(challengeJourney, /\/api\/challenges\/onboarding/);
   assert.match(challengeJourney, /Valider et gagner mes points/);
   assert.match(challengeJourney, /Continuer avec le défi suivant/);
+  assert.match(challengesCss, /\.cha-journey-backdrop \{ position: fixed; inset: 0;/);
+  assert.match(challengesCss, /@media \(max-width: 600px\).*\.cha-journey-backdrop \{ padding: 16px;/);
 });

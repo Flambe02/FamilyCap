@@ -343,7 +343,7 @@
 @media (max-width: 560px) { .cha-dashboard-section { gap: 14px; } .cha-dashboard-missions, .cha-dashboard-leaderboard { padding: 18px; } .cha-dashboard-head h3 { font-size: 18px; } .cha-dashboard-head { margin-bottom: 14px; } .cha-dashboard-head .home-card-link { font-size: 12px; } .cha-dashboard-action { grid-template-columns: 38px minmax(0, 1fr); gap: 10px; } .cha-dashboard-action-icon { width: 38px; height: 38px; border-radius: 13px; } .cha-dashboard-action-side { grid-column: 2; min-width: 0; flex-direction: row; align-items: center; } .cha-dashboard-action-side button { min-height: 44px; } }
 
 /* Parcours dédié « Bien démarrer » : indépendant des Paramètres et centré sur une action. */
-.cha-journey-backdrop { z-index: 120; display: grid; place-items: center; padding: 24px; background: rgba(4, 29, 43, .58); }
+.cha-journey-backdrop { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; padding: 24px; background: rgba(4, 29, 43, .58); backdrop-filter: blur(5px); }
 .cha-journey { width: min(100%, 620px); max-height: min(760px, calc(100vh - 48px)); overflow: auto; border: 1px solid rgba(255,255,255,.55); border-radius: 22px; background: #fffdf9; box-shadow: 0 24px 80px rgba(3, 25, 38, .32); }
 .cha-journey:focus { outline: none; }
 .cha-journey-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; border-bottom: 1px solid #e7ecea; color: #657681; font-size: 12px; font-weight: 700; }
@@ -376,4 +376,4 @@
 .cha-journey-success > span { font-size: 48px; }
 .cha-journey-success > strong { margin-top: 16px; color: #168766; font-size: 25px; }
 .cha-journey-success .cha-journey-actions { justify-content: center; }
-@media (max-width: 600px) { .cha-journey-backdrop { align-items: end; padding: 0; } .cha-journey { max-height: calc(100vh - 20px); border-bottom-right-radius: 0; border-bottom-left-radius: 0; } .cha-journey-body { padding: 30px 22px 32px; } .cha-journey-actions { width: 100%; } .cha-journey-primary, .cha-journey-secondary { flex: 1 1 100%; } }
+@media (max-width: 600px) { .cha-journey-backdrop { padding: 16px; } .cha-journey { width: 100%; max-height: calc(100vh - 32px); border-radius: 20px; } .cha-journey-head { padding: 15px 18px; } .cha-journey-body { padding: 28px 22px 30px; } .cha-journey-body h2 { font-size: 28px; } .cha-journey-actions { width: 100%; } .cha-journey-primary, .cha-journey-secondary { flex: 1 1 100%; min-height: 48px; } .cha-journey-form input, .cha-journey-form select { min-height: 48px; font-size: 16px; } }
