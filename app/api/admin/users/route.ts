@@ -125,7 +125,7 @@ export async function GET(request: Request) {
     await requireConsoleSuperAdmin(request);
     const admin = adminClient();
     const [members, grants, products, invitations, authResult, roles, profiles] = await Promise.all([
-      supabaseRest<Array<Record<string, unknown> & { id: string; auth_user_id?: string; wallets: Array<{ public_address: string | null; xpub: string | null }> }>>("family_members?select=*,wallets(public_address,xpub)&deleted_at=is.null&order=name.asc"),
+      supabaseRest<Array<Record<string, unknown> & { id: string; auth_user_id?: string; wallets: Array<{ public_address: string | null; xpub: string | null; label: string | null }> }>>("family_members?select=*,wallets(public_address,xpub,label)&deleted_at=is.null&order=name.asc"),
       supabaseRest<Array<{ owner_member_id: string; viewer_member_id: string }>>("investment_access_grants?select=owner_member_id,viewer_member_id").catch(() => []),
       listProducts(), listInvitations(), admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
       supabaseRest<Array<{ user_id: string; role: ConsoleRole }>>("user_roles?select=user_id,role").catch(() => []),
@@ -157,6 +157,7 @@ export async function GET(request: Request) {
         family_role: String(member.role),
         relationship: String(member.relationship ?? profileByMember.get(member.id)?.relationship ?? ""),
         wallet_address: wallets?.[0]?.xpub ?? wallets?.[0]?.public_address ?? null,
+        wallet_label: wallets?.[0]?.label ?? null,
         selected_viewer_ids: grants.filter((grant) => grant.owner_member_id === member.id).map((grant) => grant.viewer_member_id),
         product_access: Object.fromEntries(products.filter((item) => item.member_id === member.id).map((item) => [item.product, item.access_level])),
         invitation: invitation ? { id: invitation.id, status: invitation.status, sentAt: invitation.sent_at, expiresAt: invitation.expires_at, acceptedAt: invitation.accepted_at } : null,

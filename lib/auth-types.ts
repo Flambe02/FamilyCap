@@ -8,6 +8,7 @@ export type Viewer = {
   birthdayYear?: number | null;
   photoUrl?: string | null;
   walletAddress?: string | null;
+  walletLabel?: string | null;
 };
 
 /**

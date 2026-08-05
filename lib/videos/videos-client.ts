@@ -21,7 +21,7 @@ async function requestVideosApi<T = unknown>(url: string, init: RequestInit = {}
   return result as T;
 }
 
-type ApiRecipient = { member_id: string; name: string | null } | { member_id: string; member: { name: string | null } | null };
+type ApiRecipient = ({ member_id: string; name: string | null } | { member_id: string; member: { name: string | null } | null }) & { is_notify?: boolean; is_library?: boolean };
 type ApiGift = { amount_eur: number | string; btc_amount: number | string; occasion: string | null; gift_date: string | null; member_name: string | null } | null;
 
 export type ApiVideo = {
@@ -40,6 +40,7 @@ export type ApiVideo = {
   published_at: string | null;
   publish_at?: string | null;
   notify_on_login?: boolean;
+  notify_all?: boolean;
   gift_id: string | null;
   gift?: ApiGift;
   recipients?: ApiRecipient[];
@@ -71,6 +72,7 @@ export function mapApiVideo(record: ApiVideo): VideoRecord {
     publishedAt: record.published_at ?? null,
     publishAt: record.publish_at ?? null,
     notifyOnLogin: Boolean(record.notify_on_login),
+    notifyAll: Boolean(record.notify_all),
     giftId: record.gift_id ?? null,
     gift: record.gift
       ? {
@@ -81,7 +83,15 @@ export function mapApiVideo(record: ApiVideo): VideoRecord {
           memberName: record.gift.member_name ?? null,
         }
       : null,
-    recipients: (record.recipients ?? []).map((recipient) => ({ memberId: recipient.member_id, name: recipientName(recipient) })),
+    // is_notify/is_library valent true par défaut (comme la colonne SQL) : un backend pas encore
+    // sur la migration 20260824 renvoie des destinataires sans ces champs, qui doivent continuer
+    // à compter pour les deux publics — comportement historique avant la dissociation.
+    recipients: (record.recipients ?? []).map((recipient) => ({
+      memberId: recipient.member_id,
+      name: recipientName(recipient),
+      isNotify: recipient.is_notify ?? true,
+      isLibrary: recipient.is_library ?? true,
+    })),
     viewed: Boolean(record.viewed),
   };
 }
@@ -102,9 +112,11 @@ export type VideoSavePayload = {
   occasionDate?: string | null;
   visibilityScope: VisibilityScope;
   recipientNames: string[];
+  notifyRecipientNames?: string[];
   giftId?: string | null;
   publishAt?: string | null;
   notifyOnLogin?: boolean;
+  notifyAll?: boolean;
   publish: boolean;
 };
 

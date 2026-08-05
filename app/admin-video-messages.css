@@ -6,6 +6,10 @@
 .video-occasion-chips{display:flex;flex-wrap:wrap;gap:8px}
 .video-occasion-chips button{border:1px solid var(--line);border-radius:999px;padding:9px 14px;color:var(--muted);font-size:.68rem;font-weight:800;cursor:pointer;background:#fff}
 .video-occasion-chips button.active{border-color:var(--teal);color:var(--teal);background:#e9f4f2}
+.video-scope-chips{display:flex;flex-wrap:wrap;gap:8px}
+.video-scope-chips button{border:1px solid var(--line);border-radius:999px;padding:9px 14px;color:var(--muted);font-size:.68rem;font-weight:800;cursor:pointer;background:#fff}
+.video-scope-chips button.active{border-color:var(--teal);color:var(--teal);background:#e9f4f2}
+.video-toggle-label{margin:0;color:var(--muted);font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
 .admin-form .span-2{grid-column:span 2}
 .admin-form .span-4{grid-column:span 4}
 .admin-form textarea{width:100%;min-height:70px;padding:9px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit;font-size:.64rem;resize:vertical}

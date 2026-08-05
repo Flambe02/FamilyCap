@@ -8,17 +8,19 @@ import { OCCASION_TYPES, VISIBILITY_SCOPES, type OccasionType, type VisibilitySc
 // L'administrateur gère les vidéos ; un membre lit ; personne n'écrit une vidéo côté membre.
 
 const SELECT =
-  "id,title,description,youtube_url,youtube_video_id,thumbnail_url,duration_seconds,occasion_type,occasion_date,visibility_scope,is_published,is_archived,published_at,publish_at,notify_on_login,gift_id," +
-  "recipients:family_video_recipients(member_id,member:family_members(name))," +
+  "id,title,description,youtube_url,youtube_video_id,thumbnail_url,duration_seconds,occasion_type,occasion_date,visibility_scope,is_published,is_archived,published_at,publish_at,notify_on_login,notify_all,gift_id," +
+  "recipients:family_video_recipients(member_id,is_notify,is_library,member:family_members(name))," +
   "gift:gift_records(amount_eur,btc_amount,occasion,gift_date,member_name)";
 
-type RecipientRow = { member_id: string; member: { name: string | null } | null };
+type RecipientRow = { member_id: string; is_notify: boolean; is_library: boolean; member: { name: string | null } | null };
 type VideoRow = {
   id: string;
   visibility_scope: VisibilityScope;
   is_published: boolean;
   is_archived: boolean;
   publish_at: string | null;
+  notify_on_login: boolean;
+  notify_all: boolean;
   recipients: RecipientRow[] | null;
   [key: string]: unknown;
 };
@@ -35,9 +37,11 @@ type VideoInput = {
   occasionDate?: string | null;
   visibilityScope?: string;
   recipientNames?: unknown;
+  notifyRecipientNames?: unknown;
   giftId?: string | null;
   publishAt?: string | null;
   notifyOnLogin?: boolean;
+  notifyAll?: boolean;
   publish?: boolean;
 };
 
@@ -53,6 +57,24 @@ function isMissingVideoSchema(error: unknown) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+function parseNames(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((name): name is string => typeof name === "string" && name.trim() !== "").map((name) => name.trim()) : [];
+}
+
+// `recipientNames` (bibliothèque Souvenirs, visibilityScope="selected_members") et
+// `notifyRecipientNames` (public du pop-up, notifyOnLogin sans notifyAll) sont deux listes
+// INDÉPENDANTES : un destinataire peut figurer dans l'une, l'autre, ou les deux (voir
+// family_video_recipients.is_notify/is_library, migration 20260824). Quand
+// `notifyRecipientNames` est omis (appelants historiques : lien cadeau, ajout depuis Souvenirs),
+// on retombe sur `recipientNames` — reproduisant exactement le comportement d'avant la
+// dissociation, où une seule liste servait aux deux fins.
+function libraryNamesOf(body: VideoInput): string[] {
+  return parseNames(body.recipientNames);
+}
+function notifyNamesOf(body: VideoInput): string[] {
+  return body.notifyRecipientNames !== undefined ? parseNames(body.notifyRecipientNames) : libraryNamesOf(body);
+}
+
 function validate(body: VideoInput): string | null {
   if (!body.title?.trim()) return "Le titre est obligatoire.";
   if (!body.youtubeUrl || !extractYouTubeVideoId(body.youtubeUrl)) return "L'URL YouTube est invalide.";
@@ -61,8 +83,13 @@ function validate(body: VideoInput): string | null {
   if (body.occasionDate && !DATE_RE.test(body.occasionDate)) return "Date d'occasion invalide.";
   if (body.durationSeconds !== undefined && body.durationSeconds !== null && (!Number.isFinite(body.durationSeconds) || Number(body.durationSeconds) < 0)) return "Durée invalide.";
   if (body.publishAt && Number.isNaN(new Date(body.publishAt).getTime())) return "Date de publication invalide.";
-  const recipients = Array.isArray(body.recipientNames) ? body.recipientNames.filter((name): name is string => typeof name === "string" && name.trim() !== "") : [];
-  if (body.visibilityScope !== "family" && recipients.length === 0) return "Sélectionnez au moins un destinataire (ou choisissez « toute la famille »).";
+  // Chaque liste de destinataires est requise indépendamment, dès que SON réglage en a besoin :
+  // la bibliothèque Souvenirs restreinte (visibilityScope "selected_members") a besoin de
+  // recipientNames ; un pop-up ciblé (notifyOnLogin sans notifyAll) a besoin de
+  // notifyRecipientNames. Un pop-up « tout le monde » ou une bibliothèque « toute la famille »
+  // n'en ont, chacun pour leur part, pas besoin.
+  if (body.visibilityScope === "selected_members" && libraryNamesOf(body).length === 0) return "Sélectionnez au moins un destinataire pour Souvenirs, ou choisissez « tout le monde » pour ce réglage.";
+  if (body.notifyOnLogin === true && body.notifyAll !== true && notifyNamesOf(body).length === 0) return "Sélectionnez au moins un destinataire pour le pop-up, ou choisissez « tout le monde » pour ce réglage.";
   return null;
 }
 
@@ -71,10 +98,7 @@ async function memberNameMap(): Promise<Map<string, string>> {
   return new Map(rows.map((row) => [row.name, row.id]));
 }
 
-async function resolveRecipientIds(body: VideoInput): Promise<{ ids: string[]; error?: string }> {
-  if (body.visibilityScope === "family") return { ids: [] };
-  const names = (body.recipientNames as string[]).map((name) => name.trim()).filter(Boolean);
-  const map = await memberNameMap();
+async function resolveIds(names: string[], map: Map<string, string>): Promise<{ ids: string[]; error?: string }> {
   const ids: string[] = [];
   for (const name of names) {
     const id = map.get(name);
@@ -82,6 +106,16 @@ async function resolveRecipientIds(body: VideoInput): Promise<{ ids: string[]; e
     ids.push(id);
   }
   return { ids: [...new Set(ids)] };
+}
+
+// Résout les DEUX listes (bibliothèque et pop-up) en une seule requête membres.
+async function resolveRecipientIds(body: VideoInput): Promise<{ libraryIds: string[]; notifyIds: string[]; error?: string }> {
+  const map = await memberNameMap();
+  const library = await resolveIds(libraryNamesOf(body), map);
+  if (library.error) return { libraryIds: [], notifyIds: [], error: library.error };
+  const notify = await resolveIds(notifyNamesOf(body), map);
+  if (notify.error) return { libraryIds: [], notifyIds: [], error: notify.error };
+  return { libraryIds: library.ids, notifyIds: notify.ids };
 }
 
 function buildRow(body: VideoInput, videoId: string, createdBy: string | null, publish: boolean) {
@@ -98,6 +132,7 @@ function buildRow(body: VideoInput, videoId: string, createdBy: string | null, p
     gift_id: body.giftId || null,
     publish_at: body.publishAt || null,
     notify_on_login: body.notifyOnLogin === true,
+    notify_all: body.notifyAll === true,
     ...(createdBy ? { created_by: createdBy } : {}),
     is_published: publish,
     published_at: publish ? new Date().toISOString() : null,
@@ -106,23 +141,42 @@ function buildRow(body: VideoInput, videoId: string, createdBy: string | null, p
   };
 }
 
-async function replaceRecipients(videoId: string, ids: string[]) {
+// Remplace la liste des destinataires par l'UNION des deux publics, chaque ligne portant ses
+// propres drapeaux is_library / is_notify — un membre peut donc être destinataire Souvenirs
+// seulement, pop-up seulement, ou les deux (voir migration 20260824).
+async function replaceRecipients(videoId: string, libraryIds: string[], notifyIds: string[]) {
   await supabaseRest("family_video_recipients?video_id=eq." + encodeURIComponent(videoId), { method: "DELETE", headers: { prefer: "return=minimal" } });
-  if (ids.length > 0) {
+  const librarySet = new Set(libraryIds);
+  const notifySet = new Set(notifyIds);
+  const union = [...new Set([...libraryIds, ...notifyIds])];
+  if (union.length > 0) {
     await supabaseRest("family_video_recipients", {
       method: "POST",
       headers: { prefer: "return=minimal" },
-      body: JSON.stringify(ids.map((memberId) => ({ video_id: videoId, member_id: memberId }))),
+      body: JSON.stringify(union.map((memberId) => ({ video_id: videoId, member_id: memberId, is_library: librarySet.has(memberId), is_notify: notifySet.has(memberId) }))),
     });
   }
 }
 
+// Détermine si CETTE ligne doit atteindre le client du viewer — pas seulement pour la
+// bibliothèque Souvenirs, mais aussi pour que le pop-up de connexion (calculé côté client par
+// findWelcomePopupVideo) puisse la trouver. Les deux publics sont indépendants (voir
+// video-visibility.ts) : une vidéo notifiée à « tout le monde » (notify_all), ou dont le viewer
+// est destinataire is_notify SEULEMENT (pas is_library), doit donc atteindre son client même si
+// visibility_scope reste 'selected_members' et qu'il n'en est pas destinataire bibliothèque — il
+// pourra la voir une fois en pop-up, sans qu'elle reste dans sa bibliothèque Souvenirs ensuite
+// (filtrée côté client par canMemberViewVideo, qui ne compte que is_library).
 function canView(video: VideoRow, viewer: AuthenticatedMember): boolean {
   if (viewer.role === "admin") return true;
   if (!video.is_published || video.is_archived) return false;
   if (video.publish_at && new Date(video.publish_at).getTime() > Date.now()) return false;
   if (video.visibility_scope === "family") return true;
-  return (video.recipients ?? []).some((recipient) => recipient.member_id === viewer.id);
+  const recipients = video.recipients ?? [];
+  const isLibraryRecipient = recipients.some((recipient) => recipient.is_library && recipient.member_id === viewer.id);
+  if (isLibraryRecipient) return true;
+  const isNotifyRecipient = recipients.some((recipient) => recipient.is_notify && recipient.member_id === viewer.id);
+  if (isNotifyRecipient) return true;
+  return video.notify_on_login === true && video.notify_all === true;
 }
 
 async function viewedIdsFor(memberId: string, videoIds: string[]): Promise<Set<string>> {
@@ -161,7 +215,7 @@ export async function POST(request: Request) {
     const invalid = validate(body);
     if (invalid) return Response.json({ error: invalid }, { status: 400 });
     const videoId = extractYouTubeVideoId(body.youtubeUrl)!;
-    const { ids, error: recipientError } = await resolveRecipientIds(body);
+    const { libraryIds, notifyIds, error: recipientError } = await resolveRecipientIds(body);
     if (recipientError) return Response.json({ error: recipientError }, { status: 400 });
 
     const created = await supabaseRest<Array<{ id: string }>>("family_videos", {
@@ -170,10 +224,10 @@ export async function POST(request: Request) {
       body: JSON.stringify(buildRow(body, videoId, admin.id, body.publish === true)),
     });
     const newId = created[0]?.id;
-    if (newId) await replaceRecipients(newId, ids);
+    if (newId) await replaceRecipients(newId, libraryIds, notifyIds);
     return Response.json({ saved: true, id: newId }, { status: 201 });
   } catch (error) {
-    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql et 20260821_family_video_publish_schedule.sql) doit être exécutée." }, { status: 409 });
+    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql, 20260821_family_video_publish_schedule.sql, 20260823_family_video_notify_all.sql et 20260824_family_video_recipient_kind.sql) doit être exécutée." }, { status: 409 });
     return authErrorResponse(error);
   }
 }
@@ -198,7 +252,7 @@ export async function PATCH(request: Request) {
     const invalid = validate(body);
     if (invalid) return Response.json({ error: invalid }, { status: 400 });
     const videoId = extractYouTubeVideoId(body.youtubeUrl)!;
-    const { ids, error: recipientError } = await resolveRecipientIds(body);
+    const { libraryIds, notifyIds, error: recipientError } = await resolveRecipientIds(body);
     if (recipientError) return Response.json({ error: recipientError }, { status: 400 });
 
     // Ne pas réécraser l'état de publication existant lors d'une simple édition de contenu.
@@ -212,10 +266,10 @@ export async function PATCH(request: Request) {
       headers: { prefer: "return=minimal" },
       body: JSON.stringify(row),
     });
-    await replaceRecipients(body.id, ids);
+    await replaceRecipients(body.id, libraryIds, notifyIds);
     return Response.json({ updated: true });
   } catch (error) {
-    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql et 20260821_family_video_publish_schedule.sql) doit être exécutée." }, { status: 409 });
+    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql, 20260821_family_video_publish_schedule.sql, 20260823_family_video_notify_all.sql et 20260824_family_video_recipient_kind.sql) doit être exécutée." }, { status: 409 });
     return authErrorResponse(error);
   }
 }
@@ -234,7 +288,7 @@ export async function DELETE(request: Request) {
     });
     return Response.json({ archived: true });
   } catch (error) {
-    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql et 20260821_family_video_publish_schedule.sql) doit être exécutée." }, { status: 409 });
+    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql, 20260821_family_video_publish_schedule.sql, 20260823_family_video_notify_all.sql et 20260824_family_video_recipient_kind.sql) doit être exécutée." }, { status: 409 });
     return authErrorResponse(error);
   }
 }

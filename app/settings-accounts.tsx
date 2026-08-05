@@ -155,6 +155,10 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
   const [detail, setDetail] = useState<{ account: PortfolioAccount; valueEur: number | null } | null>(null);
   const [ledgerDetail, setLedgerDetail] = useState(false);
   const [ledgerCopied, setLedgerCopied] = useState(false);
+  const [editingWalletName, setEditingWalletName] = useState(false);
+  const [walletNameDraft, setWalletNameDraft] = useState("");
+  const [walletNameSaving, setWalletNameSaving] = useState(false);
+  const [walletNameError, setWalletNameError] = useState("");
   const [message, setMessage] = useState<{ text: string; tone: "success" | "error" | "info" } | null>(null);
   const [creating, setCreating] = useState<"pea" | "securities" | null>(null);
   // `scopeOverride` est fourni uniquement par AdminMemberSettings : la session reste celle de
@@ -204,7 +208,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
     // qui inclut l'adresse Ledger publique du membre (wallets.public_address/xpub, jointe par
     // requireFamilyMember/memberAsViewer sur viewer.walletAddress) — jamais une navigation vers
     // une autre page. Affichée dès qu'il y a des cadeaux OU une adresse déjà enregistrée.
-    if (btc > 0 || viewer.walletAddress) result.push({ key: "bitcoin", name: "Bitcoin cadeaux", type: "Bitcoin", valueEur: price ? btc * price : null, showLedger: true });
+    if (btc > 0 || viewer.walletAddress) result.push({ key: "bitcoin", name: viewer.walletLabel?.trim() || "Bitcoin cadeaux", type: "Bitcoin", valueEur: price ? btc * price : null, showLedger: true });
 
     // Comptes financiers du membre (hors Bitcoin, déjà couvert par les cadeaux).
     // Valorisation COHÉRENTE avec l'écran PEA/CTO : dès qu'un compte porte des opérations
@@ -245,7 +249,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
     }
 
     setLines(result);
-  }, [viewer.name, viewer.walletAddress, scopeOverride]);
+  }, [viewer.name, viewer.walletAddress, viewer.walletLabel, scopeOverride]);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,6 +259,33 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
     })();
     return () => { cancelled = true; };
   }, [load]);
+
+  // Renomme le portefeuille Ledger (wallets.label), même geste que renommer un PEA/compte-titres :
+  // écrit via /api/ledger (PATCH, requireAdmin), puis mis à jour localement pour un retour immédiat
+  // (viewer.walletLabel est un prop du parent, non rechargé par load()).
+  async function saveWalletName() {
+    const name = walletNameDraft.trim();
+    if (!name) { setWalletNameError("Le nom du portefeuille est obligatoire."); return; }
+    setWalletNameError("");
+    setWalletNameSaving(true);
+    try {
+      const headers = await authHeaders();
+      const response = await fetch("/api/ledger", {
+        method: "PATCH",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ memberId: viewer.id, label: name }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) { setWalletNameError(body.error ?? "Enregistrement impossible."); return; }
+      setLines((current) => current ? current.map((line) => (line.key === "bitcoin" ? { ...line, name } : line)) : current);
+      setEditingWalletName(false);
+      setMessage({ text: "Portefeuille renommé.", tone: "success" });
+    } catch {
+      setWalletNameError("Réseau indisponible.");
+    } finally {
+      setWalletNameSaving(false);
+    }
+  }
 
   return (
     <SettingsSection title="Mes comptes" subtitle="Suivez vos comptes et la valeur de vos investissements.">
@@ -299,7 +330,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
             return (
               <li key={line.key}>
                 {clickable
-                  ? <button type="button" className="set-account-row is-link" onClick={() => { if (line.account) setDetail({ account: line.account, valueEur: line.valueEur }); else if (line.showLedger) setLedgerDetail(true); }} aria-label={`Informations du compte : ${line.name}`}>{content}</button>
+                  ? <button type="button" className="set-account-row is-link" onClick={() => { if (line.account) setDetail({ account: line.account, valueEur: line.valueEur }); else if (line.showLedger) { setWalletNameDraft(line.name); setEditingWalletName(false); setWalletNameError(""); setLedgerDetail(true); } }} aria-label={`Informations du compte : ${line.name}`}>{content}</button>
                   : <div className="set-account-row">{content}</div>}
               </li>
             );
@@ -340,6 +371,30 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
       )}
       {ledgerDetail && (
         <SettingsModal open onClose={() => setLedgerDetail(false)} title="Bitcoin — Portefeuille Ledger">
+          {canEdit && viewer.walletAddress && (
+            <div className="set-fields" style={{ marginBottom: 14 }}>
+              <label className="set-field">
+                <span>Nom du portefeuille</span>
+                <input
+                  value={walletNameDraft}
+                  onChange={(event) => setWalletNameDraft(event.target.value)}
+                  readOnly={!editingWalletName}
+                  aria-readonly={!editingWalletName}
+                />
+              </label>
+              {walletNameError && <p className="set-message error" role="status">{walletNameError}</p>}
+              <div className="set-modal-actions">
+                {editingWalletName ? (
+                  <>
+                    <button type="button" className="set-btn" onClick={() => { setEditingWalletName(false); setWalletNameError(""); setWalletNameDraft(lines?.find((line) => line.key === "bitcoin")?.name ?? "Bitcoin cadeaux"); }} disabled={walletNameSaving}>Annuler</button>
+                    <button type="button" className="set-btn-primary" onClick={() => void saveWalletName()} disabled={walletNameSaving}>{walletNameSaving ? "Enregistrement…" : "Enregistrer"}</button>
+                  </>
+                ) : (
+                  <button type="button" className="set-btn" onClick={() => setEditingWalletName(true)}>Renommer</button>
+                )}
+              </div>
+            </div>
+          )}
           {viewer.walletAddress ? (
             <>
               <p className="set-hint">Adresse publique (lecture seule) :</p>

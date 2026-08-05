@@ -24,7 +24,7 @@ type AdminMember = {
   id: string; name: string; email: string | null; role: Viewer["role"];
   birthday_day: number | null; birthday_month: number | null; birthday_year: number | null;
   is_active: boolean; access_status?: string; auth_user_id?: string | null;
-  investment_access_scope?: "family" | "selected"; wallet_address?: string | null; photo_url?: string | null;
+  investment_access_scope?: "family" | "selected"; wallet_address?: string | null; wallet_label?: string | null; photo_url?: string | null;
   selected_viewer_ids?: string[]; auth?: { emailConfirmedAt?: string | null; lastSignInAt?: string | null } | null;
 };
 
@@ -180,7 +180,7 @@ export function AdminMemberSettings({ memberName, onExit, onNavigate, onReplayOn
 }
 
 function memberAsViewer(member: AdminMember): Viewer {
-  return { id: member.id, email: member.email ?? "", name: member.name, role: member.role, birthdayDay: member.birthday_day, birthdayMonth: member.birthday_month, birthdayYear: member.birthday_year, walletAddress: member.wallet_address ?? null };
+  return { id: member.id, email: member.email ?? "", name: member.name, role: member.role, birthdayDay: member.birthday_day, birthdayMonth: member.birthday_month, birthdayYear: member.birthday_year, walletAddress: member.wallet_address ?? null, walletLabel: member.wallet_label ?? null };
 }
 
 function roleLabel(role: Viewer["role"]) {

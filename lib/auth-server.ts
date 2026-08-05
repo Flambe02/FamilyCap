@@ -19,9 +19,10 @@ export type AuthenticatedMember = {
   birthdayYear: number | null;
   photoUrl: string | null;
   walletAddress: string | null;
+  walletLabel: string | null;
 };
 
-type FamilyMemberRow = { id: string; email: string; name: string; role: AuthenticatedMember["role"]; is_active: boolean; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; photo_url?: string | null; wallets: Array<{ public_address: string | null }> };
+type FamilyMemberRow = { id: string; email: string; name: string; role: AuthenticatedMember["role"]; is_active: boolean; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; photo_url?: string | null; wallets: Array<{ public_address: string | null; label?: string | null }> };
 
 function isMissingPhotoColumn(error: unknown) {
   return error instanceof Error && (error.message.includes("photo_url") || error.message.includes("42703") || error.message.includes("PGRST204"));
@@ -33,11 +34,11 @@ function isMissingPhotoColumn(error: unknown) {
 async function queryFamilyMemberRow(filter: string): Promise<FamilyMemberRow | undefined> {
   const base = `family_members?${filter}&is_active=eq.true&limit=1`;
   try {
-    const rows = await supabaseRest<FamilyMemberRow[]>(`${base}&select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year,photo_url,wallets(public_address)`);
+    const rows = await supabaseRest<FamilyMemberRow[]>(`${base}&select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year,photo_url,wallets(public_address,label)`);
     return rows[0];
   } catch (error) {
     if (!isMissingPhotoColumn(error)) throw error;
-    const rows = await supabaseRest<FamilyMemberRow[]>(`${base}&select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year,wallets(public_address)`);
+    const rows = await supabaseRest<FamilyMemberRow[]>(`${base}&select=id,email,name,role,is_active,birthday_day,birthday_month,birthday_year,wallets(public_address,label)`);
     return rows[0];
   }
 }
@@ -64,7 +65,7 @@ export async function requireFamilyMember(request: Request): Promise<Authenticat
 
   const member = await loadFamilyMemberRow(user.email.toLowerCase(), user.id);
   if (!member) throw Response.json({ error: "Cette adresse n’est pas autorisée dans LaBaJo & Co" }, { status: 403 });
-  return { authUserId: user.id, id: member.id, email: member.email, name: member.name, role: member.role, birthdayDay: member.birthday_day, birthdayMonth: member.birthday_month, birthdayYear: member.birthday_year, photoUrl: member.photo_url ?? null, walletAddress: member.wallets?.[0]?.public_address ?? null };
+  return { authUserId: user.id, id: member.id, email: member.email, name: member.name, role: member.role, birthdayDay: member.birthday_day, birthdayMonth: member.birthday_month, birthdayYear: member.birthday_year, photoUrl: member.photo_url ?? null, walletAddress: member.wallets?.[0]?.public_address ?? null, walletLabel: member.wallets?.[0]?.label ?? null };
 }
 
 export async function requireAdmin(request: Request) {

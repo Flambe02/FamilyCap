@@ -608,7 +608,12 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, persona
       occasionType: video.occasionType,
       occasionDate: video.occasionDate,
       visibilityScope: video.visibilityScope,
-      recipientNames: video.recipients.map((recipient) => recipient.name).filter((name): name is string => Boolean(name)),
+      // Deux publics indépendants (voir app/admin-video-messages.tsx) : ce formulaire ne propose
+      // qu'une seule liste de destinataires, mais round-trip chacune séparément pour ne jamais
+      // effacer un réglage plus fin posé depuis Administration › Messages vidéo.
+      recipientNames: video.recipients.filter((recipient) => recipient.isLibrary).map((recipient) => recipient.name).filter((name): name is string => Boolean(name)),
+      notifyRecipientNames: video.recipients.filter((recipient) => recipient.isNotify).map((recipient) => recipient.name).filter((name): name is string => Boolean(name)),
+      notifyAll: video.notifyAll,
       publish: video.isPublished,
     };
   }

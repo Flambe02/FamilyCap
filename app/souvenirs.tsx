@@ -490,7 +490,10 @@ function VideoAdminModal({ editing, onClose, onSaved }: { editing: VideoRecord |
   const [occasionType, setOccasionType] = useState<OccasionType>(editing?.occasionType ?? "birthday");
   const [occasionDate, setOccasionDate] = useState(editing?.occasionDate ?? "");
   const [scope, setScope] = useState<VisibilityScope>(editing?.visibilityScope ?? "family");
-  const [recipients, setRecipients] = useState<string[]>(editing?.recipients.map((r) => r.name).filter((n): n is string => Boolean(n)) ?? []);
+  // Ce sélecteur ne pilote que la bibliothèque Souvenirs : ne préremplir qu'avec les destinataires
+  // isLibrary, jamais avec un éventuel destinataire isNotify-only (public du pop-up, distinct —
+  // voir app/admin-video-messages.tsx), sous peine de l'y ajouter par erreur en enregistrant.
+  const [recipients, setRecipients] = useState<string[]>(editing?.recipients.filter((r) => r.isLibrary).map((r) => r.name).filter((n): n is string => Boolean(n)) ?? []);
   const [giftId, setGiftId] = useState(editing?.giftId ?? "");
   const [publish, setPublish] = useState(editing?.isPublished ?? false);
   const [giftOptions, setGiftOptions] = useState<GiftOption[]>([]);
@@ -540,6 +543,14 @@ function VideoAdminModal({ editing, onClose, onSaved }: { editing: VideoRecord |
       visibilityScope: scope,
       recipientNames: scope === "family" ? [] : recipients,
       giftId: giftId || null,
+      // Ce formulaire ne pilote que le contenu et la portée Souvenirs, jamais le pop-up de
+      // connexion (réservé à Administration › Messages vidéo et au lien cadeau) — ses réglages,
+      // ET sa propre liste de destinataires (isNotify, indépendante de `recipients` ci-dessus),
+      // sont donc reconduits tels quels pour ne pas les effacer silencieusement en éditant juste
+      // le titre ou l'occasion d'un message déjà publié ailleurs.
+      notifyOnLogin: editing?.notifyOnLogin ?? false,
+      notifyAll: editing?.notifyAll ?? false,
+      notifyRecipientNames: editing?.recipients.filter((r) => r.isNotify).map((r) => r.name).filter((n): n is string => Boolean(n)) ?? [],
       publish: asPublished,
     };
     setSaving(true);

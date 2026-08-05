@@ -12,7 +12,11 @@ import {
   availableYears,
 } from "../lib/videos/video-visibility.ts";
 
-function video(partial) {
+// `recipients` est retiré de `partial` puis renormalisé séparément : chaque entrée passée par un
+// test (ex. `{ memberId, name }`) reçoit `isNotify: true, isLibrary: true` par défaut — un
+// destinataire « classique », comptant pour les deux publics — sauf override explicite (ex.
+// `{ ..., isLibrary: false }` pour tester un destinataire pop-up seulement).
+function video({ recipients: rawRecipients, ...partial }) {
   return {
     id: "v",
     title: "Titre",
@@ -29,11 +33,12 @@ function video(partial) {
     publishedAt: "2026-03-15T00:00:00Z",
     publishAt: null,
     notifyOnLogin: false,
+    notifyAll: false,
     giftId: null,
     gift: null,
-    recipients: [],
     viewed: false,
     ...partial,
+    recipients: (rawRecipients ?? []).map((recipient) => ({ isNotify: true, isLibrary: true, ...recipient })),
   };
 }
 
@@ -81,6 +86,49 @@ test("aperçu admin : correspondance par prénom, pas par id admin", () => {
   assert.equal(canMemberViewVideo(other, previewThibault), false);
 });
 
+test("canMemberViewVideo : notifyAll ne donne jamais accès à la bibliothèque Souvenirs (réglages indépendants)", () => {
+  const v = video({ visibilityScope: "selected_members", notifyOnLogin: true, notifyAll: true, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(canMemberViewVideo(v, paul), false);
+});
+
+/* ---- Deux LISTES de destinataires indépendantes (isNotify / isLibrary sur une même vidéo) ----
+ * Pas seulement deux réglages globaux : deux membres différents peuvent chacun être destinataire
+ * d'un seul des deux publics sur la MÊME vidéo (ex. Thibault pour le pop-up, Paul pour Souvenirs). */
+test("canMemberViewVideo : un destinataire isNotify-only n'a pas accès à la bibliothèque Souvenirs", () => {
+  const v = video({ visibilityScope: "selected_members", recipients: [{ memberId: "thibault-id", name: "Thibault", isLibrary: false }] });
+  assert.equal(canMemberViewVideo(v, thibault), false);
+});
+
+test("canMemberViewVideo : un destinataire isLibrary-only garde l'accès à la bibliothèque Souvenirs", () => {
+  const v = video({ visibilityScope: "selected_members", recipients: [{ memberId: "paul-id", name: "Paul", isNotify: false }] });
+  assert.equal(canMemberViewVideo(v, paul), true);
+});
+
+test("findWelcomePopupVideo : un destinataire isLibrary-only ne reçoit jamais le pop-up", () => {
+  const v = video({ visibilityScope: "selected_members", notifyOnLogin: true, recipients: [{ memberId: "paul-id", name: "Paul", isNotify: false }] });
+  assert.equal(findWelcomePopupVideo([v], paul), null);
+});
+
+test("findWelcomePopupVideo : un destinataire isNotify-only reçoit le pop-up malgré isLibrary=false", () => {
+  const v = video({ visibilityScope: "selected_members", notifyOnLogin: true, recipients: [{ memberId: "thibault-id", name: "Thibault", isLibrary: false }] });
+  assert.equal(findWelcomePopupVideo([v], thibault)?.id, "v");
+});
+
+test("deux listes vraiment distinctes sur la même vidéo : Thibault pop-up seul, Paul Souvenirs seul", () => {
+  const v = video({
+    visibilityScope: "selected_members",
+    notifyOnLogin: true,
+    recipients: [
+      { memberId: "thibault-id", name: "Thibault", isLibrary: false },
+      { memberId: "paul-id", name: "Paul", isNotify: false },
+    ],
+  });
+  assert.equal(findWelcomePopupVideo([v], thibault)?.id, "v");
+  assert.equal(findWelcomePopupVideo([v], paul), null);
+  assert.equal(canMemberViewVideo(v, thibault), false);
+  assert.equal(canMemberViewVideo(v, paul), true);
+});
+
 /* ---- Publication programmée (publishAt) ---- */
 test("canMemberViewVideo : publication programmée dans le futur masquée à un membre, visible à l'admin", () => {
   const future = new Date(Date.now() + 86_400_000).toISOString();
@@ -101,9 +149,25 @@ test("findWelcomePopupVideo : jamais pour l'administrateur", () => {
   assert.equal(findWelcomePopupVideo([v], admin), null);
 });
 
-test("findWelcomePopupVideo : une vidéo family ne se lance jamais toute seule", () => {
-  const v = video({ visibilityScope: "family", notifyOnLogin: true });
-  assert.equal(findWelcomePopupVideo([v], thibault), null);
+/* ---- notifyAll / visibilityScope : deux réglages INDÉPENDANTS ----
+ * notifyAll pilote le public du pop-up ; visibilityScope ne pilote que l'accès à la bibliothèque
+ * Souvenirs après coup. Aucune des quatre combinaisons ne doit influencer l'autre réglage. */
+test("findWelcomePopupVideo : notifyAll déclenche le pop-up pour tout le monde, même en bibliothèque family", () => {
+  const v = video({ visibilityScope: "family", notifyOnLogin: true, notifyAll: true });
+  assert.equal(findWelcomePopupVideo([v], thibault)?.id, "v");
+  assert.equal(findWelcomePopupVideo([v], paul)?.id, "v");
+});
+
+test("findWelcomePopupVideo : notifyAll déclenche le pop-up même pour un non-destinataire d'une bibliothèque restreinte", () => {
+  const v = video({ visibilityScope: "selected_members", notifyOnLogin: true, notifyAll: true, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  // Paul n'est pas destinataire (donc ne pourra pas la retrouver dans Souvenirs), mais reçoit le pop-up.
+  assert.equal(findWelcomePopupVideo([v], paul)?.id, "v");
+});
+
+test("findWelcomePopupVideo : sans notifyAll, une bibliothèque family n'ouvre pas le pop-up à un non-destinataire", () => {
+  const v = video({ visibilityScope: "family", notifyOnLogin: true, notifyAll: false, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(findWelcomePopupVideo([v], thibault)?.id, "v");
+  assert.equal(findWelcomePopupVideo([v], paul), null);
 });
 
 test("findWelcomePopupVideo : sans notifyOnLogin, pas de pop-up (une vidéo de bibliothèque ne surgit jamais seule)", () => {

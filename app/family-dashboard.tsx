@@ -76,7 +76,7 @@ type FamilyMemberBalance = { name: string; btc: number; currentValueEur: number 
 // `role` est le rôle CONSOLE de /api/admin/users (adult et child y sont repliés sur « member ») ;
 // `family_role` est le rôle familial brut. Le typer `Viewer["role"]` était un mensonge que
 // TypeScript ne pouvait pas détecter — la réponse JSON est transtypée à la frontière du fetch.
-type PreviewMemberRecord = { id: string; name: string; email: string | null; role: string; family_role?: string; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; photo_url: string | null; wallet_address: string | null; is_active?: boolean };
+type PreviewMemberRecord = { id: string; name: string; email: string | null; role: string; family_role?: string; birthday_day: number | null; birthday_month: number | null; birthday_year: number | null; photo_url: string | null; wallet_address: string | null; wallet_label?: string | null; is_active?: boolean };
 /**
  * La section Défis a un STATUT, jamais un simple « données ou rien ». Chaque cas a son rendu :
  * chargement, indisponible (API, réseau, migration non jouée) ou prêt. C'est ce qui garantit
@@ -240,7 +240,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
   // admin) pour ne jamais exposer l'identité de l'administrateur pendant le chargement.
   const effectiveViewer: Viewer = previewMember
     ? (previewMemberRecord
-        ? { id: previewMemberRecord.id, email: previewMemberRecord.email ?? "", name: previewMemberRecord.name, role: toFamilyRole(previewMemberRecord.family_role ?? previewMemberRecord.role), birthdayDay: previewMemberRecord.birthday_day, birthdayMonth: previewMemberRecord.birthday_month, birthdayYear: previewMemberRecord.birthday_year, photoUrl: previewMemberRecord.photo_url, walletAddress: previewMemberRecord.wallet_address }
+        ? { id: previewMemberRecord.id, email: previewMemberRecord.email ?? "", name: previewMemberRecord.name, role: toFamilyRole(previewMemberRecord.family_role ?? previewMemberRecord.role), birthdayDay: previewMemberRecord.birthday_day, birthdayMonth: previewMemberRecord.birthday_month, birthdayYear: previewMemberRecord.birthday_year, photoUrl: previewMemberRecord.photo_url, walletAddress: previewMemberRecord.wallet_address, walletLabel: previewMemberRecord.wallet_label ?? null }
         : { ...viewer, name: previewMember, email: "preview@cap.family", role: "child", photoUrl: null })
     : viewer;
   const challengesEligible = isChallengeEligible(effectiveViewer.role);

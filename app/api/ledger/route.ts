@@ -1,4 +1,4 @@
-import { authErrorResponse, requireAdminOrBtcViewer } from "../../../lib/auth-server";
+import { authErrorResponse, requireAdmin, requireAdminOrBtcViewer } from "../../../lib/auth-server";
 import { supabaseRest } from "../../../lib/supabase-rest";
 import { deriveRange, parseExtendedKey, type ScriptType } from "../../../lib/bitcoin-xpub";
 import type { HDKey } from "@scure/bip32";
@@ -299,5 +299,28 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Blockchain indisponible" }, { status: 502 });
+  }
+}
+
+// Renomme le portefeuille Ledger d'un membre (wallets.label) — même geste que le renommage
+// d'un PEA/compte-titres (AccountDetailModal), admin uniquement. Ne crée jamais de portefeuille :
+// seul un membre disposant déjà d'une adresse/xpub enregistrée peut être renommé.
+export async function PATCH(request: Request) {
+  try {
+    await requireAdmin(request);
+    const body = await request.json() as { memberId?: string; label?: string };
+    const memberId = body.memberId?.trim();
+    const label = body.label?.trim();
+    if (!memberId || !label) return Response.json({ error: "Membre et nom du portefeuille obligatoires." }, { status: 400 });
+    const rows = await supabaseRest<Array<{ id: string }>>(`wallets?member_id=eq.${encodeURIComponent(memberId)}&select=id`);
+    if (!rows.length) return Response.json({ error: "Aucun portefeuille Ledger enregistré pour ce membre." }, { status: 404 });
+    await supabaseRest(`wallets?member_id=eq.${encodeURIComponent(memberId)}`, {
+      method: "PATCH",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify({ label }),
+    });
+    return Response.json({ updated: true, label });
+  } catch (error) {
+    return authErrorResponse(error);
   }
 }

@@ -14,7 +14,11 @@ export const OCCASION_LABEL: Record<OccasionType, string> = {
   other: "Autre",
 };
 
-export type VideoRecipient = { memberId: string; name: string | null };
+// `isNotify` / `isLibrary` sont deux publics INDÉPENDANTS pour le même destinataire : un membre
+// peut être ciblé pour le pop-up de connexion (isNotify) sans pouvoir consulter la vidéo dans
+// Souvenirs ensuite (isLibrary), ou l'inverse. Les deux valent `true` pour un destinataire
+// « classique » (cas historique, avant que les deux réglages ne soient dissociables).
+export type VideoRecipient = { memberId: string; name: string | null; isNotify: boolean; isLibrary: boolean };
 
 export type VideoGift = {
   amountEur: number;
@@ -40,6 +44,7 @@ export type VideoRecord = {
   publishedAt: string | null;
   publishAt: string | null;
   notifyOnLogin: boolean;
+  notifyAll: boolean;
   giftId: string | null;
   gift: VideoGift | null;
   recipients: VideoRecipient[];
@@ -60,6 +65,9 @@ export type ViewerContext = { memberId: string | null; name: string; isAdmin: bo
  *      par id ou par prénom).
  * Les vidéos privées d'un AUTRE membre, les brouillons, les vidéos dépubliées et celles dont la
  * publication est programmée dans le futur restent masquées à tout non-administrateur.
+ * Ne compte que les destinataires marqués `isLibrary` : un membre ciblé uniquement pour le
+ * pop-up (isNotify, voir `findWelcomePopupVideo`) ne doit pas pour autant pouvoir la retrouver
+ * ici — les deux publics sont indépendants.
  */
 export function canMemberViewVideo(video: VideoRecord, viewer: ViewerContext): boolean {
   if (viewer.isAdmin) return true;
@@ -68,8 +76,9 @@ export function canMemberViewVideo(video: VideoRecord, viewer: ViewerContext): b
   if (video.visibilityScope === "family") return true;
   return video.recipients.some(
     (recipient) =>
-      (viewer.memberId !== null && recipient.memberId === viewer.memberId) ||
-      (recipient.name !== null && recipient.name === viewer.name),
+      recipient.isLibrary &&
+      ((viewer.memberId !== null && recipient.memberId === viewer.memberId) ||
+        (recipient.name !== null && recipient.name === viewer.name)),
   );
 }
 
@@ -166,13 +175,16 @@ export function filterVideos(videos: VideoRecord[], filters: VideoFilters, viewe
       if (filters.recipient === "Toute la famille") {
         if (video.visibilityScope !== "family") return false;
       } else if (filters.recipient === "Moi") {
+        // Filtre de la bibliothèque Souvenirs : ne compte que les destinataires isLibrary (voir
+        // canMemberViewVideo — un destinataire isNotify-only n'apparaît de toute façon jamais ici).
         const mine = video.recipients.some(
           (recipient) =>
-            (viewer.memberId !== null && recipient.memberId === viewer.memberId) ||
-            (recipient.name !== null && recipient.name === viewer.name),
+            recipient.isLibrary &&
+            ((viewer.memberId !== null && recipient.memberId === viewer.memberId) ||
+              (recipient.name !== null && recipient.name === viewer.name)),
         );
         if (!mine) return false;
-      } else if (!video.recipients.some((recipient) => recipient.name === filters.recipient)) {
+      } else if (!video.recipients.some((recipient) => recipient.isLibrary && recipient.name === filters.recipient)) {
         return false;
       }
     }
@@ -202,16 +214,24 @@ export function availableYears(videos: VideoRecord[]): string[] {
 /**
  * Vidéo « message personnel » à proposer en pop-up juste après la connexion : jamais pour
  * l'administrateur (qui gère l'espace, il n'a pas besoin d'être surpris par son propre contenu),
- * jamais pour une vidéo `family` (diffusion large, non conçue comme une surprise individuelle),
- * uniquement une vidéo ciblée (`selected_members`) dont l'observateur est destinataire ET pas
- * encore vue. **Doit explicitement porter `notifyOnLogin: true`** : c'est ce drapeau qui décide
- * du déclenchement, pas la simple présence d'une vidéo dans l'espace Souvenirs — une vidéo
- * ajoutée à la bibliothèque sans cette intention reste consultable dans l'onglet mais ne surgit
- * jamais toute seule. Il est posé automatiquement pour une vidéo liée à un cadeau ou publiée
- * via le formulaire admin « Publier un message vidéo ». La programmation (`publishAt`) est
- * revérifiée ici en profondeur : le serveur filtre déjà les vidéos pas encore publiées pour un
- * non-admin, mais on ne fait jamais confiance à la seule provenance des données. La plus
- * ancienne non vue sort en premier, pour ne jamais en sauter une.
+ * pas encore vue par l'observateur. **Doit explicitement porter `notifyOnLogin: true`** : c'est ce
+ * drapeau qui décide du déclenchement, pas la simple présence d'une vidéo dans l'espace Souvenirs —
+ * une vidéo ajoutée à la bibliothèque sans cette intention reste consultable dans l'onglet mais ne
+ * surgit jamais toute seule. Il est posé automatiquement pour une vidéo liée à un cadeau ou
+ * publiée via le formulaire admin « Publier un message vidéo ».
+ *
+ * Le PUBLIC du pop-up (`notifyAll`) est volontairement INDÉPENDANT de `visibilityScope` (qui ne
+ * régit que l'accès à la bibliothèque Souvenirs après coup, voir `canMemberViewVideo`) : l'un
+ * choisit qui est surpris une fois à la connexion, l'autre qui peut la retrouver ensuite dans
+ * Souvenirs — un administrateur peut donc annoncer un message à toute la famille en pop-up tout
+ * en gardant la vidéo, dans Souvenirs, réservée à quelques destinataires (ou l'inverse). Avec
+ * `notifyAll: true`, l'observateur n'a pas besoin de figurer parmi les destinataires ; sinon, il
+ * doit figurer parmi ceux marqués `isNotify` (par id, ou par prénom en aperçu admin) — un
+ * destinataire `isLibrary`-only (accès Souvenirs sans pop-up) ne compte pas ici.
+ *
+ * La programmation (`publishAt`) est revérifiée ici en profondeur : le serveur filtre déjà les
+ * vidéos pas encore publiées pour un non-admin, mais on ne fait jamais confiance à la seule
+ * provenance des données. La plus ancienne non vue sort en premier, pour ne jamais en sauter une.
  */
 export function findWelcomePopupVideo(videos: VideoRecord[], viewer: ViewerContext): VideoRecord | null {
   if (viewer.isAdmin) return null;
@@ -222,12 +242,13 @@ export function findWelcomePopupVideo(videos: VideoRecord[], viewer: ViewerConte
       !video.isArchived &&
       video.notifyOnLogin &&
       !(video.publishAt && new Date(video.publishAt).getTime() > Date.now()) &&
-      video.visibilityScope === "selected_members" &&
-      video.recipients.some(
-        (recipient) =>
-          (viewer.memberId !== null && recipient.memberId === viewer.memberId) ||
-          (recipient.name !== null && recipient.name === viewer.name),
-      ),
+      (video.notifyAll ||
+        video.recipients.some(
+          (recipient) =>
+            recipient.isNotify &&
+            ((viewer.memberId !== null && recipient.memberId === viewer.memberId) ||
+              (recipient.name !== null && recipient.name === viewer.name)),
+        )),
   );
   if (pending.length === 0) return null;
   return sortVideos(pending, "oldest")[0];
