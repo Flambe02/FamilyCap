@@ -20,6 +20,7 @@ const BitcoinInvestmentPage = dynamic(() => import("./bitcoin-investments").then
 const PeaInvestmentPage = dynamic(() => import("./pea-investments").then((module) => module.PeaInvestmentPage));
 const CtoInvestmentPage = dynamic(() => import("./cto-investments").then((module) => module.CtoInvestmentPage));
 const SouvenirsPage = dynamic(() => import("./souvenirs").then((module) => module.SouvenirsPage));
+const InvestmentsHistoryPage = dynamic(() => import("./investments-history").then((module) => module.InvestmentsHistoryPage));
 const VideoWelcomePopup = dynamic(() => import("./video-welcome-popup").then((module) => module.VideoWelcomePopup));
 const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((module) => module.PeaPortfolioLesson));
 const InvestingRulesLesson = dynamic(() => import("./lesson-investing-rules").then((module) => module.InvestingRulesLesson));
@@ -844,7 +845,15 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
           </>
         )}
         {view === "investissements-suggestions" && <ChallengesPage canAct={memberCanRecordOperation} onNavigate={navigate} asMemberId={isPreview && viewer.role === "admin" ? previewMemberId ?? undefined : undefined} onStartMission={openChallengeMission} />}
-        {view === "investissements-historique" && <ComingSoon eyebrow="INVESTISSEMENTS" title="Historique" description="Cette section sera connectée aux données existantes. L’historique consolidé des opérations d’investissement (Bitcoin, PEA, compte-titres) arrivera dans une prochaine étape." />}
+        {view === "investissements-historique" && (
+          <InvestmentsHistoryPage
+            transactions={transactions}
+            accounts={portfolioAccounts}
+            operations={portfolioOperations}
+            viewer={effectiveViewer}
+            isPreview={isPreview}
+          />
+        )}
         {view === "videos" && <>{canRecordPersonalBtc && <ContextualTip tipId="videos" memberId={effectiveViewer.id} title={onboardingCopy.tips.videos.title} body={onboardingCopy.tips.videos.body} cta={onboardingCopy.tips.videos.cta} />}<SouvenirsPage viewer={effectiveViewer} isPreview={isPreview} onOpenGiftMember={(member) => { setFamilyMember(member); setView("cadeaux-amatxi"); }} /></>}
         {view === "famille-roster" && <FamilyRoster memberBalances={memberBalances} onOpenMember={(member) => { setFamilyMember(member); setView("portefeuilles"); }} birthdays={familyBirthdays} />}
         {view === "famille-acces" && effectiveViewer.role === "admin" && <AdminUsers />}
@@ -1252,19 +1261,6 @@ function Learn({ onNavigate }: { onNavigate: (view: View) => void }) {
   );
 }
 
-
-function ComingSoon({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return (
-    <div className="page-stack">
-      <section className="panel coming-soon-panel">
-        <span className="soft-pill">{eyebrow}</span>
-        <h2>{title}</h2>
-        <p>{description}</p>
-        <span className="coming-soon-badge">Bientôt disponible</span>
-      </section>
-    </div>
-  );
-}
 
 function FamilyRoster({ memberBalances, onOpenMember, birthdays }: { memberBalances: FamilyMemberBalance[]; onOpenMember: (member: string) => void; birthdays: Record<string, { day: number; month: number }> | null }) {
   return (

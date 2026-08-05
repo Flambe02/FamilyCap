@@ -1,0 +1,24 @@
+.history-head p{margin:8px 0 0;color:var(--muted);font-size:12px}
+.history-filter-tabs{display:flex;gap:4px;padding:6px;margin-bottom:16px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow-x:auto;scrollbar-width:none}
+.history-filter-tabs::-webkit-scrollbar{display:none}
+.history-filter-tabs button{flex:0 0 auto;border:0;border-radius:10px;padding:10px 14px;background:transparent;color:var(--muted);font-size:12px;font-weight:800;white-space:nowrap;cursor:pointer}
+.history-filter-tabs button:hover{color:var(--ink);background:#f4f7f6}
+.history-filter-tabs button.active{background:var(--teal);color:#fff}
+.history-filter-tabs button em{margin-left:6px;font-style:normal;opacity:.75}
+.history-empty{padding:36px 20px;text-align:center;color:var(--muted)}
+.history-empty strong{display:block;color:var(--ink);font-size:13px;margin-bottom:6px}
+.history-empty span{font-size:12px}
+/* .btc-ops-amount b vaut toujours var(--btc-up) par défaut (liste Bitcoin, toujours positive) ;
+   ici une opération PEA/CTO peut être sortante (achat, frais, retrait) et doit s'afficher en
+   rouge. --btc-up/--btc-down ne sont définies que sous .btc-page (bitcoin-investments.css) :
+   cette page n'en hérite pas, d'où les couleurs en dur (mêmes valeurs). */
+.history-list .btc-ops-amount b.up{color:#1d7a5f}
+.history-list .btc-ops-amount b.down{color:#d9544d}
+.history-more{display:flex;justify-content:center;margin-top:18px}
+.history-more button{min-width:220px}
+@media(max-width:780px){
+  .history-filter-tabs{flex-wrap:nowrap}
+  .history-more button{width:100%;min-width:0}
+  .history-list .btc-ops-amount{text-align:right}
+  .history-list .btc-ops-amount small{display:block}
+}

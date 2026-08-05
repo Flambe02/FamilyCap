@@ -231,10 +231,10 @@ export function BitcoinInvestmentPage({
   const tabs: { id: BitcoinTab; label: string }[] = [
     { id: "resume", label: "Résumé" },
     ...(canViewAll ? [{ id: "membres" as BitcoinTab, label: "Détail par membre" }] : []),
-    { id: "conservation", label: "Conservation" },
     { id: "performance", label: "Performance" },
     { id: "historique", label: "Historique" },
     { id: "comprendre", label: "Comprendre" },
+    { id: "conservation", label: "Conservation" },
     { id: "investir", label: "Investir" },
   ];
   const activeTab: BitcoinTab = tab === "membres" && !canViewAll ? "resume" : tab;
