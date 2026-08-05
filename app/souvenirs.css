@@ -136,7 +136,8 @@
 .souvenirs-card-title:focus-visible { outline: 2px solid #1f8a70; outline-offset: 2px; border-radius: 4px; }
 .souvenirs-card-recipient { margin: 0; color: #5a6b66; font-size: 0.86rem; }
 .souvenirs-card-gift { margin: 0; color: #146854; font-size: 0.84rem; font-weight: 600; }
-.souvenirs-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; color: #8a9793; font-size: 0.8rem; }
+.souvenirs-card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin-top: 4px; color: #8a9793; font-size: 0.8rem; }
+.souvenirs-published-date { flex: 1 0 100%; color: #a0aca8; font-size: 0.72rem; }
 .souvenirs-scope-chip { background: #eef3f1; color: #3c4f4a; border-radius: 999px; padding: 1px 8px; font-size: 0.72rem; font-weight: 600; }
 .souvenirs-card-admin { display: flex; gap: 8px; margin-top: 10px; }
 .souvenirs-card-admin button {
@@ -164,7 +165,7 @@
 .souvenirs-empty code { background: #f0f5f3; padding: 2px 6px; border-radius: 6px; }
 
 /* Modale lecteur */
-.souvenirs-player-modal { width: min(760px, 96vw); max-height: 92vh; overflow: auto; padding: 0; }
+.souvenirs-player-modal { width: min(760px, 100%); max-height: 92vh; overflow: auto; padding: 0; }
 .souvenirs-player-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; }
 .souvenirs-player-head > button { border: 0; background: #eef3f1; width: 36px; height: 36px; border-radius: 50%; font-size: 1.3rem; cursor: pointer; color: #3c4f4a; }
 .souvenirs-player-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
@@ -181,8 +182,12 @@
 .souvenirs-admin-note { margin: 14px 0 0; font-size: 0.82rem; color: #8a6d1f; background: #fdf5e3; border: 1px solid #f2e2b8; border-radius: 10px; padding: 10px 12px; }
 .souvenirs-player-actions { display: flex; gap: 10px; margin-top: 16px; }
 
+/* Pop-up de bienvenue (message vidéo ciblé, affiché une fois après connexion) */
+.souvenirs-welcome-badge { font-weight: 700; color: #146854; font-size: 0.95rem; }
+.souvenirs-welcome-note { margin: 10px 0 0; font-size: 0.82rem; color: #5c6f6a; }
+
 /* Modale admin */
-.souvenirs-admin-modal { width: min(680px, 96vw); max-height: 92vh; overflow: auto; padding: 0; }
+.souvenirs-admin-modal { width: min(680px, 100%); max-height: 92vh; overflow: auto; padding: 0; }
 .souvenirs-admin-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid #eef3f1; position: sticky; top: 0; background: #fff; z-index: 1; }
 .souvenirs-admin-head h2 { margin: 0; font-size: 1.25rem; color: #10302a; }
 .souvenirs-admin-head > button { border: 0; background: #eef3f1; width: 36px; height: 36px; border-radius: 50%; font-size: 1.3rem; cursor: pointer; color: #3c4f4a; }
@@ -226,5 +231,11 @@
   .souvenirs-grid { grid-template-columns: 1fr; gap: 16px; }
   .souvenirs-detail-grid { grid-template-columns: 1fr; }
   .souvenirs-admin-row { grid-template-columns: 1fr; }
-  .souvenirs-player-modal, .souvenirs-admin-modal { width: 100vw; max-height: 100vh; height: 100vh; border-radius: 0; }
+  /* `100vw` déborde du viewport visible sur mobile (n'a jamais tenu compte des 20px de
+     padding du fond de modale, et les navigateurs mobiles rapportent souvent un 100vw plus
+     large que la zone réellement visible) — c'est ce qui coupait la vidéo et ses contrôles
+     YouTube sur le bord droit. `100%` reste dans la boîte déjà contrainte du fond de modale ;
+     `overflow: auto` (règle de base) permet à la fiche (occasion/destinataire/message) de
+     défiler sous la vidéo au lieu de forcer une hauteur d'écran complète rigide. */
+  .souvenirs-player-modal, .souvenirs-admin-modal { width: 100%; max-height: calc(100vh - 40px); height: auto; }
 }

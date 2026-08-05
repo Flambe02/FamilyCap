@@ -38,6 +38,8 @@ export type VideoRecord = {
   isPublished: boolean;
   isArchived: boolean;
   publishedAt: string | null;
+  publishAt: string | null;
+  notifyOnLogin: boolean;
   giftId: string | null;
   gift: VideoGift | null;
   recipients: VideoRecipient[];
@@ -51,14 +53,18 @@ export type ViewerContext = { memberId: string | null; name: string; isAdmin: bo
 
 /**
  * Un observateur peut-il voir cette vidéo ?
- *  - administrateur                 -> oui (brouillons compris) ;
- *  - sinon, vidéo publiée non archivée ET
- *      portée `family`  OU  l'observateur figure parmi les destinataires (par id ou par prénom).
- * Les vidéos privées d'un AUTRE membre, les brouillons et les vidéos dépubliées restent masqués.
+ *  - administrateur                 -> oui (brouillons compris, y compris une publication
+ *                                       programmée pas encore atteinte) ;
+ *  - sinon, vidéo publiée non archivée ET la date de publication programmée (le cas échéant)
+ *      est atteinte ET (portée `family`  OU  l'observateur figure parmi les destinataires,
+ *      par id ou par prénom).
+ * Les vidéos privées d'un AUTRE membre, les brouillons, les vidéos dépubliées et celles dont la
+ * publication est programmée dans le futur restent masquées à tout non-administrateur.
  */
 export function canMemberViewVideo(video: VideoRecord, viewer: ViewerContext): boolean {
   if (viewer.isAdmin) return true;
   if (!video.isPublished || video.isArchived) return false;
+  if (video.publishAt && new Date(video.publishAt).getTime() > Date.now()) return false;
   if (video.visibilityScope === "family") return true;
   return video.recipients.some(
     (recipient) =>
@@ -191,4 +197,38 @@ export function filterVideos(videos: VideoRecord[], filters: VideoFilters, viewe
 /** Années présentes dans les données (pour le filtre dynamique), décroissantes. */
 export function availableYears(videos: VideoRecord[]): string[] {
   return [...new Set(videos.map(videoYear).filter((year): year is string => year !== null))].sort().reverse();
+}
+
+/**
+ * Vidéo « message personnel » à proposer en pop-up juste après la connexion : jamais pour
+ * l'administrateur (qui gère l'espace, il n'a pas besoin d'être surpris par son propre contenu),
+ * jamais pour une vidéo `family` (diffusion large, non conçue comme une surprise individuelle),
+ * uniquement une vidéo ciblée (`selected_members`) dont l'observateur est destinataire ET pas
+ * encore vue. **Doit explicitement porter `notifyOnLogin: true`** : c'est ce drapeau qui décide
+ * du déclenchement, pas la simple présence d'une vidéo dans l'espace Souvenirs — une vidéo
+ * ajoutée à la bibliothèque sans cette intention reste consultable dans l'onglet mais ne surgit
+ * jamais toute seule. Il est posé automatiquement pour une vidéo liée à un cadeau ou publiée
+ * via le formulaire admin « Publier un message vidéo ». La programmation (`publishAt`) est
+ * revérifiée ici en profondeur : le serveur filtre déjà les vidéos pas encore publiées pour un
+ * non-admin, mais on ne fait jamais confiance à la seule provenance des données. La plus
+ * ancienne non vue sort en premier, pour ne jamais en sauter une.
+ */
+export function findWelcomePopupVideo(videos: VideoRecord[], viewer: ViewerContext): VideoRecord | null {
+  if (viewer.isAdmin) return null;
+  const pending = videos.filter(
+    (video) =>
+      !video.viewed &&
+      video.isPublished &&
+      !video.isArchived &&
+      video.notifyOnLogin &&
+      !(video.publishAt && new Date(video.publishAt).getTime() > Date.now()) &&
+      video.visibilityScope === "selected_members" &&
+      video.recipients.some(
+        (recipient) =>
+          (viewer.memberId !== null && recipient.memberId === viewer.memberId) ||
+          (recipient.name !== null && recipient.name === viewer.name),
+      ),
+  );
+  if (pending.length === 0) return null;
+  return sortVideos(pending, "oldest")[0];
 }

@@ -16,7 +16,7 @@ import { InvestmentImportWizard } from "./investment-import-wizard";
 import { InvestmentAccountSetup, type SetupNext } from "./investment-account-setup";
 import {
   euro, euro0, dateOf, GainPill, BitcoinKpi, DonutChart, LegendRow,
-  EvolutionChart, PeriodFilter, EmptyState, type ChartSeries,
+  EvolutionChart, PeriodFilter, EmptyState, TabsNav, type ChartSeries,
 } from "./bitcoin-components";
 
 // This marker only restores the success screen after navigation. The server is
@@ -557,11 +557,7 @@ export function InvestmentAccountShell({
         </div>
       </header>
 
-      <nav className="btc-tabs" aria-label={`Sections ${config.kind === "CTO" ? "compte-titres" : "PEA"}`}>
-        {tabs.map((item) => (
-          <button key={item.id} type="button" className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)}>{item.label}</button>
-        ))}
-      </nav>
+      <TabsNav tabs={tabs} active={tab} onChange={setTab} ariaLabel={`Sections ${config.kind === "CTO" ? "compte-titres" : "PEA"}`} />
 
       {loading ? (
         <InvestmentSkeleton />

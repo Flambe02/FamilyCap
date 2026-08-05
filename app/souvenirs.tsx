@@ -364,6 +364,7 @@ function VideoCard({ video, canManage, onOpen, onTogglePublish, onEdit }: {
   const badge = OCCASION_BADGE[video.occasionType];
   const duration = formatDuration(video.durationSeconds);
   const date = formatDate(video.occasionDate, cardDate);
+  const publishedDate = formatDate(video.publishedAt, cardDate);
   const isNew = !video.viewed;
   return (
     <article className={`souvenirs-card${video.isPublished ? "" : " draft"}`}>
@@ -381,6 +382,7 @@ function VideoCard({ video, canManage, onOpen, onTogglePublish, onEdit }: {
         {video.gift && <p className="souvenirs-card-gift">{giftLabel(video.gift)}</p>}
         <div className="souvenirs-card-foot">
           {date && <time>{date}</time>}
+          {publishedDate && <span className="souvenirs-published-date">Publiée le {publishedDate}</span>}
           {video.visibilityScope !== "family" && <span className="souvenirs-scope-chip">Privé</span>}
         </div>
         {canManage && (
@@ -408,6 +410,7 @@ function VideoPlayerModal({ video, isAdmin, canManage, onClose, onEdit, onArchiv
   const [playing, setPlaying] = useState(false);
   const badge = OCCASION_BADGE[video.occasionType];
   const date = formatDate(video.occasionDate, longDate);
+  const publishedDate = formatDate(video.publishedAt, longDate);
   const duration = formatDuration(video.durationSeconds);
 
   return (
@@ -443,6 +446,7 @@ function VideoPlayerModal({ video, isAdmin, canManage, onClose, onEdit, onArchiv
             <div><dt>Occasion</dt><dd>{OCCASION_LABEL[video.occasionType]}</dd></div>
             <div><dt>Destinataire</dt><dd>{recipientLabel(video)}</dd></div>
             {date && <div><dt>Date</dt><dd>{date}</dd></div>}
+            {publishedDate && <div><dt>Publiée le</dt><dd>{publishedDate}</dd></div>}
             {duration && <div><dt>Durée</dt><dd>{duration}</dd></div>}
             {video.gift && (
               <div className="span-2">

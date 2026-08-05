@@ -7,6 +7,7 @@ import {
   canMemberViewVideo,
   countByTab,
   filterVideos,
+  findWelcomePopupVideo,
   sortVideos,
   availableYears,
 } from "../lib/videos/video-visibility.ts";
@@ -26,6 +27,8 @@ function video(partial) {
     isPublished: true,
     isArchived: false,
     publishedAt: "2026-03-15T00:00:00Z",
+    publishAt: null,
+    notifyOnLogin: false,
     giftId: null,
     gift: null,
     recipients: [],
@@ -76,6 +79,65 @@ test("aperçu admin : correspondance par prénom, pas par id admin", () => {
   assert.equal(canMemberViewVideo(v, previewThibault), true);
   const other = video({ visibilityScope: "private", recipients: [{ memberId: "paul-id", name: "Paul" }] });
   assert.equal(canMemberViewVideo(other, previewThibault), false);
+});
+
+/* ---- Publication programmée (publishAt) ---- */
+test("canMemberViewVideo : publication programmée dans le futur masquée à un membre, visible à l'admin", () => {
+  const future = new Date(Date.now() + 86_400_000).toISOString();
+  const v = video({ visibilityScope: "family", publishAt: future });
+  assert.equal(canMemberViewVideo(v, thibault), false);
+  assert.equal(canMemberViewVideo(v, admin), true);
+});
+
+test("canMemberViewVideo : publication programmée déjà atteinte visible normalement", () => {
+  const past = new Date(Date.now() - 86_400_000).toISOString();
+  const v = video({ visibilityScope: "family", publishAt: past });
+  assert.equal(canMemberViewVideo(v, thibault), true);
+});
+
+/* ---- Pop-up de bienvenue (notifyOnLogin — posé par un cadeau lié ou le formulaire admin) ---- */
+test("findWelcomePopupVideo : jamais pour l'administrateur", () => {
+  const v = video({ visibilityScope: "selected_members", notifyOnLogin: true, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(findWelcomePopupVideo([v], admin), null);
+});
+
+test("findWelcomePopupVideo : une vidéo family ne se lance jamais toute seule", () => {
+  const v = video({ visibilityScope: "family", notifyOnLogin: true });
+  assert.equal(findWelcomePopupVideo([v], thibault), null);
+});
+
+test("findWelcomePopupVideo : sans notifyOnLogin, pas de pop-up (une vidéo de bibliothèque ne surgit jamais seule)", () => {
+  const v = video({ visibilityScope: "selected_members", notifyOnLogin: false, giftId: "g1", recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(findWelcomePopupVideo([v], thibault), null);
+});
+
+test("findWelcomePopupVideo : vidéo déjà vue exclue", () => {
+  const v = video({ visibilityScope: "selected_members", notifyOnLogin: true, viewed: true, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(findWelcomePopupVideo([v], thibault), null);
+});
+
+test("findWelcomePopupVideo : notifyOnLogin, non vue, pour le bon destinataire → retenue", () => {
+  const v = video({ id: "v1", visibilityScope: "selected_members", notifyOnLogin: true, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(findWelcomePopupVideo([v], thibault)?.id, "v1");
+  assert.equal(findWelcomePopupVideo([v], paul), null);
+});
+
+test("findWelcomePopupVideo : la plus ancienne non vue sort en premier", () => {
+  const recent = video({ id: "recent", occasionDate: "2026-06-01", visibilityScope: "selected_members", notifyOnLogin: true, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  const old = video({ id: "old", occasionDate: "2025-01-01", visibilityScope: "selected_members", notifyOnLogin: true, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(findWelcomePopupVideo([recent, old], thibault)?.id, "old");
+});
+
+test("findWelcomePopupVideo : publication programmée dans le futur ne se déclenche pas encore", () => {
+  const future = new Date(Date.now() + 86_400_000).toISOString();
+  const v = video({ visibilityScope: "selected_members", notifyOnLogin: true, publishAt: future, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(findWelcomePopupVideo([v], thibault), null);
+});
+
+test("findWelcomePopupVideo : publication programmée déjà atteinte se déclenche", () => {
+  const past = new Date(Date.now() - 86_400_000).toISOString();
+  const v = video({ id: "v1", visibilityScope: "selected_members", notifyOnLogin: true, publishAt: past, recipients: [{ memberId: "thibault-id", name: "Thibault" }] });
+  assert.equal(findWelcomePopupVideo([v], thibault)?.id, "v1");
 });
 
 /* ---- Compteurs d'onglets ---- */

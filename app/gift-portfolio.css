@@ -22,6 +22,8 @@
 .gift-portfolio .transfer-workbench-metrics{width:min(100%,460px)}.gift-portfolio .transfer-workbench>.primary-button{justify-self:start}
 @media(min-width:681px){.gift-actions-admin{position:absolute;right:0;bottom:8px;z-index:2;display:none;opacity:1;padding:6px;border-radius:10px;background:#fff;box-shadow:0 6px 16px rgb(18 49 61 / 12%)}.hist-item:hover .gift-actions-admin,.hist-item:focus-within .gift-actions-admin{display:flex}}
 @media(max-width:680px){.gift-portfolio{width:calc(100% - 24px)}.gift-timeline-panel{max-height:none;overflow:visible}.gift-portfolio .transfer-workbench{min-height:0}}
+.simple-gift-editor .video-toggle{display:flex;flex-direction:row;align-items:center;gap:9px;color:#14324a;font-size:13px;font-weight:700}
+.simple-gift-editor .video-toggle input{width:18px;height:18px;min-height:0;accent-color:#128c7e}
 /* Historique familial plus lisible et file de rapprochement Ledger pleine largeur. */
 .gift-timeline-panel{max-height:560px}
 .gift-timeline-panel>.card-head{position:sticky;top:0;z-index:2;padding:0 0 10px;background:#fff}

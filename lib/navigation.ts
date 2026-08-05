@@ -35,7 +35,8 @@ export type NavIconId =
   | "bell"
   | "sprout"
   | "swap"
-  | "key";
+  | "key"
+  | "menu";
 
 export type NavLeaf = { id: View; label: string; icon: NavIconId; iconLabel: string; short?: string };
 
@@ -82,11 +83,14 @@ export const HIDDEN_FROM_SIDEBAR_VIEW_IDS: View[] = ["portefeuilles", "famille-r
 // onglet actif (sinon « Investir » et « Défis » s'allumeraient en même temps).
 export const BOTTOM_NAV_INVESTMENT_VIEW_IDS: View[] = INVESTMENT_VIEW_IDS.filter((id) => id !== "investissements-suggestions");
 
+// Les 3 premiers naviguent directement vers une vue ; le 4e bouton (« Menu ») n'est PAS un lien
+// direct — family-dashboard.tsx le rend à part et l'utilise pour ouvrir le tiroir mobile déjà
+// existant (mobile-menu-drawer), qui donne accès à Anniversaires, Souvenirs, Paramètres et le
+// reste de la navigation secondaire sans les faire tenir dans la barre fixe.
 export const BOTTOM_NAV_ITEMS: { id: View; label: string; icon: NavIconId; short: string; groupIds?: View[] }[] = [
   { id: "famille", label: "Tableau de bord", icon: "house", short: "Accueil" },
   { id: "bitcoin", label: "Investissements", icon: "trending-up", short: "Investir", groupIds: BOTTOM_NAV_INVESTMENT_VIEW_IDS },
   { id: "investissements-suggestions", label: "Défis", icon: "star", short: "Défis" },
-  { id: "parametres", label: "Paramètres", icon: "settings", short: "Paramètres" },
 ];
 
 export function titleForView(view: View): string {

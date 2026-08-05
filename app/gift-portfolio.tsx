@@ -9,9 +9,12 @@ import { saveGift, type GiftSavePayload } from "../lib/gifts-client";
 import { heldBtc, ledgerBalanceBtc, isBinanceGift, transferFeesBtc, unreconciledLedgerBtc } from "../lib/gift-custody";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
+import { fetchVideos, saveVideo } from "../lib/videos/videos-client";
+import { extractYouTubeVideoId } from "../lib/videos/youtube";
+import type { OccasionType, VideoRecord } from "../lib/videos/video-visibility";
 import "./gift-portfolio.css";
 
-type GiftRecord = {
+export type GiftRecord = {
   id?: string;
   member_name: string;
   occasion: string;
@@ -33,9 +36,9 @@ type GiftRecord = {
   origin: "database" | "historical" | "expected";
 };
 
-type LedgerTransaction = { txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number; explorerUrl: string; address?: string };
-type LedgerWallet = { member: string; address: string; confirmedBalanceBtc?: number; transactions?: LedgerTransaction[]; explorerUrl?: string; error?: string };
-type LedgerResponse = { wallets?: LedgerWallet[]; bitcoinEur: number | null; updatedAt?: string };
+export type LedgerTransaction = { txid: string; date: string | null; amountBtc: number; direction: string; confirmations: number; explorerUrl: string; address?: string };
+export type LedgerWallet = { member: string; address: string; confirmedBalanceBtc?: number; transactions?: LedgerTransaction[]; explorerUrl?: string; error?: string };
+export type LedgerResponse = { wallets?: LedgerWallet[]; bitcoinEur: number | null; updatedAt?: string };
 
 type MemberInfo = { name: string; initials: string; birthday: string; day: number; month: number; color: string };
 const people: MemberInfo[] = FAMILY_MEMBERS.map((member) => ({
@@ -557,14 +560,112 @@ function TransferWorkbench({ member, wallet, giftRecords, transferCostsBtc, onSa
     </div><footer><button className="secondary-button" onClick={() => setOpen(false)}>Annuler</button><button className="primary-button" onClick={() => void saveTransfer()} disabled={busy || !selectedTransaction || selectedGiftIds.length === 0}>{busy ? "Vérification…" : "Enregistrer le transfert"}</button></footer></section></div>}
   </section>;
 }
-function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record: GiftRecord; wallets: LedgerWallet[]; giftRecords: GiftRecord[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
-  const [draft, setDraft] = useState({ member: record.member_name, occasion: record.occasion, giftDate: record.gift_date, purchaseDate: record.purchase_date || record.gift_date || new Date().toISOString().slice(0, 10), amountEur: String(record.amount_eur || 55), btcAmount: record.btc_amount ? String(record.btc_amount) : "", custody: record.custody, transferDate: record.transfer_date ?? "", ledgerAmount: record.ledger_amount ? String(record.ledger_amount) : "", forceLedgerAmount: Boolean(record.ledger_value_forced), forceReason: record.ledger_force_reason ?? "", publicAddress: record.public_address ?? wallets.find((w) => w.member === record.member_name)?.address ?? "", txid: record.txid ?? "", blockchainStatus: record.blockchain_status ?? "", confirmations: record.confirmations ?? 0, note: record.note ?? "" });
+export function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record: GiftRecord; wallets: LedgerWallet[]; giftRecords: GiftRecord[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+  // Jamais de "55" implicite : un montant € absent (0/undefined) reste un champ VIDE, pas une
+  // valeur devinée. L'appelant qui veut vraiment 55 € par défaut (nouvelle saisie libre) le
+  // passe désormais explicitement dans `record.amount_eur`.
+  const [draft, setDraft] = useState({ member: record.member_name, occasion: record.occasion, giftDate: record.gift_date, purchaseDate: record.purchase_date || record.gift_date || new Date().toISOString().slice(0, 10), amountEur: record.amount_eur ? String(record.amount_eur) : "", btcAmount: record.btc_amount ? String(record.btc_amount) : "", custody: record.custody, transferDate: record.transfer_date ?? "", ledgerAmount: record.ledger_amount ? String(record.ledger_amount) : "", forceLedgerAmount: Boolean(record.ledger_value_forced), forceReason: record.ledger_force_reason ?? "", publicAddress: record.public_address ?? wallets.find((w) => w.member === record.member_name)?.address ?? "", txid: record.txid ?? "", blockchainStatus: record.blockchain_status ?? "", confirmations: record.confirmations ?? 0, note: record.note ?? "" });
   const [busy, setBusy] = useState(false);
   const [verification, setVerification] = useState("");
   const dialogRef = useDialogA11y(true, onClose);
   function update(key: keyof typeof draft, value: string | number) { setDraft((current) => ({ ...current, [key]: value })); }
   function changeGiftDate(giftDate: string) { setDraft((current) => ({ ...current, giftDate, purchaseDate: giftDate })); }
   function changeMember(member: string) { setDraft((current) => ({ ...current, member, publicAddress: wallets.find((w) => w.member === member)?.address ?? "", txid: "", confirmations: 0, blockchainStatus: "" })); }
+
+  // 4 · Message vidéo (optionnel) — c'est ce lien Cadeau → Vidéo (family_videos.gift_id) qui
+  // déclenche ou non le pop-up de bienvenue (findWelcomePopupVideo). On charge une seule fois
+  // les vidéos personnelles existantes pour proposer d'en réutiliser une déjà présente dans
+  // l'espace Souvenirs plutôt que d'obliger à ressaisir l'URL YouTube à chaque cadeau.
+  const [personalVideos, setPersonalVideos] = useState<VideoRecord[]>([]);
+  const linkedVideo = useMemo(
+    () => (record.origin === "database" ? personalVideos.find((video) => video.giftId === record.id) ?? null : null),
+    [personalVideos, record.id, record.origin],
+  );
+  const candidateVideos = useMemo(
+    () =>
+      personalVideos.filter(
+        (video) =>
+          (video.giftId === null || video.id === linkedVideo?.id) &&
+          video.recipients.some((recipient) => recipient.name === draft.member),
+      ),
+    [personalVideos, linkedVideo, draft.member],
+  );
+  useEffect(() => {
+    let active = true;
+    void fetchVideos()
+      .then(({ videos }) => { if (active) setPersonalVideos(videos.filter((video) => video.visibilityScope === "selected_members")); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  // État dérivé, pas un effet : tant que l'admin n'a rien touché, les valeurs par défaut
+  // reflètent directement la vidéo déjà liée (une fois `personalVideos` chargé, sans course ni
+  // « flash » d'un état intermédiaire). Dès la première interaction, `videoOverride` prend le
+  // dessus et n'est plus jamais recalculé depuis les données chargées.
+  type VideoOverride = { enabled: boolean; mode: "existing" | "new"; selectedId: string; url: string };
+  const [videoOverride, setVideoOverride] = useState<VideoOverride | null>(null);
+  const videoEnabled = videoOverride?.enabled ?? Boolean(linkedVideo);
+  const videoMode = videoOverride?.mode ?? (linkedVideo ? "existing" : "new");
+  const selectedVideoId = videoOverride?.selectedId ?? linkedVideo?.id ?? "";
+  const videoUrl = videoOverride?.url ?? "";
+  function setVideoEnabled(enabled: boolean) {
+    setVideoOverride({ enabled, mode: videoMode, selectedId: selectedVideoId, url: videoUrl });
+  }
+  function setVideoMode(mode: "existing" | "new") {
+    setVideoOverride({ enabled: true, mode, selectedId: selectedVideoId, url: videoUrl });
+  }
+  function setSelectedVideoId(id: string) {
+    setVideoOverride({ enabled: true, mode: "existing", selectedId: id, url: videoUrl });
+  }
+  function setVideoUrl(url: string) {
+    setVideoOverride({ enabled: true, mode: "new", selectedId: selectedVideoId, url });
+  }
+
+  function videoFieldsOf(video: VideoRecord) {
+    return {
+      title: video.title,
+      description: video.description,
+      youtubeUrl: video.youtubeUrl,
+      thumbnailUrl: video.thumbnailUrl,
+      durationSeconds: video.durationSeconds,
+      occasionType: video.occasionType,
+      occasionDate: video.occasionDate,
+      visibilityScope: video.visibilityScope,
+      recipientNames: video.recipients.map((recipient) => recipient.name).filter((name): name is string => Boolean(name)),
+      publish: video.isPublished,
+    };
+  }
+
+  async function syncVideoLink(giftId: string) {
+    const previousId = linkedVideo?.id ?? null;
+    if (!videoEnabled) {
+      if (previousId) await saveVideo({ id: previousId, ...videoFieldsOf(linkedVideo!), giftId: null, notifyOnLogin: false });
+      return;
+    }
+    if (videoMode === "existing" && selectedVideoId) {
+      if (selectedVideoId === previousId) return;
+      if (previousId) await saveVideo({ id: previousId, ...videoFieldsOf(linkedVideo!), giftId: null, notifyOnLogin: false });
+      const chosen = personalVideos.find((video) => video.id === selectedVideoId);
+      if (chosen) await saveVideo({ id: chosen.id, ...videoFieldsOf(chosen), giftId, notifyOnLogin: true });
+      return;
+    }
+    if (videoMode === "new" && videoUrl.trim()) {
+      if (previousId) await saveVideo({ id: previousId, ...videoFieldsOf(linkedVideo!), giftId: null, notifyOnLogin: false });
+      const occasionType: OccasionType = draft.occasion === "Anniversaire" ? "birthday" : draft.occasion === "Noël" ? "christmas" : "general";
+      await saveVideo({
+        title: `Message vidéo — ${draft.occasion} ${draft.giftDate.slice(0, 4)}`,
+        description: null,
+        youtubeUrl: videoUrl.trim(),
+        occasionType,
+        occasionDate: draft.giftDate,
+        visibilityScope: "selected_members",
+        recipientNames: [draft.member],
+        giftId,
+        notifyOnLogin: true,
+        publish: true,
+      });
+    }
+  }
 
   const candidateWallet = wallets.find((wallet) => wallet.member === draft.member);
   const allocatedByTxid = useMemo(() => {
@@ -629,11 +730,12 @@ function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (draft.custody === "À rapprocher") { setVerification("Choisissez si ce cadeau est encore sur Binance commun ou déjà présent sur le Ledger."); return; }
+    if (videoEnabled && videoMode === "new" && videoUrl.trim() && !extractYouTubeVideoId(videoUrl)) { setVerification("L’URL YouTube du message vidéo est invalide."); return; }
     if (busy) return;
     setBusy(true);
     try {
       const id = record.origin === "database" ? record.id : undefined;
-      await saveGift({
+      const result = await saveGift({
         id,
         member: draft.member,
         occasion: draft.occasion as GiftSavePayload["occasion"],
@@ -652,7 +754,10 @@ function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record
         confirmations: draft.confirmations,
         note: draft.note,
       });
-      await onSaved(id ? "Cadeau modifié." : "Cadeau enregistré.");
+      const giftId = id ?? result.id;
+      let videoWarning = "";
+      if (giftId) await syncVideoLink(giftId).catch(() => { videoWarning = " (le message vidéo n’a pas pu être enregistré, réessayez depuis Souvenirs)"; });
+      await onSaved((id ? "Cadeau modifié." : "Cadeau enregistré.") + videoWarning);
     } catch (error) { setVerification(error instanceof Error ? error.message : "Enregistrement impossible"); }
     finally { setBusy(false); }
   }
@@ -668,5 +773,19 @@ function GiftEditor({ record, wallets, giftRecords, onClose, onSaved }: { record
         <label>Date du transfert<input type="date" value={draft.transferDate} onChange={(event) => update("transferDate", event.target.value)} /></label><label>BTC attribués à ce cadeau<input type="number" min="0" step="any" value={draft.ledgerAmount} onChange={(event) => update("ledgerAmount", event.target.value)} /></label><label className="span-2">Adresse Bitcoin publique<input value={draft.publicAddress} onChange={(event) => update("publicAddress", event.target.value)} /></label><details className="manual-txid span-2"><summary>Saisir ou vérifier le TxID manuellement</summary><label>TxID public<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} /></label></details><button type="button" onClick={() => void verify()} disabled={busy}>{draft.txid ? "Confirmer le rapprochement" : "Vérifier sur la blockchain"}</button>
       </div>}
       {draft.custody === "Binance commun" && <p className="binance-note">Cette quantité restera comptabilisée pour {draft.member}, même si elle se trouve encore sur le compte Binance commun.</p>}
-    </div>{verification && <p className="editor-feedback">{verification}</p>}<footer><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : record.origin === "database" ? "Enregistrer les modifications" : "Ajouter au registre"}</button></footer></form></section></div>;
+    </div>
+    <div className="editor-section"><h3>4 · Message vidéo (optionnel)</h3>
+      <label className="video-toggle"><input type="checkbox" checked={videoEnabled} onChange={(event) => setVideoEnabled(event.target.checked)} /> Ajouter un message vidéo pour ce cadeau</label>
+      {videoEnabled && <div className="form-grid">
+        {candidateVideos.length > 0 && <label className="span-2">Vidéo
+          <select value={videoMode === "existing" ? selectedVideoId : "__new__"} onChange={(event) => { if (event.target.value === "__new__") { setVideoMode("new"); } else { setVideoMode("existing"); setSelectedVideoId(event.target.value); } }}>
+            {candidateVideos.map((video) => <option key={video.id} value={video.id}>{video.title}</option>)}
+            <option value="__new__">— Nouvelle vidéo (URL YouTube) —</option>
+          </select>
+        </label>}
+        {(videoMode === "new" || candidateVideos.length === 0) && <label className="span-2">URL YouTube<input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=… ou /shorts/…" /></label>}
+        <p className="modal-help span-2">Cette vidéo se lancera automatiquement en pop-up pour {draft.member} à sa prochaine connexion, puis restera dans l’onglet Souvenirs. Visible uniquement par {draft.member} et l’administrateur.</p>
+      </div>}
+    </div>
+    {verification && <p className="editor-feedback">{verification}</p>}<footer><button type="button" className="secondary-button" onClick={onClose}>Annuler</button><button className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : record.origin === "database" ? "Enregistrer les modifications" : "Ajouter au registre"}</button></footer></form></section></div>;
 }

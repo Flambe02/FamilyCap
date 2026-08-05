@@ -32,6 +32,42 @@
 .btc-alert-dot{width:8px;height:8px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 3px rgba(239,139,114,.25)}
 .btc-cta{white-space:nowrap}
 
+.btc-ledger-check{margin-top:16px;padding:18px 20px}
+.btc-ledger-check-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.btc-ledger-check-head .btc-panel-kicker{margin:0 0 6px}
+.btc-ledger-check-head strong{display:block;font-size:20px;color:var(--ink,#14324a)}
+.btc-ledger-check-head small{display:block;margin-top:4px;color:var(--muted,#71838b);font-size:11px}
+.btc-ledger-check-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btc-ledger-alert{display:inline-flex;align-items:center;gap:6px;border:1px solid #f0b4a6;background:#fff1ed;color:#a34735;border-radius:999px;padding:8px 14px;font-size:11px;font-weight:800;cursor:pointer}
+.btc-ledger-alert:hover{background:#ffe4dd}
+.btc-ledger-check-message{margin:12px 0 0;font-size:12px}
+.btc-ledger-check-message.ok{color:#168066}
+.btc-ledger-check-message.error{color:#a34735}
+
+.btc-reconcile-modal{width:min(620px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;background:#fff;border-radius:22px;padding:0}
+.btc-reconcile-modal>header{display:flex;justify-content:space-between;gap:16px;padding:22px 26px;color:#fff;background:#123b55;border-radius:22px 22px 0 0}
+.btc-reconcile-modal>header span{color:#9fe0d6;font-size:10px;font-weight:900;letter-spacing:1.2px}
+.btc-reconcile-modal>header h2{margin:6px 0;font:600 22px Georgia,serif}
+.btc-reconcile-modal>header p{margin:0;color:#d4e4e7;font-size:12px}
+.btc-reconcile-modal>header b{color:#fff}
+.btc-reconcile-modal>header>button{align-self:start;border:0;background:transparent;color:#fff;font-size:24px;cursor:pointer}
+.btc-reconcile-body{padding:22px 26px 26px;display:flex;flex-direction:column;gap:20px}
+.btc-reconcile-body>p{margin:0;color:var(--muted,#71838b);font-size:13px;line-height:1.5}
+.btc-reconcile-section h3{margin:0 0 10px;font-size:13px;color:var(--ink,#14324a)}
+.btc-reconcile-list{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.btc-reconcile-list li{display:flex;align-items:center;gap:12px;padding:11px 13px;border:1px solid var(--line,#dfe8e4);border-radius:12px}
+.btc-reconcile-list li span:first-child{flex:1;display:flex;flex-direction:column;gap:2px}
+.btc-reconcile-list li strong{font-size:12px}
+.btc-reconcile-list li small{color:var(--muted,#71838b);font-size:10px}
+.btc-reconcile-amount{font-size:11px;font-variant-numeric:tabular-nums;font-weight:700}
+.btc-reconcile-list li button{border:0;border-radius:8px;padding:8px 12px;background:var(--teal);color:#fff;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap}
+.btc-reconcile-create-choice{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btc-reconcile-create-choice button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;height:auto;padding:12px 14px}
+.btc-reconcile-create-choice button strong{font-size:12px}
+.btc-reconcile-create-choice button small{font-weight:600;opacity:.8;font-size:10px}
+@media(max-width:520px){.btc-reconcile-create-choice{grid-template-columns:1fr}}
+@media(max-width:720px){.btc-ledger-check-head{display:block}.btc-ledger-check-actions{margin-top:12px}}
+
 /* ---- Onglets ---- */
 .btc-tabs{display:flex;gap:4px;padding:6px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow-x:auto;scrollbar-width:none;box-shadow:0 5px 18px rgba(23,50,77,.04)}
 .btc-tabs::-webkit-scrollbar{display:none}
@@ -323,6 +359,12 @@
   .btc-ops-mark{grid-area:mark}.btc-ops-info{grid-area:info}.btc-ops-amount{grid-area:amount}.btc-ops-meta{grid-area:meta;text-align:left}
   .btc-note{flex-wrap:wrap}
   .btc-note .btc-link{width:100%}
+  /* Onglets (Résumé/Conservation/Performance…) : défilement horizontal avec un indice visuel
+     qu'il y a plus à voir (fondu sur les bords) + un ancrage doux au doigt ; l'onglet actif se
+     scrolle automatiquement en vue (TabsNav, bitcoin-components.tsx) même arrivé par lien direct
+     (#bitcoin/historique) ou après un clic loin dans la liste. */
+  .btc-tabs{scroll-snap-type:x proximity;padding:5px;gap:2px;-webkit-mask-image:linear-gradient(to right,transparent,#000 14px,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(to right,transparent,#000 14px,#000 calc(100% - 14px),transparent)}
+  .btc-tabs button{scroll-snap-align:start;padding:10px 14px}
 }
 @media (max-width:430px){
   .btc-hero-value{font-size:32px}

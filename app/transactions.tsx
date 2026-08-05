@@ -5,6 +5,9 @@ import { supabaseBrowser } from "../lib/supabase-browser";
 import { saveGift, savePersonalInvestment } from "../lib/gifts-client";
 import { FAMILY_MEMBERS, MEMBER_NAMES, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
+import { fetchVideos, saveVideo } from "../lib/videos/videos-client";
+import { extractYouTubeVideoId } from "../lib/videos/youtube";
+import type { OccasionType, VideoRecord } from "../lib/videos/video-visibility";
 import "./transactions.css";
 
 export type TransactionRecord = {
@@ -557,6 +560,90 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, persona
   const dialogRef = useDialogA11y(true, onClose);
   const isEditing = Boolean(editing?.id);
 
+  // Message vidéo (optionnel) — même mécanique que GiftEditor (gift-portfolio.tsx) : c'est le
+  // lien Cadeau → Vidéo (family_videos.gift_id) qui déclenche ou non le pop-up de bienvenue
+  // (findWelcomePopupVideo). Réservé au parcours admin (jamais en mode personnel : la vidéo
+  // s'écrit via une route admin-only, et un investissement personnel saisi par le membre
+  // lui-même n'est pas un « message d'Amatxi »).
+  const videoCapable = !personalMode;
+  const [personalVideosState, setPersonalVideosState] = useState<VideoRecord[]>([]);
+  useEffect(() => {
+    if (!videoCapable) return;
+    let active = true;
+    void fetchVideos()
+      .then(({ videos }) => { if (active) setPersonalVideosState(videos.filter((video) => video.visibilityScope === "selected_members")); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [videoCapable]);
+  const editingId = editing?.id;
+  const linkedVideo = useMemo(
+    () => (editingId ? personalVideosState.find((video) => video.giftId === editingId) ?? null : null),
+    [personalVideosState, editingId],
+  );
+  const candidateVideos = useMemo(
+    () =>
+      personalVideosState.filter(
+        (video) => (video.giftId === null || video.id === linkedVideo?.id) && video.recipients.some((recipient) => recipient.name === draft.member),
+      ),
+    [personalVideosState, linkedVideo, draft.member],
+  );
+  type VideoOverride = { enabled: boolean; mode: "existing" | "new"; selectedId: string; url: string };
+  const [videoOverride, setVideoOverride] = useState<VideoOverride | null>(null);
+  const videoEnabled = videoOverride?.enabled ?? Boolean(linkedVideo);
+  const videoMode = videoOverride?.mode ?? (linkedVideo ? "existing" : "new");
+  const selectedVideoId = videoOverride?.selectedId ?? linkedVideo?.id ?? "";
+  const videoUrl = videoOverride?.url ?? "";
+  function setVideoEnabled(enabled: boolean) { setVideoOverride({ enabled, mode: videoMode, selectedId: selectedVideoId, url: videoUrl }); }
+  function setVideoMode(mode: "existing" | "new") { setVideoOverride({ enabled: true, mode, selectedId: selectedVideoId, url: videoUrl }); }
+  function setSelectedVideoId(id: string) { setVideoOverride({ enabled: true, mode: "existing", selectedId: id, url: videoUrl }); }
+  function setVideoUrl(url: string) { setVideoOverride({ enabled: true, mode: "new", selectedId: selectedVideoId, url }); }
+
+  function videoFieldsOf(video: VideoRecord) {
+    return {
+      title: video.title,
+      description: video.description,
+      youtubeUrl: video.youtubeUrl,
+      thumbnailUrl: video.thumbnailUrl,
+      durationSeconds: video.durationSeconds,
+      occasionType: video.occasionType,
+      occasionDate: video.occasionDate,
+      visibilityScope: video.visibilityScope,
+      recipientNames: video.recipients.map((recipient) => recipient.name).filter((name): name is string => Boolean(name)),
+      publish: video.isPublished,
+    };
+  }
+
+  async function syncVideoLink(giftId: string) {
+    const previousId = linkedVideo?.id ?? null;
+    if (!videoEnabled) {
+      if (previousId) await saveVideo({ id: previousId, ...videoFieldsOf(linkedVideo!), giftId: null, notifyOnLogin: false });
+      return;
+    }
+    if (videoMode === "existing" && selectedVideoId) {
+      if (selectedVideoId === previousId) return;
+      if (previousId) await saveVideo({ id: previousId, ...videoFieldsOf(linkedVideo!), giftId: null, notifyOnLogin: false });
+      const chosen = personalVideosState.find((video) => video.id === selectedVideoId);
+      if (chosen) await saveVideo({ id: chosen.id, ...videoFieldsOf(chosen), giftId, notifyOnLogin: true });
+      return;
+    }
+    if (videoMode === "new" && videoUrl.trim()) {
+      if (previousId) await saveVideo({ id: previousId, ...videoFieldsOf(linkedVideo!), giftId: null, notifyOnLogin: false });
+      const occasionType: OccasionType = draft.occasion === "Anniversaire" ? "birthday" : draft.occasion === "Noël" ? "christmas" : "general";
+      await saveVideo({
+        title: `Message vidéo — ${draft.occasion} ${draft.date.slice(0, 4)}`,
+        description: null,
+        youtubeUrl: videoUrl.trim(),
+        occasionType,
+        occasionDate: draft.date,
+        visibilityScope: "selected_members",
+        recipientNames: [draft.member],
+        giftId,
+        notifyOnLogin: true,
+        publish: true,
+      });
+    }
+  }
+
   // Type d'opération : hors cadeau, l'occasion n'a pas de sens → forcée sur « Autre cadeau ».
   function changeSource(value: GiftSource) {
     setDraft((current) => ({ ...current, source: value, occasion: value === "cadeau_amatxi" ? current.occasion : "Autre cadeau" }));
@@ -579,6 +666,7 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, persona
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
+    if (videoCapable && videoEnabled && videoMode === "new" && videoUrl.trim() && !extractYouTubeVideoId(videoUrl)) { setError("L’URL YouTube du message vidéo est invalide."); return; }
     if (step < 3) { setStep((current) => current + 1); return; }
     setBusy(true);
     setError("");
@@ -596,7 +684,7 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, persona
         await savePersonalInvestment({ amountEur, btcAmount, custody: draft.custody, date: draft.date, note: draft.note.trim() || null });
         onSaved({ message: "Investissement enregistré et visible dans « Mes BTC ».", member: draft.member, amountEur });
       } else {
-        await saveGift({
+        const result = await saveGift({
           id: editing?.id,
           member: draft.member,
           occasion: draft.occasion,
@@ -611,7 +699,10 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, persona
           // l'envoie pas pour préserver l'origine déjà stockée côté serveur.
           source: isEditing ? undefined : draft.source,
         });
-        onSaved({ message: isEditing ? "Cadeau modifié et visible dans Cadeaux d’Amatxi." : "Cadeau enregistré et visible dans Transactions.", member: draft.member, amountEur });
+        const giftId = editing?.id ?? result.id;
+        let videoWarning = "";
+        if (giftId) await syncVideoLink(giftId).catch(() => { videoWarning = " (le message vidéo n’a pas pu être enregistré, réessayez depuis Souvenirs)"; });
+        onSaved({ message: (isEditing ? "Cadeau modifié et visible dans Cadeaux d’Amatxi." : "Cadeau enregistré et visible dans Transactions.") + videoWarning, member: draft.member, amountEur });
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Enregistrement impossible.");
@@ -643,7 +734,21 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, persona
             <label>Où sont les bitcoins ?<select value={draft.custody} onChange={(event) => update("custody", event.target.value as typeof draft.custody)}><option value="Binance commun">Binance commun</option><option value="Ledger">Ledger personnel</option></select></label>
             {draft.custody === "Ledger" && <label>TxID (optionnel)<input value={draft.txid} onChange={(event) => update("txid", event.target.value)} placeholder="Laisser vide si le virement n’a pas encore eu lieu" /></label>}
           </div>}
-          {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Type</dt><dd>{SOURCE_LABELS[draft.source]}</dd></div><div><dt>{personalMode ? "À votre nom" : "Bénéficiaire"}</dt><dd>{draft.member}</dd></div>{!personalMode && <div><dt>Occasion</dt><dd>{draft.occasion}</dd></div>}<div><dt>Localisation</dt><dd>{draft.custody}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount) || 0)}</dd></div><div><dt>Prix du BTC</dt><dd>{draft.price ? euro.format(Number(draft.price)) : "—"}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} BTC` : "—"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label>{error && <p className="editor-feedback" role="alert">{error}</p>}</div>}
+          {step === 3 && <div className="entry-review"><span className="review-icon">✓</span><h3>Vérifie avant d’enregistrer</h3><dl><div><dt>Type</dt><dd>{SOURCE_LABELS[draft.source]}</dd></div><div><dt>{personalMode ? "À votre nom" : "Bénéficiaire"}</dt><dd>{draft.member}</dd></div>{!personalMode && <div><dt>Occasion</dt><dd>{draft.occasion}</dd></div>}<div><dt>Localisation</dt><dd>{draft.custody}</dd></div><div><dt>Montant</dt><dd>{euro.format(Number(draft.amount) || 0)}</dd></div><div><dt>Prix du BTC</dt><dd>{draft.price ? euro.format(Number(draft.price)) : "—"}</dd></div><div><dt>Quantité</dt><dd>{draft.quantity ? `${Number(draft.quantity).toFixed(8)} BTC` : "—"}</dd></div></dl><label>Note pédagogique ou commentaire<textarea value={draft.note} onChange={(event) => update("note", event.target.value)} placeholder="Pourquoi cet achat ? Qu’as-tu appris ?" /></label>
+            {videoCapable && <div className="entry-review-video">
+              <label className="video-toggle"><input type="checkbox" checked={videoEnabled} onChange={(event) => setVideoEnabled(event.target.checked)} /> Ajouter un message vidéo pour ce cadeau</label>
+              {videoEnabled && <div className="form-grid">
+                {candidateVideos.length > 0 && <label className="span-2">Vidéo
+                  <select value={videoMode === "existing" ? selectedVideoId : "__new__"} onChange={(event) => { if (event.target.value === "__new__") setVideoMode("new"); else { setVideoMode("existing"); setSelectedVideoId(event.target.value); } }}>
+                    {candidateVideos.map((video) => <option key={video.id} value={video.id}>{video.title}</option>)}
+                    <option value="__new__">— Nouvelle vidéo (URL YouTube) —</option>
+                  </select>
+                </label>}
+                {(videoMode === "new" || candidateVideos.length === 0) && <label className="span-2">URL YouTube<input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=… ou /shorts/…" /></label>}
+                <p className="modal-help span-2">Cette vidéo se lancera automatiquement en pop-up pour {draft.member} à sa prochaine connexion, puis restera dans l’onglet Souvenirs. Visible uniquement par {draft.member} et l’administrateur.</p>
+              </div>}
+            </div>}
+            {error && <p className="editor-feedback" role="alert">{error}</p>}</div>}
           <footer><button type="button" className="secondary-button" disabled={busy} onClick={() => step === 1 ? onClose() : setStep((current) => current - 1)}>{step === 1 ? "Annuler" : "← Retour"}</button><button type="submit" className="primary-button" disabled={busy}>{busy ? "Enregistrement…" : step === 3 ? (isEditing ? "Enregistrer les modifications" : "Enregistrer l’opération") : "Continuer →"}</button></footer>
         </form>
       </section>

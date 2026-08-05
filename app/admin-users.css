@@ -164,6 +164,17 @@
 .admin-action-grid { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
 .admin-action-grid button, .admin-danger button { background: #fff; border: 1px solid #ccd8d2; border-radius: 5px; color: #294c50; font-size: 11px; min-height: 38px; padding: 8px 10px; text-align: left; }
 .admin-action-grid button:hover, .admin-danger button:hover { background: #f1f8f5; border-color: var(--admin-teal); }
+.admin-accounts-panel { display: flex; flex-direction: column; gap: 26px; }
+.admin-accounts-section h3 { font-size: 12px; font-weight: 700; margin: 0 0 10px; }
+.admin-ledger-row { align-items: center; background: #f7faf9; border: 1px solid #e2e9e6; border-radius: 8px; display: flex; gap: 10px; padding: 10px 12px; }
+.admin-ledger-address { color: var(--admin-ink); flex: 1; font-family: monospace; font-size: 11px; overflow-wrap: anywhere; text-decoration: none; }
+.admin-ledger-address:hover { text-decoration: underline; }
+.admin-account-list { display: flex; flex-direction: column; gap: 0; }
+.admin-account-list li { align-items: center; border-bottom: 1px solid #e9ede8; display: flex; gap: 14px; justify-content: space-between; padding: 12px 0; }
+.admin-account-list li:last-child { border-bottom: 0; }
+.admin-account-list strong, .admin-account-list small { display: block; }
+.admin-account-list strong { font-size: 12px; }
+.admin-account-list small { color: #7b8783; font-size: 10px; margin-top: 3px; }
 .admin-timeline { display: flex; flex-direction: column; gap: 0; padding: 5px 4px; }
 .admin-timeline-item { display: flex; gap: 12px; min-height: 62px; position: relative; }
 .admin-timeline-item:not(:last-child)::before { background: #dbe6e1; content: ""; height: 100%; left: 4px; position: absolute; top: 9px; width: 1px; }

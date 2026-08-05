@@ -20,7 +20,11 @@ type PortfolioAccount = {
 };
 type PortfolioHolding = { account_id: string; quantity: number; last_price: number | null; symbol?: string | null; isin?: string | null; name?: string | null; asset_type?: string | null };
 type PortfolioOperation = AccountOperation;
-type AccountLine = { key: string; name: string; type: string; valueEur: number | null; navigate?: View; account?: PortfolioAccount };
+type AccountLine = { key: string; name: string; type: string; valueEur: number | null; navigate?: View; account?: PortfolioAccount; showLedger?: boolean };
+
+function explorerUrl(address: string) {
+  return `https://blockstream.info/address/${address}`;
+}
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 
@@ -149,6 +153,8 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
   const [visible, setVisible] = useState(true);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<{ account: PortfolioAccount; valueEur: number | null } | null>(null);
+  const [ledgerDetail, setLedgerDetail] = useState(false);
+  const [ledgerCopied, setLedgerCopied] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: "success" | "error" | "info" } | null>(null);
   const [creating, setCreating] = useState<"pea" | "securities" | null>(null);
   // `scopeOverride` est fourni uniquement par AdminMemberSettings : la session reste celle de
@@ -194,7 +200,11 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
     }, 0);
 
     const result: AccountLine[] = [];
-    if (btc > 0) result.push({ key: "bitcoin", name: "Bitcoin cadeaux", type: "Bitcoin", valueEur: price ? btc * price : null, navigate: "bitcoin" });
+    // Une seule ligne Bitcoin : cliquer sur le nom ouvre le détail (comme un compte PEA/CTO),
+    // qui inclut l'adresse Ledger publique du membre (wallets.public_address/xpub, jointe par
+    // requireFamilyMember/memberAsViewer sur viewer.walletAddress) — jamais une navigation vers
+    // une autre page. Affichée dès qu'il y a des cadeaux OU une adresse déjà enregistrée.
+    if (btc > 0 || viewer.walletAddress) result.push({ key: "bitcoin", name: "Bitcoin cadeaux", type: "Bitcoin", valueEur: price ? btc * price : null, showLedger: true });
 
     // Comptes financiers du membre (hors Bitcoin, déjà couvert par les cadeaux).
     // Valorisation COHÉRENTE avec l'écran PEA/CTO : dès qu'un compte porte des opérations
@@ -235,7 +245,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
     }
 
     setLines(result);
-  }, [viewer.name, scopeOverride]);
+  }, [viewer.name, viewer.walletAddress, scopeOverride]);
 
   useEffect(() => {
     let cancelled = false;
@@ -274,7 +284,9 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
       ) : (
         <ul className="set-account-list">
           {lines.map((line) => {
-            const clickable = Boolean((line.navigate && onNavigate) || line.account);
+            // Cliquer sur le nom ouvre toujours le détail du compte, jamais une navigation vers
+            // une autre page : Bitcoin → adresse Ledger, PEA/compte-titres → informations bancaires.
+            const clickable = Boolean(line.account || line.showLedger);
             const content = (
               <>
                 <span className={`set-account-logo ${line.key === "bitcoin" ? "bitcoin" : "generic"}`} aria-hidden="true">{line.key === "bitcoin" ? "₿" : line.type.slice(0, 2).toUpperCase()}</span>
@@ -287,7 +299,7 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
             return (
               <li key={line.key}>
                 {clickable
-                  ? <button type="button" className="set-account-row is-link" onClick={() => { if (line.navigate) onNavigate?.(line.navigate); else if (line.account) setDetail({ account: line.account, valueEur: line.valueEur }); }} aria-label={line.navigate ? `Voir le détail : ${line.name}` : `Informations du compte : ${line.name}`}>{content}</button>
+                  ? <button type="button" className="set-account-row is-link" onClick={() => { if (line.account) setDetail({ account: line.account, valueEur: line.valueEur }); else if (line.showLedger) setLedgerDetail(true); }} aria-label={`Informations du compte : ${line.name}`}>{content}</button>
                   : <div className="set-account-row">{content}</div>}
               </li>
             );
@@ -325,6 +337,37 @@ export function AccountsSettings({ viewer, onNavigate, scopeOverride, guidedChal
             try { await load(); } catch { /* la liste reste inchangée si le rechargement échoue */ }
           }}
         />
+      )}
+      {ledgerDetail && (
+        <SettingsModal open onClose={() => setLedgerDetail(false)} title="Bitcoin — Portefeuille Ledger">
+          {viewer.walletAddress ? (
+            <>
+              <p className="set-hint">Adresse publique (lecture seule) :</p>
+              <div className="ledger-address-row">
+                <a href={explorerUrl(viewer.walletAddress)} target="_blank" rel="noreferrer" className="ledger-address" title="Ouvrir sur la blockchain">{viewer.walletAddress}</a>
+                <button
+                  type="button"
+                  className="set-btn"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(viewer.walletAddress ?? "").then(() => {
+                      setLedgerCopied(true);
+                      window.setTimeout(() => setLedgerCopied(false), 2000);
+                    }).catch(() => setLedgerCopied(false));
+                  }}
+                >
+                  {ledgerCopied ? "Copié !" : "Copier"}
+                </button>
+              </div>
+              <a href={explorerUrl(viewer.walletAddress)} target="_blank" rel="noreferrer" className="set-btn set-btn-quiet ledger-explorer-link">Voir sur la blockchain ›</a>
+            </>
+          ) : (
+            <p className="set-hint">Aucune adresse Ledger n’est encore enregistrée pour {viewer.name}. Un administrateur peut l’ajouter depuis Administration › Famille &amp; accès.</p>
+          )}
+          <div className="info-callout">
+            <b>Important</b>
+            <p>Cette adresse sert uniquement à consulter des soldes et transactions publics. Les 24 mots, la clé privée et le code PIN de la Ledger ne doivent jamais être saisis ici.</p>
+          </div>
+        </SettingsModal>
       )}
     </SettingsSection>
   );

@@ -8,8 +8,11 @@ import { computeBitcoinModel, windowTimeline, ORIGIN_BY_KEY, type OriginKey, typ
 import { NavIcon } from "./dashboard-ui";
 import {
   euro, btc8, dateOf, GainPill, MemberAvatar, StatusBadge, BitcoinKpi, DonutChart, LegendRow,
-  EvolutionChart, PeriodFilter, EmptyState, InfoNote, Accordion, type ChartSeries,
+  EvolutionChart, PeriodFilter, EmptyState, InfoNote, Accordion, TabsNav, type ChartSeries,
 } from "./bitcoin-components";
+import { authHeader } from "../lib/supabase-session";
+import { useDialogA11y } from "./use-dialog-a11y";
+import { GiftEditor, type GiftRecord as LedgerGiftRecord, type LedgerWallet } from "./gift-portfolio";
 import "./bitcoin-investments.css";
 
 type FamilyGiftRecord = {
@@ -77,6 +80,82 @@ export function BitcoinInvestmentPage({
   // les cadeaux — mais ne peut jamais rien modifier ici : `canManageGifts`/`canRecordPersonalBtc`
   // (props, calculés dans family-dashboard.tsx) restent strictement réservés à l'admin.
   const canViewAll = isAdmin || viewer.role === "viewer";
+  // Vérification blockchain réelle du Ledger : réservée à l'aperçu admin d'UN membre précis
+  // (isPreview implique toujours une vraie session admin dessous — l'aperçu ne change que
+  // l'identité affichée, jamais le jeton Supabase utilisé pour les appels serveur, cf.
+  // family-dashboard.tsx::effectiveViewer). Un vrai membre n'a jamais accès à /api/ledger
+  // (403, requireAdminOrBtcViewer) ; l'admin sur SON propre tableau de bord agrégé garde le
+  // rapprochement complet déjà disponible dans Administration › Cadeaux BTC (par membre).
+  const canCheckLedger = !canViewAll && isPreview;
+  const [ledgerCheck, setLedgerCheck] = useState<{
+    status: "idle" | "loading" | "loaded" | "error";
+    onChainBtc: number | null;
+    wallet: LedgerWallet | null;
+    giftRecords: LedgerGiftRecord[];
+    checkedAt: string | null;
+    error: string;
+  }>({ status: "idle", onChainBtc: null, wallet: null, giftRecords: [], checkedAt: null, error: "" });
+
+  async function checkLedgerBalance() {
+    setLedgerCheck((current) => ({ ...current, status: "loading", error: "" }));
+    try {
+      const headers = await authHeader();
+      const [ledgerResponse, giftsResponse] = await Promise.all([
+        fetch("/api/ledger", { headers }),
+        fetch("/api/gifts", { headers }),
+      ]);
+      const ledgerBody = (await ledgerResponse.json().catch(() => ({}))) as { wallets?: LedgerWallet[]; error?: string };
+      const giftsBody = (await giftsResponse.json().catch(() => ({}))) as { records?: Array<Record<string, unknown>>; error?: string };
+      if (!ledgerResponse.ok) throw new Error(ledgerBody.error ?? "Vérification blockchain impossible.");
+      if (!giftsResponse.ok) throw new Error(giftsBody.error ?? "Chargement des cadeaux impossible.");
+      const wallet = (ledgerBody.wallets ?? []).find((item) => item.member === viewer.name) ?? null;
+      const giftRecords: LedgerGiftRecord[] = (giftsBody.records ?? [])
+        .filter((record) => record.member_name === viewer.name && !record.is_deleted)
+        .map((record) => ({
+          ...record,
+          amount_eur: Number(record.amount_eur),
+          btc_amount: Number(record.btc_amount),
+          ledger_amount: record.ledger_amount ? Number(record.ledger_amount) : null,
+          origin: "database" as const,
+        }) as LedgerGiftRecord);
+      setLedgerCheck({
+        status: "loaded",
+        onChainBtc: wallet?.confirmedBalanceBtc ?? null,
+        wallet,
+        giftRecords,
+        checkedAt: new Date().toISOString(),
+        error: wallet ? "" : "Aucun portefeuille Ledger enregistré pour ce membre.",
+      });
+    } catch (caught) {
+      setLedgerCheck((current) => ({ ...current, status: "error", error: caught instanceof Error ? caught.message : "Vérification impossible." }));
+    }
+  }
+
+  // Au montage (et à chaque changement de membre prévisualisé) : relit le DERNIER solde
+  // constaté (colonnes wallets.last_verified_*, écrites par une vérification complète passée,
+  // ici ou ailleurs) SANS interroger la blockchain — l'info reste affichée telle quelle tant
+  // qu'aucune actualisation manuelle n'est demandée. `wallet`/`giftRecords` restent vides : le
+  // détail nécessaire au rapprochement (transactions) n'est chargé que par une vraie vérification.
+  useEffect(() => {
+    if (!canCheckLedger) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const headers = await authHeader();
+        const response = await fetch("/api/ledger?cachedOnly=1", { headers });
+        const body = (await response.json().catch(() => ({}))) as { wallets?: Array<{ member: string; lastVerifiedBalanceBtc: number | null; lastVerifiedAt: string | null }> };
+        if (cancelled || !response.ok) return;
+        const found = (body.wallets ?? []).find((item) => item.member === viewer.name);
+        if (found?.lastVerifiedBalanceBtc !== null && found?.lastVerifiedBalanceBtc !== undefined) {
+          setLedgerCheck({ status: "loaded", onChainBtc: found.lastVerifiedBalanceBtc, wallet: null, giftRecords: [], checkedAt: found.lastVerifiedAt, error: "" });
+        }
+      } catch {
+        // Silencieux : l'admin peut toujours cliquer sur « Actualiser » pour une vérification live.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [canCheckLedger, viewer.name]);
+
   const [tab, setTabState] = useState<BitcoinTab>(() => tabFromHash() ?? "resume");
   const [period, setPeriod] = useState<"1M" | "6M" | "1A" | "TOUT">("TOUT");
   const [memberFilter, setMemberFilter] = useState<string>("Tous");
@@ -189,19 +268,14 @@ export function BitcoinInvestmentPage({
         </div>
       </header>
 
-      <nav className="btc-tabs" aria-label="Sections Bitcoin">
-        {tabs.map((item) => (
-          <button key={item.id} type="button" className={activeTab === item.id ? "active" : ""} aria-current={activeTab === item.id ? "page" : undefined} onClick={() => setTab(item.id)}>
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <TabsNav tabs={tabs} active={activeTab} onChange={setTab} ariaLabel="Sections Bitcoin" />
 
       {activeTab === "resume" && (
         <ResumeTab
           model={model} memberBreakdown={memberBreakdown} valueLabel={valueLabel} bitcoinEur={bitcoinEur} marketLoading={marketLoading}
           pendingCount={pendingTransfers.length} pendingBtc={pendingBtc} binanceKpiBtc={binanceKpiBtc}
           period={period} setPeriod={setPeriod} isAdmin={canViewAll} onGoto={setTab}
+          canCheckLedger={canCheckLedger} memberName={viewer.name} ledgerCheck={ledgerCheck} onCheckLedger={checkLedgerBalance}
         />
       )}
 
@@ -237,11 +311,17 @@ export function BitcoinInvestmentPage({
 // ======================================================================================
 // RÉSUMÉ
 // ======================================================================================
-function ResumeTab({ model, memberBreakdown, valueLabel, bitcoinEur, marketLoading, pendingCount, pendingBtc, binanceKpiBtc, period, setPeriod, isAdmin, onGoto }: {
+function ResumeTab({
+  model, memberBreakdown, valueLabel, bitcoinEur, marketLoading, pendingCount, pendingBtc, binanceKpiBtc, period, setPeriod, isAdmin, onGoto,
+  canCheckLedger, memberName, ledgerCheck, onCheckLedger,
+}: {
   model: ReturnType<typeof computeBitcoinModel>; memberBreakdown: MemberSummary[]; valueLabel: string; bitcoinEur: number | null; marketLoading: boolean;
   pendingCount: number; pendingBtc: number; binanceKpiBtc: number;
   period: "1M" | "6M" | "1A" | "TOUT"; setPeriod: (value: "1M" | "6M" | "1A" | "TOUT") => void; isAdmin: boolean;
   onGoto: (tab: BitcoinTab) => void;
+  canCheckLedger: boolean; memberName: string;
+  ledgerCheck: { status: "idle" | "loading" | "loaded" | "error"; onChainBtc: number | null; wallet: LedgerWallet | null; giftRecords: LedgerGiftRecord[]; checkedAt: string | null; error: string };
+  onCheckLedger: () => Promise<void>;
 }) {
   const timeline = windowTimeline(model.timeline, period);
   const valueSeries: ChartSeries[] = [{ key: "value", label: "Valeur", color: "#1d706b", get: (point) => point.valueEur, fill: true }];
@@ -274,6 +354,10 @@ function ResumeTab({ model, memberBreakdown, valueLabel, bitcoinEur, marketLoadi
           <BitcoinKpi label="TRANSFERTS EN ATTENTE" value={String(pendingCount)} sub={pendingCount > 0 ? `${btc8(pendingBtc)} vers Ledger` : "Vers Ledger"} icon="swap" tone="teal" action={isAdmin ? "Voir" : undefined} onAction={isAdmin ? () => onGoto("conservation") : undefined} />
         </div>
       </div>
+
+      {canCheckLedger && (
+        <LedgerBalanceCheck memberName={memberName} recordedBtc={model.custody.ledger.btc} ledgerCheck={ledgerCheck} onCheck={onCheckLedger} />
+      )}
 
       <div className="btc-allocation-grid">
         <section className="panel btc-alloc-card">
@@ -347,6 +431,168 @@ function ResumeTab({ model, memberBreakdown, valueLabel, bitcoinEur, marketLoadi
         Les cadeaux d’Amatxi sont une façon unique d’investir ensemble dans le temps. Continuez à épargner régulièrement !
       </InfoNote>
     </>
+  );
+}
+
+// ======================================================================================
+// VÉRIFICATION BLOCKCHAIN DU LEDGER (aperçu admin d'un membre uniquement, cf. canCheckLedger)
+// ======================================================================================
+const EPSILON_BTC = 0.00000001;
+const verifiedAtFormatter = new Intl.DateTimeFormat("fr-FR", { timeStyle: "short" });
+
+function LedgerBalanceCheck({ memberName, recordedBtc, ledgerCheck, onCheck }: {
+  memberName: string; recordedBtc: number;
+  ledgerCheck: { status: "idle" | "loading" | "loaded" | "error"; onChainBtc: number | null; wallet: LedgerWallet | null; giftRecords: LedgerGiftRecord[]; checkedAt: string | null; error: string };
+  onCheck: () => Promise<void>;
+}) {
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const diffBtc = ledgerCheck.status === "loaded" && ledgerCheck.onChainBtc !== null ? Math.abs(ledgerCheck.onChainBtc - recordedBtc) : 0;
+  const hasDiscrepancy = diffBtc > EPSILON_BTC;
+
+  // Une info « en cache » (affichée sans appel blockchain, cf. l'effet de chargement initial)
+  // n'a pas les transactions détaillées nécessaires au rapprochement : une vérification live
+  // est donc déclenchée avant d'ouvrir la modale si elle manque encore.
+  async function openReconcile() {
+    if (!ledgerCheck.wallet?.transactions) await onCheck();
+    setReconcileOpen(true);
+  }
+
+  return (
+    <section className="panel btc-ledger-check">
+      <div className="btc-ledger-check-head">
+        <div>
+          <span className="btc-panel-kicker">SOLDE RÉEL DU PORTEFEUILLE LEDGER</span>
+          <strong>
+            {ledgerCheck.status === "loaded" && ledgerCheck.onChainBtc !== null ? btc8(ledgerCheck.onChainBtc)
+              : ledgerCheck.status === "loading" ? "Vérification…"
+              : ledgerCheck.status === "error" ? "—"
+              : "Non vérifié"}
+          </strong>
+          <small>
+            {ledgerCheck.checkedAt ? `Vérifié à ${verifiedAtFormatter.format(new Date(ledgerCheck.checkedAt))} · Enregistré : ${btc8(recordedBtc)}` : "Solde blockchain (Blockstream) — cliquez sur Actualiser pour le vérifier."}
+          </small>
+        </div>
+        <div className="btc-ledger-check-actions">
+          {hasDiscrepancy && (
+            <button type="button" className="btc-ledger-alert" onClick={() => void openReconcile()} disabled={ledgerCheck.status === "loading"}>
+              <span aria-hidden="true">⚠</span> Écart de {btc8(diffBtc)}
+            </button>
+          )}
+          <button type="button" className="secondary-button" onClick={() => void onCheck()} disabled={ledgerCheck.status === "loading"}>
+            {ledgerCheck.status === "loading" ? "Vérification…" : "Actualiser"}
+          </button>
+        </div>
+      </div>
+      {ledgerCheck.status === "error" && <p className="btc-ledger-check-message error">{ledgerCheck.error}</p>}
+      {ledgerCheck.status === "loaded" && ledgerCheck.error && <p className="btc-ledger-check-message error">{ledgerCheck.error}</p>}
+      {ledgerCheck.status === "loaded" && !ledgerCheck.error && !hasDiscrepancy && <p className="btc-ledger-check-message ok">✓ Le solde blockchain correspond au montant enregistré.</p>}
+
+      {reconcileOpen && ledgerCheck.onChainBtc !== null && (
+        <LedgerReconcileModal
+          memberName={memberName}
+          recordedBtc={recordedBtc}
+          onChainBtc={ledgerCheck.onChainBtc}
+          wallet={ledgerCheck.wallet}
+          giftRecords={ledgerCheck.giftRecords}
+          onClose={() => setReconcileOpen(false)}
+          onReconciled={async () => { setReconcileOpen(false); await onCheck(); }}
+        />
+      )}
+    </section>
+  );
+}
+
+// Réutilise GiftEditor (gift-portfolio.tsx) — même formulaire, même « ASSOCIATION MANUELLE »
+// des virements Ledger que l'admin utilise déjà dans Administration › Cadeaux BTC. Aucune
+// logique de rapprochement n'est réécrite ici : on choisit seulement QUEL cadeau ouvrir
+// (un existant à associer, ou un tout nouveau) avant de rendre le même éditeur.
+function LedgerReconcileModal({ memberName, recordedBtc, onChainBtc, wallet, giftRecords, onClose, onReconciled }: {
+  memberName: string; recordedBtc: number; onChainBtc: number; wallet: LedgerWallet | null; giftRecords: LedgerGiftRecord[];
+  onClose: () => void; onReconciled: () => Promise<void>;
+}) {
+  const [editorRecord, setEditorRecord] = useState<LedgerGiftRecord | null>(null);
+  const [showCreateChoice, setShowCreateChoice] = useState(false);
+  const dialogRef = useDialogA11y(!editorRecord, onClose);
+  const today = new Date().toISOString().slice(0, 10);
+  const diffBtc = Math.abs(onChainBtc - recordedBtc);
+  // Cadeaux de ce membre pas déjà rattachés au Ledger — candidats pour absorber l'écart via
+  // l'association manuelle intégrée à GiftEditor.
+  const associableGifts = giftRecords.filter((record) => record.custody !== "Ledger");
+  // `amountEur: 0` laisse volontairement le champ € vide dans GiftEditor (jamais "55" par
+  // défaut) : contrairement à la quantité BTC, reprise du solde blockchain réel, le montant payé
+  // n'est jamais déductible d'un simple écart on-chain — il doit être saisi à la main.
+  function blankRecord({ btcAmount, amountEur, occasion }: { btcAmount: number; amountEur: number; occasion: LedgerGiftRecord["occasion"] }): LedgerGiftRecord {
+    return {
+      member_name: memberName, occasion, gift_date: today, purchase_date: today,
+      amount_eur: amountEur, btc_amount: btcAmount, custody: "À rapprocher", origin: "expected",
+    };
+  }
+
+  if (editorRecord) {
+    return (
+      <GiftEditor
+        record={editorRecord}
+        wallets={wallet ? [wallet] : []}
+        giftRecords={giftRecords}
+        onClose={() => setEditorRecord(null)}
+        onSaved={async () => { setEditorRecord(null); await onReconciled(); }}
+      />
+    );
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section ref={dialogRef} className="modal btc-reconcile-modal" role="dialog" aria-modal="true" aria-labelledby="btc-reconcile-title" tabIndex={-1}>
+        <header>
+          <div>
+            <span>RAPPROCHEMENT LEDGER</span>
+            <h2 id="btc-reconcile-title">Écart détecté pour {memberName}</h2>
+            <p>Solde blockchain : <b>{btc8(onChainBtc)}</b> · Enregistré : <b>{btc8(recordedBtc)}</b></p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fermer">×</button>
+        </header>
+        <div className="btc-reconcile-body">
+          <p>Choisissez comment corriger l’écart : associez un cadeau déjà enregistré à la transaction Ledger correspondante, ou créez un nouveau cadeau si aucun n’existe encore pour ce montant.</p>
+          {associableGifts.length > 0 && (
+            <div className="btc-reconcile-section">
+              <h3>Associer un cadeau existant</h3>
+              <ul className="btc-reconcile-list">
+                {associableGifts.map((record) => (
+                  <li key={record.id ?? `${record.occasion}-${record.gift_date}`}>
+                    <span><strong>{record.occasion}</strong><small>{record.gift_date} · {record.custody}</small></span>
+                    <span className="btc-reconcile-amount">{record.btc_amount.toFixed(8)} BTC</span>
+                    <button type="button" onClick={() => setEditorRecord({ ...record, purchase_date: record.purchase_date || record.gift_date })}>Associer →</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="btc-reconcile-section">
+            <h3>Aucun cadeau ne correspond ?</h3>
+            {!showCreateChoice ? (
+              <button type="button" className="primary-button" onClick={() => setShowCreateChoice(true)}>
+                + Créer une nouvelle opération pour cette transaction
+              </button>
+            ) : (
+              <div className="btc-reconcile-create-choice">
+                <button type="button" className="secondary-button" onClick={() => setEditorRecord(blankRecord({ btcAmount: 0, amountEur: 55, occasion: "Anniversaire" }))}>
+                  <strong>Transaction libre</strong>
+                  <small>Je saisis tout moi-même</small>
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => setEditorRecord(blankRecord({ btcAmount: Number(diffBtc.toFixed(8)), amountEur: 0, occasion: "Autre cadeau" }))}
+                >
+                  <strong>Reprendre l’écart Ledger</strong>
+                  <small>{btc8(diffBtc)} pré-rempli · montant € à saisir</small>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 

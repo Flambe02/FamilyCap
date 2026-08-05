@@ -20,6 +20,7 @@ const BitcoinInvestmentPage = dynamic(() => import("./bitcoin-investments").then
 const PeaInvestmentPage = dynamic(() => import("./pea-investments").then((module) => module.PeaInvestmentPage));
 const CtoInvestmentPage = dynamic(() => import("./cto-investments").then((module) => module.CtoInvestmentPage));
 const SouvenirsPage = dynamic(() => import("./souvenirs").then((module) => module.SouvenirsPage));
+const VideoWelcomePopup = dynamic(() => import("./video-welcome-popup").then((module) => module.VideoWelcomePopup));
 const PeaPortfolioLesson = dynamic(() => import("./lesson-pea-portfolio").then((module) => module.PeaPortfolioLesson));
 const InvestingRulesLesson = dynamic(() => import("./lesson-investing-rules").then((module) => module.InvestingRulesLesson));
 const SavingsTimeLesson = dynamic(() => import("./lesson-savings-time").then((module) => module.SavingsTimeLesson));
@@ -862,6 +863,17 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
             </button>
           );
         })}
+        {/* 4e bouton : jamais un lien direct — ouvre le tiroir mobile déjà existant
+            (Anniversaires, Souvenirs, Paramètres, Famille…), inaccessible depuis les 3 premiers. */}
+        <button
+          type="button"
+          className={mobileMenuOpen || !BOTTOM_NAV_ITEMS.some((item) => (item.groupIds ? item.groupIds.includes(view) : view === item.id)) ? "active" : ""}
+          onClick={() => setMobileMenuOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={mobileMenuOpen}
+        >
+          <span aria-hidden="true"><NavIcon id="menu" /></span><small>Menu</small>
+        </button>
       </nav>
 
       <div className={mobileMenuOpen ? "mobile-menu-backdrop open" : "mobile-menu-backdrop"} onMouseDown={(event) => event.target === event.currentTarget && setMobileMenuOpen(false)} />
@@ -924,6 +936,7 @@ export function FamilyDashboard({ viewer, onSignOut, onViewerChanged }: { viewer
         {activeChallengeMission && <OnboardingChallengeFlow viewer={effectiveViewer} initialMission={activeChallengeMission} canWrite={memberCanRecordOperation || canManageInvestments} adminTargetMemberId={viewer.role === "admin" ? effectiveViewer.id : undefined} onClose={() => setActiveChallengeMission(null)} onOpenMissionArea={openChallengeMissionArea} onRefresh={() => { setFamilyReloadToken((token) => token + 1); setChecklistToken((token) => token + 1); }} />}
       {modalOpen && canManageGifts && <InvestmentModal defaultMember={familyMember} defaultSource={modalSource} onClose={closeGiftModal} onSaved={handleGiftSaved} />}
       {personalModalOpen && canRecordPersonalBtc && <InvestmentModal personalMode memberInvestor={effectiveViewer.name} adminForMember={isPreview ? effectiveViewer.name : undefined} onClose={() => setPersonalModalOpen(false)} onSaved={handlePersonalInvestmentSaved} />}
+      {viewer.role !== "admin" && !isPreview && <VideoWelcomePopup viewer={viewer} isPreview={isPreview} />}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );

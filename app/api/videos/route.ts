@@ -8,7 +8,7 @@ import { OCCASION_TYPES, VISIBILITY_SCOPES, type OccasionType, type VisibilitySc
 // L'administrateur gère les vidéos ; un membre lit ; personne n'écrit une vidéo côté membre.
 
 const SELECT =
-  "id,title,description,youtube_url,youtube_video_id,thumbnail_url,duration_seconds,occasion_type,occasion_date,visibility_scope,is_published,is_archived,published_at,gift_id," +
+  "id,title,description,youtube_url,youtube_video_id,thumbnail_url,duration_seconds,occasion_type,occasion_date,visibility_scope,is_published,is_archived,published_at,publish_at,notify_on_login,gift_id," +
   "recipients:family_video_recipients(member_id,member:family_members(name))," +
   "gift:gift_records(amount_eur,btc_amount,occasion,gift_date,member_name)";
 
@@ -18,6 +18,7 @@ type VideoRow = {
   visibility_scope: VisibilityScope;
   is_published: boolean;
   is_archived: boolean;
+  publish_at: string | null;
   recipients: RecipientRow[] | null;
   [key: string]: unknown;
 };
@@ -35,6 +36,8 @@ type VideoInput = {
   visibilityScope?: string;
   recipientNames?: unknown;
   giftId?: string | null;
+  publishAt?: string | null;
+  notifyOnLogin?: boolean;
   publish?: boolean;
 };
 
@@ -57,6 +60,7 @@ function validate(body: VideoInput): string | null {
   if (!body.visibilityScope || !VISIBILITY_SCOPES.includes(body.visibilityScope as VisibilityScope)) return "Portée de visibilité invalide.";
   if (body.occasionDate && !DATE_RE.test(body.occasionDate)) return "Date d'occasion invalide.";
   if (body.durationSeconds !== undefined && body.durationSeconds !== null && (!Number.isFinite(body.durationSeconds) || Number(body.durationSeconds) < 0)) return "Durée invalide.";
+  if (body.publishAt && Number.isNaN(new Date(body.publishAt).getTime())) return "Date de publication invalide.";
   const recipients = Array.isArray(body.recipientNames) ? body.recipientNames.filter((name): name is string => typeof name === "string" && name.trim() !== "") : [];
   if (body.visibilityScope !== "family" && recipients.length === 0) return "Sélectionnez au moins un destinataire (ou choisissez « toute la famille »).";
   return null;
@@ -92,6 +96,8 @@ function buildRow(body: VideoInput, videoId: string, createdBy: string | null, p
     occasion_date: body.occasionDate || null,
     visibility_scope: body.visibilityScope,
     gift_id: body.giftId || null,
+    publish_at: body.publishAt || null,
+    notify_on_login: body.notifyOnLogin === true,
     ...(createdBy ? { created_by: createdBy } : {}),
     is_published: publish,
     published_at: publish ? new Date().toISOString() : null,
@@ -114,6 +120,7 @@ async function replaceRecipients(videoId: string, ids: string[]) {
 function canView(video: VideoRow, viewer: AuthenticatedMember): boolean {
   if (viewer.role === "admin") return true;
   if (!video.is_published || video.is_archived) return false;
+  if (video.publish_at && new Date(video.publish_at).getTime() > Date.now()) return false;
   if (video.visibility_scope === "family") return true;
   return (video.recipients ?? []).some((recipient) => recipient.member_id === viewer.id);
 }
@@ -166,7 +173,7 @@ export async function POST(request: Request) {
     if (newId) await replaceRecipients(newId, ids);
     return Response.json({ saved: true, id: newId }, { status: 201 });
   } catch (error) {
-    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase 20260724_family_videos.sql doit être exécutée." }, { status: 409 });
+    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql et 20260821_family_video_publish_schedule.sql) doit être exécutée." }, { status: 409 });
     return authErrorResponse(error);
   }
 }
@@ -208,7 +215,7 @@ export async function PATCH(request: Request) {
     await replaceRecipients(body.id, ids);
     return Response.json({ updated: true });
   } catch (error) {
-    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase 20260724_family_videos.sql doit être exécutée." }, { status: 409 });
+    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql et 20260821_family_video_publish_schedule.sql) doit être exécutée." }, { status: 409 });
     return authErrorResponse(error);
   }
 }
@@ -227,7 +234,7 @@ export async function DELETE(request: Request) {
     });
     return Response.json({ archived: true });
   } catch (error) {
-    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase 20260724_family_videos.sql doit être exécutée." }, { status: 409 });
+    if (isMissingVideoSchema(error)) return Response.json({ error: "La migration Supabase des vidéos (20260724_family_videos.sql et 20260821_family_video_publish_schedule.sql) doit être exécutée." }, { status: 409 });
     return authErrorResponse(error);
   }
 }

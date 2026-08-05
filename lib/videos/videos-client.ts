@@ -38,6 +38,8 @@ export type ApiVideo = {
   is_published: boolean;
   is_archived: boolean;
   published_at: string | null;
+  publish_at?: string | null;
+  notify_on_login?: boolean;
   gift_id: string | null;
   gift?: ApiGift;
   recipients?: ApiRecipient[];
@@ -67,6 +69,8 @@ export function mapApiVideo(record: ApiVideo): VideoRecord {
     isPublished: Boolean(record.is_published),
     isArchived: Boolean(record.is_archived),
     publishedAt: record.published_at ?? null,
+    publishAt: record.publish_at ?? null,
+    notifyOnLogin: Boolean(record.notify_on_login),
     giftId: record.gift_id ?? null,
     gift: record.gift
       ? {
@@ -99,6 +103,8 @@ export type VideoSavePayload = {
   visibilityScope: VisibilityScope;
   recipientNames: string[];
   giftId?: string | null;
+  publishAt?: string | null;
+  notifyOnLogin?: boolean;
   publish: boolean;
 };
 

@@ -14,27 +14,49 @@ function fetchExternal(input: string, init: RequestInit = {}) {
   return fetch(input, { ...init, signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS) });
 }
 
-type WalletSource = { member: string; address: string; xpub: string | null };
+type WalletSource = { id: string; member: string; address: string; xpub: string | null; lastVerifiedBalanceBtc: number | null; lastVerifiedAt: string | null };
 
 async function loadWallets(): Promise<WalletSource[]> {
   try {
-    const rows = await supabaseRest<Array<{ member_name: string; public_address: string | null; xpub: string | null }>>(
-      "wallets?select=member_name,public_address,xpub&or=(public_address.not.is.null,xpub.not.is.null)",
+    const rows = await supabaseRest<Array<{ id: string; member_name: string; public_address: string | null; xpub: string | null; last_verified_balance_btc: number | string | null; last_verified_at: string | null }>>(
+      "wallets?select=id,member_name,public_address,xpub,last_verified_balance_btc,last_verified_at&or=(public_address.not.is.null,xpub.not.is.null)",
     );
     return rows
       .filter((row) => Boolean(row.public_address) || Boolean(row.xpub))
-      .map((row) => ({ member: row.member_name, address: row.public_address ?? "", xpub: row.xpub }));
+      .map((row) => ({ id: row.id, member: row.member_name, address: row.public_address ?? "", xpub: row.xpub, lastVerifiedBalanceBtc: row.last_verified_balance_btc === null ? null : Number(row.last_verified_balance_btc), lastVerifiedAt: row.last_verified_at }));
   } catch (error) {
-    // Repli si la migration 20260727_wallet_xpub n'a pas encore ete jouee (colonne absente).
-    if (error instanceof Error && /xpub/i.test(error.message)) {
-      const rows = await supabaseRest<Array<{ member_name: string; public_address: string | null }>>(
-        "wallets?select=member_name,public_address&public_address=not.is.null",
+    // Repli si la migration 20260822_wallet_last_verified n'a pas encore ete jouee (colonnes absentes).
+    if (error instanceof Error && /last_verified/i.test(error.message)) {
+      const rows = await supabaseRest<Array<{ id: string; member_name: string; public_address: string | null; xpub: string | null }>>(
+        "wallets?select=id,member_name,public_address,xpub&or=(public_address.not.is.null,xpub.not.is.null)",
       );
       return rows
-        .filter((row): row is { member_name: string; public_address: string } => Boolean(row.public_address))
-        .map((row) => ({ member: row.member_name, address: row.public_address, xpub: null }));
+        .filter((row) => Boolean(row.public_address) || Boolean(row.xpub))
+        .map((row) => ({ id: row.id, member: row.member_name, address: row.public_address ?? "", xpub: row.xpub, lastVerifiedBalanceBtc: null, lastVerifiedAt: null }));
+    }
+    // Repli si la migration 20260727_wallet_xpub n'a pas encore ete jouee (colonne absente).
+    if (error instanceof Error && /xpub/i.test(error.message)) {
+      const rows = await supabaseRest<Array<{ id: string; member_name: string; public_address: string | null }>>(
+        "wallets?select=id,member_name,public_address&public_address=not.is.null",
+      );
+      return rows
+        .filter((row): row is { id: string; member_name: string; public_address: string } => Boolean(row.public_address))
+        .map((row) => ({ id: row.id, member: row.member_name, address: row.public_address, xpub: null, lastVerifiedBalanceBtc: null, lastVerifiedAt: null }));
     }
     throw error;
+  }
+}
+
+async function persistVerifiedBalance(walletId: string, balanceBtc: number, checkedAt: string) {
+  try {
+    await supabaseRest(`wallets?id=eq.${encodeURIComponent(walletId)}`, {
+      method: "PATCH",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify({ last_verified_balance_btc: balanceBtc, last_verified_at: checkedAt }),
+    });
+  } catch {
+    // Best-effort : une écriture cache ratée ne doit jamais transformer une lecture blockchain
+    // réussie en erreur pour l'appelant.
   }
 }
 
@@ -223,7 +245,13 @@ async function getBitcoinEurPrice() {
 }
 
 export async function GET(request: Request) {
-  const priceOnly = new URL(request.url).searchParams.get("priceOnly") === "1";
+  const url = new URL(request.url);
+  const priceOnly = url.searchParams.get("priceOnly") === "1";
+  // Lecture seule du dernier solde blockchain déjà constaté (colonnes wallets.last_verified_*) :
+  // aucun appel Blockstream, pour afficher « dernière vérification » au chargement d'un écran
+  // sans en faire une vérification live. Seul le mode complet (ni priceOnly, ni cachedOnly)
+  // interroge réellement la blockchain et met ce cache à jour.
+  const cachedOnly = url.searchParams.get("cachedOnly") === "1";
   if (!priceOnly) {
     try { await requireAdminOrBtcViewer(request); } catch (error) { return authErrorResponse(error); }
   }
@@ -235,6 +263,12 @@ export async function GET(request: Request) {
         { headers: { "cache-control": "public, max-age=30, s-maxage=60" } },
       );
     }
+    if (cachedOnly) {
+      const wallets = await loadWallets();
+      return Response.json({
+        wallets: wallets.map((wallet) => ({ member: wallet.member, address: wallet.address, confirmedBalanceBtc: wallet.lastVerifiedBalanceBtc ?? undefined, lastVerifiedBalanceBtc: wallet.lastVerifiedBalanceBtc, lastVerifiedAt: wallet.lastVerifiedAt })),
+      });
+    }
     const [tipResponse, bitcoinPrice, wallets] = await Promise.all([
       fetchExternal(`${ESPLORA_API}/blocks/tip/height`),
       getBitcoinEurPrice(),
@@ -245,12 +279,22 @@ export async function GET(request: Request) {
     const results = await Promise.allSettled(wallets.map((wallet) => wallet.xpub
       ? getXpubWallet(wallet.member, wallet.xpub, tipHeight)
       : getWallet(wallet.member, wallet.address, tipHeight)));
+    const checkedAt = new Date().toISOString();
     const ledgerWallets = results.map((result, index) => result.status === "fulfilled"
-      ? result.value
+      ? { ...result.value, lastVerifiedAt: checkedAt }
       : { member: wallets[index].member, address: wallets[index].address, error: result.reason instanceof Error ? result.reason.message : "Lecture indisponible" });
 
+    // Écrit le cache AVANT de répondre : une fonction serverless peut être suspendue dès la
+    // réponse envoyée, un "fire-and-forget" non attendu risquerait donc de ne jamais s'exécuter.
+    // Reste best-effort : persistVerifiedBalance() avale ses propres erreurs, jamais throw ici.
+    await Promise.allSettled(
+      results
+        .map((result, index) => (result.status === "fulfilled" ? persistVerifiedBalance(wallets[index].id, result.value.confirmedBalanceBtc, checkedAt) : null))
+        .filter((promise): promise is Promise<void> => promise !== null),
+    );
+
     return Response.json(
-      { wallets: ledgerWallets, bitcoinEur: bitcoinPrice.value, bitcoinEurSource: bitcoinPrice.source, updatedAt: new Date().toISOString(), source: "Blockstream" },
+      { wallets: ledgerWallets, bitcoinEur: bitcoinPrice.value, bitcoinEurSource: bitcoinPrice.source, updatedAt: checkedAt, source: "Blockstream" },
       { headers: { "cache-control": "public, max-age=30, s-maxage=60" } },
     );
   } catch (error) {

@@ -9,9 +9,10 @@ import { saveGift } from "../lib/gifts-client";
 import { FAMILY_MEMBERS, BIRTHDAY_LABEL_LONG, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 // Revue du catalogue d'actifs : identité canonique + cotations (migration 20260811).
 import { AdminAssetReview } from "./admin-asset-review";
+import { AdminVideoMessages } from "./admin-video-messages";
 import "./administration.css";
 
-type Tab = "summary" | "gifts" | "members" | "accounts" | "assets" | "settings";
+type Tab = "summary" | "gifts" | "members" | "accounts" | "assets" | "videos" | "settings";
 type Member = { id:string; name:string; email?:string|null; role:string; access_status:string; is_active:boolean; auth_user_id?:string|null; auth?:{emailConfirmedAt?:string|null;lastSignInAt?:string|null;createdAt?:string;providers?:string[]}|null };
 type Account = { id:string; member_id:string; name:string; account_type:string; institution?:string|null; currency:string; account_number_last4?:string|null; wallet_address?:string|null; network?:string|null; is_active?:boolean; opened_at?:string|null; monthly_target?:number|null };
 type Holding = { id:string; account_id:string; asset_type:string; symbol?:string|null; isin?:string|null; name:string; quantity:number; average_cost?:number|null; currency:string; exchange?:string|null; last_price?:number|null; last_price_at?:string|null };
@@ -34,7 +35,7 @@ export function Administration({ viewer, requests, onRequestStatus }:{ viewer:Vi
   const [tab,setTab] = useState<Tab>("summary");
   const tabs:{id:Tab;label:string;icon:string}[] = [
     {id:"summary",label:"Synthèse BTC",icon:"▦"},{id:"gifts",label:"Cadeaux BTC",icon:"₿"},{id:"members",label:"Membres & accès",icon:"◎"},
-    {id:"accounts",label:"Comptes & positions",icon:"▥"},{id:"assets",label:"Actifs & cotations",icon:"◈"},
+    {id:"accounts",label:"Comptes & positions",icon:"▥"},{id:"assets",label:"Actifs & cotations",icon:"◈"},{id:"videos",label:"Messages vidéo",icon:"▶"},
     {id:"settings",label:"Réglages admin",icon:"⚙"}
   ];
   return <div className="admin-root">
@@ -45,6 +46,7 @@ export function Administration({ viewer, requests, onRequestStatus }:{ viewer:Vi
     {tab==="members"&&<Members />}
     {tab==="accounts"&&<Accounts />}
     {tab==="assets"&&<AdminAssetReview />}
+    {tab==="videos"&&<AdminVideoMessages />}
     {tab==="settings"&&<Settings />}
   </div>;
 }

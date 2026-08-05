@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { NavIcon } from "./dashboard-ui";
 import type { NavIconId } from "../lib/navigation";
@@ -20,6 +20,35 @@ export const eurCompact = (value: number) => {
   return `${Math.round(value)} €`;
 };
 export const dateOf = (iso: string) => fullDate.format(new Date(`${iso}T00:00:00Z`));
+
+// Barre d'onglets défilable horizontalement (Bitcoin / PEA / compte-titres partagent tous
+// `.btc-tabs`) : l'onglet actif se scrolle automatiquement dans la zone visible — sinon,
+// changer d'onglet en mobile via l'URL (#bitcoin/…) ou après un clic loin dans la liste laisse
+// parfois l'onglet sélectionné hors champ, sans indice qu'il faut défiler pour le retrouver.
+export function TabsNav<T extends string>({ tabs, active, onChange, ariaLabel }: {
+  tabs: { id: T; label: string }[]; active: T; onChange: (id: T) => void; ariaLabel: string;
+}) {
+  const activeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [active]);
+  return (
+    <nav className="btc-tabs" aria-label={ariaLabel}>
+      {tabs.map((item) => (
+        <button
+          key={item.id}
+          ref={active === item.id ? activeRef : undefined}
+          type="button"
+          className={active === item.id ? "active" : ""}
+          aria-current={active === item.id ? "page" : undefined}
+          onClick={() => onChange(item.id)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
 
 // ---- Petits éléments -----------------------------------------------------------------
 export function MemberAvatar({ initials, color, size = 34 }: { initials: string; color: MemberColor; size?: number }) {
