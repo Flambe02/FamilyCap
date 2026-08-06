@@ -45,6 +45,17 @@ export async function saveGift(payload: GiftSavePayload) {
   });
 }
 
+// Renomme UNIQUEMENT l'occasion d'un cadeau (Anniversaire/Noël/Autre cadeau) — écriture partielle,
+// à la différence de saveGift() qui réécrit tout l'enregistrement. Fonctionne même sur un cadeau
+// Ledger (verrouillé pour toute autre modification) puisque cela ne touche à rien de la
+// blockchain (custody, txid, ledger_amount restent inchangés).
+export async function renameGiftOccasion(id: string, occasion: "Anniversaire" | "Noël" | "Autre cadeau") {
+  return requestGiftsApi<{ renamed?: boolean; occasion?: string; error?: string }>("/api/gifts", {
+    method: "PATCH",
+    body: JSON.stringify({ id, action: "renameOccasion", occasion }),
+  });
+}
+
 export type PersonalInvestmentPayload = {
   amountEur: number;
   btcAmount: number;

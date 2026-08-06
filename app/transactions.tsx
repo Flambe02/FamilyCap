@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser";
-import { saveGift, savePersonalInvestment } from "../lib/gifts-client";
+import { saveGift, savePersonalInvestment, renameGiftOccasion } from "../lib/gifts-client";
 import { FAMILY_MEMBERS, MEMBER_NAMES, BIRTHDAY_MONTH_DAY } from "../lib/family-roster";
 import { useDialogA11y } from "./use-dialog-a11y";
 import { fetchVideos, saveVideo } from "../lib/videos/videos-client";
@@ -23,6 +23,11 @@ export type TransactionRecord = {
   authorRole: "Administrateur" | "Enfant" | "Adulte" | "Blockchain";
   status: "Confirmée" | "À transférer" | "À compléter";
   reference?: string;
+  // Part BTC réellement reçue sur le Ledger pour ce cadeau (gift_records.ledger_amount) — sert de
+  // repli à transactionLocation() : un cadeau documenté par un TxID + ce montant compte comme
+  // "Ledger" même si `custody` divergeait pour une raison quelconque (donnée historique, migration
+  // partielle), à l'image de isLedgerAssociated() dans app/administration.tsx.
+  ledgerAmount?: number;
   note?: string;
 };
 
@@ -80,6 +85,7 @@ export function TransactionsView({ transactions, canViewAll, canManage, viewerNa
   const [ledgerTransactions, setLedgerTransactions] = useState<TransactionRecord[]>([]);
   const [bitcoinEur, setBitcoinEur] = useState<number | null>(null);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
+  const [renamingTransactionId, setRenamingTransactionId] = useState<string | null>(null);
   const [mutationMessage, setMutationMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [mobileSortDir, setMobileSortDir] = useState<"desc" | "asc">("desc");
   const [memberQuickFilter, setMemberQuickFilter] = useState<MemberQuickFilter>(() => shortcut?.location === "Ledger" ? "ledger" : shortcut?.location === "Binance" ? "binance" : "all");
@@ -100,7 +106,11 @@ export function TransactionsView({ transactions, canViewAll, canManage, viewerNa
       const nextBitcoinEur = Number(ledgerResult.bitcoinEur);
       setBitcoinEur(Number.isFinite(nextBitcoinEur) && nextBitcoinEur > 0 ? nextBitcoinEur : null);
       const giftRecords = giftResult.records ?? [];
-      setDeletedGiftKeys((giftResult.deletedRecords ?? []).map((record) => record.member_name + "|" + record.occasion + "|" + record.gift_date.slice(0, 4)));
+      // Clé au grain de la DATE EXACTE (pas juste l'année) : elle doit correspondre exactement à
+      // celle du tombstone serveur (member_name|occasion|gift_date, voir /api/gifts DELETE), sans
+      // quoi supprimer un cadeau "Autre cadeau" d'une année masquerait aussi, à tort, un AUTRE
+      // cadeau réel de même occasion la même année.
+      setDeletedGiftKeys((giftResult.deletedRecords ?? []).map((record) => record.member_name + "|" + record.occasion + "|" + record.gift_date));
       setGiftTransactions(giftRecords.filter((record) => !record.is_deleted).map((record) => ({
         id: "gift-" + record.id,
         date: record.gift_date,
@@ -114,6 +124,7 @@ export function TransactionsView({ transactions, canViewAll, canManage, viewerNa
         authorRole: "Administrateur" as const,
         status: record.custody === "Binance commun" ? "À transférer" as const : (record.confirmations ?? 0) > 0 ? "Confirmée" as const : "À compléter" as const,
         reference: record.txid ?? undefined,
+        ledgerAmount: Number(record.ledger_amount ?? 0) || undefined,
         note: record.note ?? undefined,
       })));
       const costBasisByTxid = new Map<string, LedgerCostBasis>();
@@ -155,27 +166,43 @@ export function TransactionsView({ transactions, canViewAll, canManage, viewerNa
   }, [canViewAll, reloadKey]);
 
   const detailedTransactions = useMemo(() => {
+    // Deux besoins distincts, deux granularités distinctes — ne jamais les confondre sous une
+    // seule clé (c'était le bug) :
+    //  - fusionner/dédupliquer les VRAIES lignes cadeau entre elles exige la DATE EXACTE : deux
+    //    cadeaux "Autre cadeau" pour le même membre la même année sont deux lignes différentes,
+    //    jamais une seule. Avec une clé "membre|occasion|année", le second écrasait
+    //    silencieusement le premier dans la Map — un cadeau bien réel disparaissait alors de ce
+    //    registre sans aucune erreur ;
+    //  - décider si un cadeau d'anniversaire/Noël « attendu » doit encore être signalé exige au
+    //    contraire l'ANNÉE seule : le cadeau réel n'est pas forcément daté pile le jour de
+    //    l'anniversaire.
     const giftsByEvent = new Map<string, TransactionRecord>();
     for (const transaction of transactions) {
-      const key = transaction.member + "|" + transaction.kind + "|" + transaction.date.slice(0, 4);
+      const key = transaction.member + "|" + transaction.kind + "|" + transaction.date;
       if (!deletedGiftKeys.includes(key)) giftsByEvent.set(key, transaction);
     }
     for (const transaction of giftTransactions) {
-      const key = `${transaction.member}|${transaction.kind}|${transaction.date.slice(0, 4)}`;
+      const key = `${transaction.member}|${transaction.kind}|${transaction.date}`;
       const truth = giftsByEvent.get(key);
-      giftsByEvent.set(key, truth ? { ...transaction, date: truth.date, amount: truth.amount, quantity: truth.quantity, note: truth.note } : transaction);
+      giftsByEvent.set(key, truth ? { ...transaction, amount: truth.amount, quantity: truth.quantity, note: truth.note } : transaction);
     }
+    const realGifts = [...giftsByEvent.values()];
+    // Existence — pas fusion — donc l'année seule suffit et reste volontairement large ici.
+    const realYearKeys = new Set(realGifts.map((transaction) => transaction.member + "|" + transaction.kind + "|" + transaction.date.slice(0, 4)));
+
     const currentYear = new Date().getFullYear().toString();
     const today = new Date().toISOString().slice(0, 10);
+    const expectedRows: TransactionRecord[] = [];
     for (const birthday of memberBirthdays) {
       const expected = [
         { kind: "Anniversaire", date: currentYear + "-" + birthday.monthDay },
         { kind: "Noël", date: currentYear + "-12-25" },
       ];
       for (const event of expected) {
-        const key = birthday.member + "|" + event.kind + "|" + currentYear;
-        if (event.date > today || giftsByEvent.has(key) || deletedGiftKeys.includes(key)) continue;
-        giftsByEvent.set(key, {
+        const yearKey = birthday.member + "|" + event.kind + "|" + currentYear;
+        const deleteKey = birthday.member + "|" + event.kind + "|" + event.date;
+        if (event.date > today || realYearKeys.has(yearKey) || deletedGiftKeys.includes(deleteKey)) continue;
+        expectedRows.push({
           id: "expected-" + birthday.member.toLowerCase() + "-" + event.kind + "-" + currentYear,
           date: event.date,
           member: birthday.member,
@@ -190,8 +217,7 @@ export function TransactionsView({ transactions, canViewAll, canManage, viewerNa
         });
       }
     }
-    const giftRecords = [...giftsByEvent.values()];
-    return [...giftRecords, ...ledgerTransactions]
+    return [...realGifts, ...expectedRows, ...ledgerTransactions]
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [transactions, giftTransactions, ledgerTransactions, deletedGiftKeys]);
 
@@ -263,14 +289,37 @@ export function TransactionsView({ transactions, canViewAll, canManage, viewerNa
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Suppression impossible.");
-      const eventKey = `${transaction.member}|${transaction.kind}|${transaction.date.slice(0, 4)}`;
+      // Date exacte — pas juste l'année — pour correspondre au tombstone serveur
+      // (member_name|occasion|gift_date, voir /api/gifts DELETE) et ne jamais masquer, à tort,
+      // un AUTRE cadeau réel de même occasion la même année.
+      const eventKey = `${transaction.member}|${transaction.kind}|${transaction.date}`;
       setDeletedGiftKeys((current) => current.includes(eventKey) ? current : [...current, eventKey]);
-      setGiftTransactions((current) => current.filter((gift) => `${gift.member}|${gift.kind}|${gift.date.slice(0, 4)}` !== eventKey));
+      setGiftTransactions((current) => current.filter((gift) => `${gift.member}|${gift.kind}|${gift.date}` !== eventKey));
       setMutationMessage({ tone: "success", text: `${transaction.kind} ${transaction.date.slice(0, 4)} de ${transaction.member} supprimé du registre.` });
     } catch (error) {
       setMutationMessage({ tone: "error", text: error instanceof Error ? error.message : "Suppression impossible." });
     } finally {
       setDeletingTransactionId(null);
+    }
+  }
+
+  // Renommer une opération, ex. « Autre cadeau » → « Anniversaire » : seuls les vrais cadeaux
+  // enregistrés (jamais une ligne blockchain "Transaction Ledger", qui n'a pas d'id en base, ni
+  // une ligne "expected-…" purement synthétique — voir detailedTransactions ci-dessus) peuvent
+  // être renommés. Fonctionne même pour un cadeau Ledger (renameGiftOccasion écrit en partiel,
+  // sans jamais toucher custody/txid).
+  async function renameOccasion(transaction: TransactionRecord, nextKind: string) {
+    if (!canManage || nextKind === transaction.kind || !transaction.id.startsWith("gift-")) return;
+    setRenamingTransactionId(transaction.id);
+    setMutationMessage(null);
+    try {
+      await renameGiftOccasion(transaction.id.slice(5), nextKind as "Anniversaire" | "Noël" | "Autre cadeau");
+      setGiftTransactions((current) => current.map((gift) => gift.id === transaction.id ? { ...gift, kind: nextKind } : gift));
+      setMutationMessage({ tone: "success", text: `Opération de ${transaction.member} renommée en « ${nextKind} ».` });
+    } catch (error) {
+      setMutationMessage({ tone: "error", text: error instanceof Error ? error.message : "Renommage impossible." });
+    } finally {
+      setRenamingTransactionId(null);
     }
   }
   return (
@@ -333,13 +382,29 @@ export function TransactionsView({ transactions, canViewAll, canManage, viewerNa
               const location = transactionLocation(transaction);
               const occasionEmoji = transaction.kind === "Anniversaire" ? "🎂" : transaction.kind === "Noël" ? "🎄" : null;
               const canDelete = canManage && transaction.authorRole !== "Blockchain" && location !== "Ledger";
+              // Renommage réservé aux vraies lignes cadeau — jamais une ligne blockchain
+              // ("Transaction Ledger", pas d'id gift-*) ni une ligne "expected-…" purement
+              // synthétique (aucun enregistrement à modifier en base).
+              const canRename = canManage && transaction.id.startsWith("gift-");
               const blockchainUrl = transaction.authorRole === "Blockchain" && transaction.reference && /^[0-9a-f]{64}$/i.test(transaction.reference)
                 ? `https://blockstream.info/tx/${transaction.reference}`
                 : null;
               return <tr key={transaction.id}>
                 <td data-label="Date">{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`))}</td>
                 <td data-label="Bénéficiaire"><strong>{transaction.member}</strong></td>
-                <td data-label="Opération"><div className="transaction-kind">{occasionEmoji && <span className={"occasion-emoji " + (transaction.kind === "Noël" ? "christmas" : "birthday")} aria-hidden="true">{occasionEmoji}</span>}<div><strong>{transaction.kind}</strong><small>{transaction.asset} · {canViewAll ? transaction.account : memberSummary}</small></div></div></td>
+                <td data-label="Opération"><div className="transaction-kind">{occasionEmoji && <span className={"occasion-emoji " + (transaction.kind === "Noël" ? "christmas" : "birthday")} aria-hidden="true">{occasionEmoji}</span>}<div>{canRename ? (
+                  <select
+                    className="transaction-kind-select"
+                    value={transaction.kind}
+                    disabled={renamingTransactionId === transaction.id}
+                    aria-label={`Renommer l’opération de ${transaction.member}`}
+                    onChange={(event) => void renameOccasion(transaction, event.target.value)}
+                  >
+                    <option>Anniversaire</option>
+                    <option>Noël</option>
+                    <option>Autre cadeau</option>
+                  </select>
+                ) : <strong>{transaction.kind}</strong>}<small>{transaction.asset} · {canViewAll ? transaction.account : memberSummary}</small></div></div></td>
                 <td className="number-cell transaction-investment" data-label="Montant / PRU"><strong>{hasPurchasePrice ? euro.format(transaction.amount) : "—"}</strong><small>{averagePurchasePrice ? "PRU " + euro.format(averagePurchasePrice) + " / BTC" : "PRU à rattacher"}</small></td>
                 <td className="number-cell" data-label="Quantité">{transaction.quantity ? transaction.quantity.toFixed(8) + " BTC" : "À saisir"}</td>
                 <td className="number-cell transaction-current-value" data-label="Valeur actuelle"><strong>{currentValue === null ? "—" : euro.format(currentValue)}</strong><small className={performance === null ? "performance neutral" : performance >= 0 ? "performance positive" : "performance negative"}>{performance === null ? (currentValue === null ? "Cours indisponible" : "Transfert sans PRU") : (performance >= 0 ? "+" : "") + euro.format(performance)}</small></td>
@@ -360,6 +425,8 @@ export function TransactionsView({ transactions, canViewAll, canManage, viewerNa
           onOpenPortfolio={onOpenPortfolio}
           onDelete={(transaction) => void deleteGiftTransaction(transaction)}
           deletingId={deletingTransactionId}
+          onRename={(transaction, nextKind) => void renameOccasion(transaction, nextKind)}
+          renamingId={renamingTransactionId}
         />}
       </section>
     </div>
@@ -464,7 +531,7 @@ function MemberMovementsMobile({ transactions, totalValueEur, totalBtc, received
   </div>;
 }
 
-function AdminMovementsMobile({ transactions, bitcoinEur, canManage, sortDir, onToggleSort, onOpenPortfolio, onDelete, deletingId }: {
+function AdminMovementsMobile({ transactions, bitcoinEur, canManage, sortDir, onToggleSort, onOpenPortfolio, onDelete, deletingId, onRename, renamingId }: {
   transactions: TransactionRecord[];
   bitcoinEur: number | null;
   canManage: boolean;
@@ -473,6 +540,8 @@ function AdminMovementsMobile({ transactions, bitcoinEur, canManage, sortDir, on
   onOpenPortfolio?: (member: string) => void;
   onDelete: (transaction: TransactionRecord) => void;
   deletingId: string | null;
+  onRename: (transaction: TransactionRecord, nextKind: string) => void;
+  renamingId: string | null;
 }) {
   return <div className="amv-mobile">
     <div className="amv-toolbar">
@@ -487,13 +556,26 @@ function AdminMovementsMobile({ transactions, bitcoinEur, canManage, sortDir, on
       const location = transactionLocation(transaction);
       const needsAdminAction = transaction.authorRole !== "Blockchain" && transaction.status !== "Confirmée";
       const canDelete = transaction.authorRole !== "Blockchain" && location !== "Ledger";
+      const canRename = canManage && transaction.id.startsWith("gift-");
       return <article className="amv-card" key={transaction.id}>
         <div className="amv-card-top">
           <span className={`amv-card-icon ${transaction.kind === "Noël" ? "christmas" : "birthday"}`} aria-hidden="true">{transaction.kind === "Noël" ? "🎄" : "🎂"}</span>
           <div className="amv-card-title">
             <small>{dateFormat.format(new Date(`${transaction.date}T00:00:00Z`)).toUpperCase()}</small>
             <strong>{transaction.member}</strong>
-            <span className="amv-kind">{transaction.kind}</span>
+            {canRename ? (
+              <select
+                className="amv-kind-select"
+                value={transaction.kind}
+                disabled={renamingId === transaction.id}
+                aria-label={`Renommer l’opération de ${transaction.member}`}
+                onChange={(event) => onRename(transaction, event.target.value)}
+              >
+                <option>Anniversaire</option>
+                <option>Noël</option>
+                <option>Autre cadeau</option>
+              </select>
+            ) : <span className="amv-kind">{transaction.kind}</span>}
             <small className="amv-account">Bitcoin · {transaction.account}</small>
           </div>
           <div className="amv-card-status">
@@ -763,10 +845,17 @@ export function InvestmentModal({ defaultMember, defaultSource, editing, persona
 
 type TransactionLocation = "Ledger" | "Binance" | "À classer";
 
+// Alignée sur isLedgerAssociated() (app/administration.tsx) : un cadeau documenté par un TxID ET
+// une part BTC réellement reçue (ledgerAmount > 0) compte comme "Ledger" même si `custody`/
+// `account` divergeait pour une raison quelconque (donnée historique, migration partielle) —
+// jusqu'ici seul le texte de `account` décidait, ce qui pouvait afficher « À classer » pour un
+// cadeau en réalité déjà rapproché sur la blockchain.
 function transactionLocation(transaction: TransactionRecord): TransactionLocation {
+  if (transaction.authorRole === "Blockchain") return "Ledger";
+  if (transaction.reference && Number(transaction.ledgerAmount ?? 0) > 0) return "Ledger";
   const account = transaction.account.toLocaleLowerCase("fr");
-  if (account.includes("à rapprocher") || (account.includes("ledger") && account.includes("binance"))) return "À classer";
-  if (transaction.authorRole === "Blockchain" || account.includes("ledger")) return "Ledger";
+  if (account.includes("ledger")) return "Ledger";
+  if (account.includes("à rapprocher")) return "À classer";
   if (account.includes("binance") || transaction.status === "À transférer") return "Binance";
   return "À classer";
 }

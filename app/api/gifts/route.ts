@@ -4,7 +4,7 @@ import { GIFT_HISTORY } from "../../../lib/gift-history";
 
 type GiftInput = {
   id?: string;
-  action?: "unlinkLedger";
+  action?: "unlinkLedger" | "renameOccasion";
   member?: string;
   occasion?: string;
   giftDate?: string;
@@ -281,6 +281,21 @@ export async function PATCH(request: Request) {
         }),
       });
       return Response.json({ unlinked: true });
+    }
+    // Renommage de l'occasion SEUL (Anniversaire/Noël/Autre cadeau) : un simple libellé, sans
+    // rapport avec le rapprochement blockchain — autorisé même sur un cadeau Ledger (contrairement
+    // à la modification complète ci-dessous), et écrit en PATCH partiel pour ne toucher aucun
+    // autre champ (custody, txid, ledger_amount…).
+    if (body.action === "renameOccasion") {
+      if (!body.occasion || !["Anniversaire", "Noël", "Autre cadeau"].includes(body.occasion)) {
+        return Response.json({ error: "Occasion invalide." }, { status: 400 });
+      }
+      await supabaseRest("gift_records?id=eq." + encodeURIComponent(body.id), {
+        method: "PATCH",
+        headers: { prefer: "return=minimal" },
+        body: JSON.stringify({ occasion: body.occasion }),
+      });
+      return Response.json({ renamed: true, occasion: body.occasion });
     }
     if (current[0].custody === "Ledger") return Response.json({ error: "Un cadeau sur Ledger ne peut pas être modifié depuis le tableau. Utilisez d’abord l’action de désassociation dédiée si nécessaire." }, { status: 409 });
     const error = validate(body);
