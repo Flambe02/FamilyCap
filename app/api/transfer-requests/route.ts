@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabaseRest } from "../../../lib/supabase-rest";
 import { authErrorResponse, requireAdmin, requireFamilyMember, type AuthenticatedMember } from "../../../lib/auth-server";
+import { PRIMARY_ADMIN_EMAIL } from "../../../lib/primary-admin";
 
 type RuntimeEnv = {
   RESEND_API_KEY?: string;
@@ -120,7 +121,8 @@ export async function PATCH(request: Request) {
 
 async function sendAlertEmail(data: { id: string; member: string; transactionId: string; btcAmount: number | null; requestedAt: string }) {
   if (!runtime.RESEND_API_KEY || !runtime.ALERT_EMAIL_FROM) return { sent: false, reason: "Email non configuré" };
-  const to = runtime.ALERT_EMAIL_TO || "florent.lambert@gmail.com";
+  const to = runtime.ALERT_EMAIL_TO || PRIMARY_ADMIN_EMAIL;
+  if (!to) return { sent: false, reason: "Destinataire non configuré" };
   const amount = data.btcAmount ? `${data.btcAmount.toFixed(8)} BTC` : "montant à confirmer";
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",

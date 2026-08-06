@@ -5,6 +5,7 @@ import { assertNotLastSuperAdmin } from "../../../../lib/admin-super-admin";
 import { writeAdminAudit } from "../../../../lib/admin-audit";
 import { firstReceiveAddress, isExtendedKey } from "../../../../lib/bitcoin-xpub";
 import { supabaseRest } from "../../../../lib/supabase-rest";
+import { isPrimaryAdminEmail } from "../../../../lib/primary-admin";
 
 type RuntimeEnv = { SUPABASE_URL?: string; SUPABASE_SECRET_KEY?: string };
 type DbRole = "admin" | "adult" | "child" | "viewer";
@@ -13,7 +14,6 @@ type Member = { id: string; email: string | null; auth_user_id: string | null; r
 type Product = "bitcoin" | "pea" | "cto" | "gifts" | "videos" | "operations";
 type AccessLevel = "none" | "read" | "contribute" | "admin";
 type ProductAccess = Partial<Record<Product, AccessLevel>>;
-const PRIMARY_ADMIN_EMAIL = "florent.lambert@gmail.com";
 const PRODUCTS: Product[] = ["bitcoin", "pea", "cto", "gifts", "videos", "operations"];
 
 function adminClient() {
@@ -22,7 +22,6 @@ function adminClient() {
   return createClient(runtime.SUPABASE_URL, runtime.SUPABASE_SECRET_KEY, { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } });
 }
 
-function isPrimaryAdmin(member: Pick<Member, "email">) { return member.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL; }
 function roleToDb(role?: string): DbRole { return role === "admin" || role === "super_admin" ? "admin" : role === "viewer" ? "viewer" : "adult"; }
 function dbRoleToConsole(role: string): ConsoleRole { return role === "admin" ? "admin" : role === "viewer" ? "viewer" : "member"; }
 function birthdayParts(value?: string | null) {
@@ -143,11 +142,12 @@ export async function GET(request: Request) {
     return Response.json({ users: members.map((member) => {
       const authUser = member.auth_user_id ? authById.get(String(member.auth_user_id)) : undefined;
       const invitation = invitations.find((item) => item.member_id === member.id && ["pending", "sent"].includes(item.status)) ?? invitations.find((item) => item.member_id === member.id);
-      const role = authUser ? roleByUser.get(authUser.id) ?? (isPrimaryAdmin({ email: String(member.email ?? "") }) ? "super_admin" : dbRoleToConsole(String(member.role))) : dbRoleToConsole(String(member.role));
+      const role = authUser ? roleByUser.get(authUser.id) ?? (isPrimaryAdminEmail(String(member.email ?? "")) ? "super_admin" : dbRoleToConsole(String(member.role))) : dbRoleToConsole(String(member.role));
       const { wallets, ...rest } = member;
       return {
         ...rest,
         role,
+        is_primary_admin: isPrimaryAdminEmail(String(member.email ?? "")),
         // Rôle FAMILIAL brut (admin | adult | child | viewer), à côté du rôle « console »
         // ci-dessus qui replie adult ET child sur « member » pour l'écran d'administration.
         // Ce repli perd l'information dont le reste de l'application a besoin : l'aperçu
@@ -177,7 +177,7 @@ export async function POST(request: Request) {
     const body = await request.json() as { memberId?: string; name?: string; email?: string; role?: string; birthday?: string; relationship?: string; accessScope?: string; selectedViewerIds?: unknown; productAccess?: ProductAccess; sendInvite?: boolean; redirectTo?: string };
     const name = body.name?.trim() ?? ""; const email = body.email?.trim().toLowerCase() ?? "";
     if (!name || !/^\S+@\S+\.\S+$/.test(email)) return Response.json({ error: "Nom et e-mail valides obligatoires." }, { status: 400 });
-    if (email === PRIMARY_ADMIN_EMAIL && body.memberId === undefined) return Response.json({ error: "Le compte administrateur principal existe deja." }, { status: 409 });
+    if (isPrimaryAdminEmail(email) && body.memberId === undefined) return Response.json({ error: "Le compte administrateur principal existe deja." }, { status: 409 });
     const birthday = birthdayParts(body.birthday);
     let member = body.memberId ? await findMember(body.memberId) : await findMemberByEmail(email);
     if (body.memberId && !member) return Response.json({ error: "Membre introuvable." }, { status: 404 });
@@ -213,13 +213,13 @@ export async function PATCH(request: Request) {
     const body = await request.json() as { id?: string; name?: string; email?: string; role?: string; birthday?: string | null; relationship?: string; isActive?: boolean; accessScope?: string; selectedViewerIds?: unknown; walletAddress?: string; productAccess?: ProductAccess };
     if (!body.id) return Response.json({ error: "Utilisateur manquant." }, { status: 400 });
     const member = await findMember(body.id); if (!member) return Response.json({ error: "Membre introuvable." }, { status: 404 });
-    if (isPrimaryAdmin(member) && (body.role !== undefined || body.isActive !== undefined || body.email !== undefined)) return Response.json({ error: "Le compte administrateur principal est protege." }, { status: 403 });
+    if (isPrimaryAdminEmail(member.email) && (body.role !== undefined || body.isActive !== undefined || body.email !== undefined)) return Response.json({ error: "Le compte administrateur principal est protege." }, { status: 403 });
     const requestedRole = body.role as ConsoleRole | undefined;
     if (requestedRole === "super_admin" && !member.auth_user_id) return Response.json({ error: "Un super administrateur doit d'abord disposer d'un compte Auth." }, { status: 400 });
     if (member.auth_user_id && (requestedRole === "super_admin" || (member.role === "admin" && requestedRole && requestedRole !== "admin"))) {
       const roles = await supabaseRest<Array<{ user_id: string; role: ConsoleRole }>>("user_roles?select=user_id,role").catch(() => []);
-      const superCount = roles.filter((role) => role.role === "super_admin").length + (roles.some((role) => role.user_id === member.auth_user_id && role.role === "super_admin") ? 0 : isPrimaryAdmin(member) ? 1 : 0);
-      const targetIsSuperAdmin = roles.some((role) => role.user_id === member.auth_user_id && role.role === "super_admin") || isPrimaryAdmin(member);
+      const superCount = roles.filter((role) => role.role === "super_admin").length + (roles.some((role) => role.user_id === member.auth_user_id && role.role === "super_admin") ? 0 : isPrimaryAdminEmail(member.email) ? 1 : 0);
+      const targetIsSuperAdmin = roles.some((role) => role.user_id === member.auth_user_id && role.role === "super_admin") || isPrimaryAdminEmail(member.email);
       if (body.role !== undefined && body.role !== "admin" && targetIsSuperAdmin && superCount <= 1) return Response.json({ error: "Le dernier super administrateur ne peut pas etre retrograde." }, { status: 403 });
     }
     const changes: Record<string, unknown> = {};
@@ -248,7 +248,7 @@ export async function DELETE(request: Request) {
     const actor = await requireConsoleSuperAdmin(request); const id = new URL(request.url).searchParams.get("id");
     if (!id) return Response.json({ error: "Utilisateur manquant." }, { status: 400 });
     const member = await findMember(id); if (!member) return Response.json({ error: "Membre introuvable." }, { status: 404 });
-    if (isPrimaryAdmin(member) || (member.role === "admin" && !member.auth_user_id)) return Response.json({ error: "Le dernier super administrateur ne peut pas etre supprime." }, { status: 403 });
+    if (isPrimaryAdminEmail(member.email) || (member.role === "admin" && !member.auth_user_id)) return Response.json({ error: "Le dernier super administrateur ne peut pas etre supprime." }, { status: 403 });
     await assertNotLastSuperAdmin(member);
     await supabaseRest("family_members?id=eq." + encodeURIComponent(id), { method: "PATCH", headers: { prefer: "return=minimal" }, body: JSON.stringify({ is_active: false, access_status: "deleted", deleted_at: new Date().toISOString(), deleted_by: actor.id }) });
     if (member.auth_user_id) await adminClient().auth.admin.updateUserById(member.auth_user_id, { ban_duration: "876000h" });

@@ -1,5 +1,6 @@
 import { authErrorResponse, requireFamilyMember } from "../../../../lib/auth-server";
 import { isSupabaseConfigured, supabaseRest } from "../../../../lib/supabase-rest";
+import { PRIMARY_ADMIN_EMAIL } from "../../../../lib/primary-admin";
 
 // Désactivation du compte membre demandée par l'intéressé lui-même.
 //
@@ -50,7 +51,8 @@ export async function POST(request: Request) {
 
 async function notifyAdmin(name: string, email: string) {
   if (!runtime.RESEND_API_KEY || !runtime.ALERT_EMAIL_FROM) return;
-  const to = runtime.ALERT_EMAIL_TO || "florent.lambert@gmail.com";
+  const to = runtime.ALERT_EMAIL_TO || PRIMARY_ADMIN_EMAIL;
+  if (!to) return;
   await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { authorization: `Bearer ${runtime.RESEND_API_KEY}`, "content-type": "application/json", "idempotency-key": `account-deactivate/${email}` },

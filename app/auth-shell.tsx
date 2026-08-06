@@ -107,7 +107,7 @@ export function AuthShell() {
   if (designPreview) return <FamilyDashboard viewer={{ id: "design-preview", email: "apercu@cap.family", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
   if (!ready) return <div className="auth-loading"><span><img src="/Labajo logo.png" alt="" width={48} height={48} /></span><p>Ouverture de LaBaJo &amp; Co…</p></div>;
   if (serviceError) return <ServiceUnavailable message={serviceError} />;
-  if (setupMode) return <FamilyDashboard viewer={{ id: "local-admin", email: "florent.lambert@gmail.com", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
+  if (setupMode) return <FamilyDashboard viewer={{ id: "local-admin", email: "admin@cap.family", name: "Florent", role: "admin" }} onSignOut={() => undefined} />;
   if (session && authIntent) return <PasswordSetupScreen intent={authIntent} onDone={() => setAuthIntent(null)} />;
   if (accessError) return <AccessDenied message={accessError} onSignOut={() => void supabaseBrowser.auth.signOut()} />;
   if (!session || !viewer) return <LoginScreen />;
@@ -322,7 +322,7 @@ function readAuthHashError(): string | null {
   return description ? description.replace(/\+/g, " ") : null;
 }
 
-const NOT_FAMILY_CONTACT = "Cette adresse e-mail n’est pas encore autorisée. Demande à Florent (florent.lambert@gmail.com) de créer ton accès LaBaJo & Co, puis réessaie.";
+const NOT_FAMILY_CONTACT = "Cette adresse e-mail n’est pas encore autorisée. Demande à l’administrateur de créer ton accès LaBaJo & Co, puis réessaie.";
 
 function friendlyAuthError(error: unknown) {
   const message = error instanceof Error ? error.message : "Connexion impossible";

@@ -90,6 +90,7 @@ Details: `docs/audit-etape1-technique-fonctionnel.md` §9, §10, §14, §23.
 
 See `.env.example`. Required:
 - `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`
+- `PRIMARY_ADMIN_EMAIL` — identity of the bootstrap super_admin (`lib/primary-admin.ts`). Used only as a fallback when no `user_roles` row exists yet for that account, and to protect the primary admin's own membership/role from deletion or demotion. Never hard-code this address in source — it is compared case-insensitively, server-side only.
 
 Optional:
 - `RESEND_API_KEY`, `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO` — email alerts

@@ -4,6 +4,7 @@ import { requireConsoleSuperAdmin } from "../../../../../lib/admin-console-auth"
 import { assertNotLastSuperAdmin } from "../../../../../lib/admin-super-admin";
 import { writeAdminAudit } from "../../../../../lib/admin-audit";
 import { supabaseRest } from "../../../../../lib/supabase-rest";
+import { isPrimaryAdminEmail } from "../../../../../lib/primary-admin";
 
 function clients() {
   const url = process.env.SUPABASE_URL; const secret = process.env.SUPABASE_SECRET_KEY; const publishable = process.env.SUPABASE_PUBLISHABLE_KEY;
@@ -12,7 +13,6 @@ function clients() {
 }
 type ActionBody = { action?: string; memberId?: string; redirectTo?: string; confirmation?: string };
 type Member = { id: string; name: string; email: string | null; auth_user_id: string | null; role: string; is_active: boolean; access_status: string };
-const PRIMARY_ADMIN_EMAIL = "florent.lambert@gmail.com";
 
 async function memberFor(id: string) {
   const rows = await supabaseRest<Member[]>("family_members?select=id,name,email,auth_user_id,role,is_active,access_status&id=eq." + encodeURIComponent(id) + "&limit=1");
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     if (!body.memberId) return Response.json({ error: "Membre manquant." }, { status: 400 });
     const member = await memberFor(body.memberId);
     if (!member?.email) return Response.json({ error: "Ce membre n'a pas encore d'adresse e-mail." }, { status: 400 });
-    if (member.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && ["disable", "soft_delete", "delete_auth", "dissociate_auth"].includes(body.action ?? "")) return Response.json({ error: "Le compte administrateur principal est protege." }, { status: 403 });
+    if (isPrimaryAdminEmail(member.email) && ["disable", "soft_delete", "delete_auth", "dissociate_auth"].includes(body.action ?? "")) return Response.json({ error: "Le compte administrateur principal est protege." }, { status: 403 });
     if (["disable", "soft_delete", "delete_auth", "dissociate_auth"].includes(body.action ?? "")) await assertNotLastSuperAdmin(member);
     const { admin, public: publicClient } = clients();
 
