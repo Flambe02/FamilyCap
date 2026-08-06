@@ -989,31 +989,47 @@ function birthdayOf(name: string, birthdays: Record<string, { day: number; month
 // - membre : son PROPRE prochain cadeau (anniversaire ou Noël) + un simple rappel de
 //   l'anniversaire d'un autre membre, sans jamais évoquer de cadeau qui ne lui est pas destiné ;
 // - admin : le prochain anniversaire de la famille, présenté comme un cadeau à préparer.
+// Une date « prochaine occurrence » (nextDateFor) tombe précisément aujourd'hui quand
+// l'anniversaire du jour n'a pas encore été dépassé cette année — c'est le seul cas où le
+// bandeau doit basculer en salutation directe plutôt qu'en simple rappel de date à venir.
+function isToday(date: Date, today: Date) {
+  return date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
+}
+
 function homeBirthdayInfo(viewerName: string, isMember: boolean, birthdays: Record<string, { day: number; month: number }> | null): HomeBirthday {
   const longFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   const shortFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" });
-  const christmas = nextDateFor(12, 25);
+  const today = new Date();
+  const christmas = nextDateFor(12, 25, today);
   if (isMember) {
     const mine = birthdayOf(viewerName, birthdays);
-    const myBirthday = mine ? nextDateFor(mine.month, mine.day) : christmas;
+    const myBirthday = mine ? nextDateFor(mine.month, mine.day, today) : christmas;
+    const other = members
+      .filter((member) => member.name !== viewerName)
+      .map((member) => { const info = birthdayOf(member.name, birthdays); return info ? { name: member.name, date: nextDateFor(info.month, info.day, today) } : null; })
+      .filter((entry): entry is { name: MemberName; date: Date } => entry !== null)
+      .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+    const reminder = other ? `Pense aussi à l’anniversaire de ${other.name}, le ${shortFmt.format(other.date)}` : "";
+    // Aujourd'hui, c'est le jour J : plus un rappel de date à venir, une vraie salutation.
+    if (mine && isToday(myBirthday, today)) {
+      return { title: `Joyeux anniversaire, ${viewerName} ! 🎂`, message: "Ton cadeau d’Amatxi t’attend aujourd’hui 🎉", reminder };
+    }
     const gift = myBirthday.getTime() <= christmas.getTime()
       ? { date: myBirthday, label: `Ton anniversaire : ${longFmt.format(myBirthday)}` }
       : { date: christmas, label: `Prochain cadeau : Noël, le ${longFmt.format(christmas)}` };
-    const other = members
-      .filter((member) => member.name !== viewerName)
-      .map((member) => { const info = birthdayOf(member.name, birthdays); return info ? { name: member.name, date: nextDateFor(info.month, info.day) } : null; })
-      .filter((entry): entry is { name: MemberName; date: Date } => entry !== null)
-      .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
     return {
       title: gift.label,
       message: "Un nouveau cadeau d’Amatxi arrive bientôt 🎉",
-      reminder: other ? `Pense aussi à l’anniversaire de ${other.name}, le ${shortFmt.format(other.date)}` : "",
+      reminder,
     };
   }
   const fam = members
-    .map((member) => { const info = birthdayOf(member.name, birthdays); return info ? { name: member.name, date: nextDateFor(info.month, info.day) } : null; })
+    .map((member) => { const info = birthdayOf(member.name, birthdays); return info ? { name: member.name, date: nextDateFor(info.month, info.day, today) } : null; })
     .filter((entry): entry is { name: MemberName; date: Date } => entry !== null)
     .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+  if (isToday(fam.date, today)) {
+    return { title: `Joyeux anniversaire, ${fam.name} ! 🎂`, message: "Un cadeau d’Amatxi est à préparer 🎉", reminder: "" };
+  }
   return {
     title: `Prochain anniversaire : ${fam.name}, le ${longFmt.format(fam.date)}`,
     message: "Un cadeau d’Amatxi est à préparer 🎉",
