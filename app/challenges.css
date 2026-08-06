@@ -97,6 +97,7 @@
 .cha-onboard-success { margin-top: 6px; color: var(--color-text, var(--ink)); font-size: 14px; font-weight: 600; }
 
 .cha-onboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.cha-onboard-pinned-list { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--color-border, var(--line)); }
 .cha-onboard-item { display: grid; grid-template-columns: 40px 1fr; gap: 12px; padding: 14px; border: 1px solid var(--color-border, var(--line)); border-radius: 14px; background: var(--color-card-warm, #fcf9f4); }
 .cha-onboard-item.is-done { background: rgba(47, 143, 91, 0.06); border-color: rgba(47, 143, 91, 0.22); }
 .cha-onboard-item-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: #123655; color: #e6bd6b; }

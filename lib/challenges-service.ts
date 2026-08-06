@@ -20,7 +20,7 @@ export type ChallengeRow = {
   id: string; title: string; description: string | null; challenge_type: string; status: string;
   starts_on: string | null; ends_on: string | null; points_reward: number; // dates NULL = défi permanent
   eligible_account_types: string[]; eligible_instrument_types: string[];
-  availability_mode: string; requires_challenge_id: string | null;
+  availability_mode: string; requires_challenge_id: string | null; show_in_onboarding: boolean;
   created_by: string | null; created_at: string; updated_at: string;
 };
 
@@ -53,7 +53,7 @@ function num(value: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-const CHALLENGE_SELECT = "id,title,description,challenge_type,status,starts_on,ends_on,points_reward,eligible_account_types,eligible_instrument_types,availability_mode,requires_challenge_id,created_by,created_at,updated_at";
+const CHALLENGE_SELECT = "id,title,description,challenge_type,status,starts_on,ends_on,points_reward,eligible_account_types,eligible_instrument_types,availability_mode,requires_challenge_id,show_in_onboarding,created_by,created_at,updated_at";
 const PARTICIPANT_SELECT = "id,challenge_id,member_id,target_account_id,target_amount_snapshot,target_currency,status,joined_at,completed_at";
 
 // Toutes les lectures « défi mensuel » ci-dessous filtrent explicitement challenge_type :
@@ -612,6 +612,7 @@ export async function createChallenge(input: ChallengeInput & { status?: string 
       starts_on: value.startsOn, ends_on: value.endsOn, points_reward: value.pointsReward,
       eligible_account_types: value.eligibleAccountTypes, eligible_instrument_types: value.eligibleInstrumentTypes,
       availability_mode: value.availabilityMode, requires_challenge_id: value.requiresChallengeId,
+      show_in_onboarding: value.showInOnboarding,
       created_by: createdBy,
     }),
   });
@@ -629,13 +630,20 @@ export async function updateChallenge(id: string, patch: ChallengeInput & { stat
   }
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  const wantsContentEdit = ["title", "description", "startsOn", "endsOn", "pointsReward", "eligibleAccountTypes", "eligibleInstrumentTypes", "availabilityMode", "requiresChallengeId"].some((key) => key in patch);
+  // Deux groupes de champs, deux règles :
+  //  - CONTENU (titre, dates, points, types éligibles) : affecte le calcul de progression déjà en
+  //    cours pour les participants — verrouillé une fois le défi activé, pour ne jamais changer
+  //    rétroactivement les règles d'un défi que des membres ont déjà rejoint.
+  //  - DISPONIBILITÉ (mode, prérequis, épinglage « Bien démarrer ») : n'affecte que la VISIBILITÉ
+  //    du défi, jamais les points déjà calculés — modifiable à tout moment, quel que soit le statut.
+  const wantsContentEdit = ["title", "description", "startsOn", "endsOn", "pointsReward", "eligibleAccountTypes", "eligibleInstrumentTypes"].some((key) => key in patch);
+  const wantsAvailabilityEdit = ["availabilityMode", "requiresChallengeId", "showInOnboarding"].some((key) => key in patch);
 
-  if (wantsContentEdit) {
-    // Le contenu n'est modifiable qu'avant l'activation (brouillon / programmé).
-    if (current.status !== "draft" && current.status !== "scheduled") {
-      return { ok: false, status: 409, error: "Un défi actif, terminé ou archivé n'est plus modifiable (seul son statut peut changer)." };
-    }
+  if (wantsContentEdit && current.status !== "draft" && current.status !== "scheduled") {
+    return { ok: false, status: 409, error: "Un défi actif, terminé ou archivé n'est plus modifiable (seuls son statut et sa disponibilité peuvent changer)." };
+  }
+
+  if (wantsContentEdit || wantsAvailabilityEdit) {
     const validated = validateChallengeInput({
       title: patch.title ?? current.title,
       description: patch.description ?? current.description,
@@ -646,15 +654,22 @@ export async function updateChallenge(id: string, patch: ChallengeInput & { stat
       eligibleInstrumentTypes: patch.eligibleInstrumentTypes ?? current.eligible_instrument_types,
       availabilityMode: patch.availabilityMode ?? current.availability_mode,
       requiresChallengeId: patch.requiresChallengeId ?? current.requires_challenge_id,
+      showInOnboarding: patch.showInOnboarding ?? current.show_in_onboarding,
     });
     if (!validated.ok) return { ok: false, status: 400, error: validated.error };
     if (validated.value.requiresChallengeId === id) return { ok: false, status: 400, error: "Un défi ne peut pas dépendre de lui-même." };
     const value = validated.value;
-    Object.assign(update, {
-      title: value.title, description: value.description, starts_on: value.startsOn, ends_on: value.endsOn,
-      points_reward: value.pointsReward, eligible_account_types: value.eligibleAccountTypes, eligible_instrument_types: value.eligibleInstrumentTypes,
-      availability_mode: value.availabilityMode, requires_challenge_id: value.requiresChallengeId,
-    });
+    if (wantsContentEdit) {
+      Object.assign(update, {
+        title: value.title, description: value.description, starts_on: value.startsOn, ends_on: value.endsOn,
+        points_reward: value.pointsReward, eligible_account_types: value.eligibleAccountTypes, eligible_instrument_types: value.eligibleInstrumentTypes,
+      });
+    }
+    if (wantsAvailabilityEdit) {
+      Object.assign(update, {
+        availability_mode: value.availabilityMode, requires_challenge_id: value.requiresChallengeId, show_in_onboarding: value.showInOnboarding,
+      });
+    }
   }
 
   if (patch.status && patch.status !== current.status) {

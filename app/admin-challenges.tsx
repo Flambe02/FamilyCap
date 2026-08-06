@@ -13,7 +13,7 @@ type ChallengeDto = {
   id: string; title: string; description: string | null; status: string;
   startsOn: string | null; endsOn: string | null; // null = défi permanent (sans échéance)
   pointsReward: number; eligibleAccountTypes: string[]; eligibleInstrumentTypes: string[];
-  availabilityMode: string; requiresChallengeId: string | null;
+  availabilityMode: string; requiresChallengeId: string | null; showInOnboarding: boolean;
   participants: number; completed: number; completionRate: number; pointsAttributed: number;
 };
 type ParticipantDto = { memberId: string; name: string; photoUrl: string | null; status: string; pct: number; invested: number; targetAmount: number; pointsEarned: number; lastEligibleDate: string | null };
@@ -136,6 +136,7 @@ export function AdminChallenges() {
   const totalPoints = challenges.reduce((sum, challenge) => sum + challenge.pointsAttributed, 0);
   const successRate = totalParticipants > 0 ? Math.round((totalCompleted / totalParticipants) * 100) : 0;
   const selected = challenges.find((challenge) => challenge.id === selectedId) ?? null;
+  const pinnedChallenges = challenges.filter((challenge) => challenge.showInOnboarding);
 
   return (
     <div className="page-stack ach-page">
@@ -161,7 +162,7 @@ export function AdminChallenges() {
         <Stat icon="🏆" value={intFmt.format(totalPoints)} label="Points attribués" />
       </div>
 
-      {!loading && onboarding.length > 0 && (
+      {!loading && (onboarding.length > 0 || pinnedChallenges.length > 0) && (
         <section className="panel ach-onboard-card">
           <div className="ach-onboard-head">
             <h3 className="ach-card-title">Bien démarrer</h3>
@@ -180,6 +181,20 @@ export function AdminChallenges() {
               </li>
             ))}
           </ul>
+          {pinnedChallenges.length > 0 && (
+            <ul className="ach-onboard-list ach-onboard-pinned">
+              {pinnedChallenges.map((challenge) => (
+                <li key={challenge.id} className="ach-onboard-row">
+                  <span className="ach-onboard-title">{challenge.title} <small className="ach-muted">· défi épinglé</small></span>
+                  <span className="ach-onboard-points">{challenge.pointsReward} pts</span>
+                  <span className="ach-onboard-count">{challenge.completed} membre{challenge.completed > 1 ? "s" : ""} terminé{challenge.completed > 1 ? "s" : ""}</span>
+                  <span className={`ach-status ach-status-${challenge.status}`}>{STATUS_LABEL[challenge.status] ?? challenge.status}</span>
+                  <button type="button" className="quiet" onClick={() => setMembersModal({ id: challenge.id, title: challenge.title, defaultPoints: challenge.pointsReward, availabilityMode: challenge.availabilityMode })}>Membres</button>
+                  <button type="button" className="quiet" onClick={() => setFormModal(challenge)}>Modifier</button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       )}
 
@@ -218,7 +233,7 @@ export function AdminChallenges() {
                           {(challenge.status === "archived" || challenge.status === "completed") && <button type="button" disabled={busy} onClick={() => transition(challenge.id, { status: "active" })}>Réactiver</button>}
                           {challenge.status === "archived" && <button type="button" className="quiet" disabled={busy} onClick={() => transition(challenge.id, { status: "draft" })}>Remettre en brouillon</button>}
                           {challenge.status !== "archived" && <button type="button" className="quiet" disabled={busy} onClick={() => transition(challenge.id, { status: "archived" })}>Archiver</button>}
-                          {(challenge.status === "draft" || challenge.status === "scheduled") && <button type="button" className="quiet" disabled={busy} onClick={() => setFormModal(challenge)}>Modifier</button>}
+                          <button type="button" className="quiet" disabled={busy} onClick={() => setFormModal(challenge)}>Modifier</button>
                           <button type="button" className="quiet" onClick={() => { setSelectedId(challenge.id); setTab("participants"); }}>Participants ›</button>
                           <button type="button" className="quiet" onClick={() => setMembersModal({ id: challenge.id, title: challenge.title, defaultPoints: challenge.pointsReward, availabilityMode: challenge.availabilityMode })}>Membres</button>
                           <button type="button" className="quiet ach-danger" disabled={busy} onClick={() => void remove(challenge)}>Supprimer</button>
@@ -470,9 +485,14 @@ function ChallengeFormModal({ challenge, allChallenges, onClose, onSaved }: { ch
   const [instrumentTypes, setInstrumentTypes] = useState<string[]>(challenge?.eligibleInstrumentTypes ?? ["etf", "stock"]);
   const [availabilityMode, setAvailabilityMode] = useState(challenge?.availabilityMode ?? "always");
   const [requiresChallengeId, setRequiresChallengeId] = useState(challenge?.requiresChallengeId ?? "");
+  const [showInOnboarding, setShowInOnboarding] = useState(challenge?.showInOnboarding ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const prerequisiteOptions = allChallenges.filter((item) => item.id !== challenge?.id);
+  // Le contenu (titre, dates, points, types éligibles) se fige une fois le défi activé — pour ne
+  // jamais changer rétroactivement les règles d'un défi que des membres ont déjà rejoint. La
+  // disponibilité (mode, prérequis, épinglage) reste modifiable à tout moment, même actif/archivé.
+  const contentEditable = !isEdit || challenge.status === "draft" || challenge.status === "scheduled";
 
   function toggle(list: string[], setList: (next: string[]) => void, value: string) {
     setList(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
@@ -484,14 +504,19 @@ function ChallengeFormModal({ challenge, allChallenges, onClose, onSaved }: { ch
     setError("");
     try {
       // Défi permanent : on envoie explicitement null pour les deux dates (le serveur exige les
-      // deux ou aucune) — jamais une seule, qui rendrait la période ambiguë.
-      const fields = {
-        title, description,
-        startsOn: permanent ? null : startsOn,
-        endsOn: permanent ? null : endsOn,
-        pointsReward: Number(pointsReward), eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes,
-        availabilityMode, requiresChallengeId: availabilityMode === "sequential" ? requiresChallengeId : null,
-      };
+      // deux ou aucune) — jamais une seule, qui rendrait la période ambiguë. Une fois le défi
+      // actif/archivé/terminé, on n'envoie QUE la disponibilité : le contenu est verrouillé
+      // côté serveur, l'envoyer quand même (même inchangé) déclencherait un refus 409.
+      const availabilityFields = { availabilityMode, requiresChallengeId: availabilityMode === "sequential" ? requiresChallengeId : null, showInOnboarding };
+      const fields = contentEditable
+        ? {
+          title, description,
+          startsOn: permanent ? null : startsOn,
+          endsOn: permanent ? null : endsOn,
+          pointsReward: Number(pointsReward), eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes,
+          ...availabilityFields,
+        }
+        : availabilityFields;
       const response = await fetch("/api/admin/challenges", {
         method: isEdit ? "PATCH" : "POST", headers: await headers(),
         body: JSON.stringify(isEdit ? { id: challenge.id, ...fields } : fields),
@@ -510,30 +535,33 @@ function ChallengeFormModal({ challenge, allChallenges, onClose, onSaved }: { ch
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
       <section className="modal ach-modal" role="dialog" aria-modal="true" aria-label={isEdit ? "Modifier le défi" : "Créer un défi"}>
         <header className="ach-modal-head"><h2>{isEdit ? "Modifier le défi" : "Créer un défi mensuel"}</h2><button type="button" onClick={onClose} aria-label="Fermer">×</button></header>
+        {!contentEditable && (
+          <p className="ach-muted ach-field-wide">Ce défi est {STATUS_LABEL[challenge!.status]?.toLowerCase() ?? challenge!.status} : son contenu (titre, dates, points, types éligibles) est verrouillé pour ne jamais changer rétroactivement les règles d’un défi déjà rejoint. Seule sa disponibilité reste modifiable ci-dessous.</p>
+        )}
         <div className="ach-form">
-          <label className="ach-field ach-field-wide"><span>Titre</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Mon cap du mois" /></label>
-          <label className="ach-field ach-field-wide"><span>Description (facultatif)</span><input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Investir régulièrement, à son rythme." /></label>
+          <label className="ach-field ach-field-wide"><span>Titre</span><input value={title} disabled={!contentEditable} onChange={(event) => setTitle(event.target.value)} placeholder="Mon cap du mois" /></label>
+          <label className="ach-field ach-field-wide"><span>Description (facultatif)</span><input value={description} disabled={!contentEditable} onChange={(event) => setDescription(event.target.value)} placeholder="Investir régulièrement, à son rythme." /></label>
           <label className="ach-field ach-field-wide ach-field-check">
-            <input type="checkbox" checked={permanent} onChange={(event) => setPermanent(event.target.checked)} />
+            <input type="checkbox" checked={permanent} disabled={!contentEditable} onChange={(event) => setPermanent(event.target.checked)} />
             <span>Défi permanent (sans date de début ni de fin)</span>
           </label>
-          <label className="ach-field"><span>Date de début</span><input type="date" value={permanent ? "" : startsOn} disabled={permanent} onChange={(event) => setStartsOn(event.target.value)} /></label>
-          <label className="ach-field"><span>Date de fin</span><input type="date" value={permanent ? "" : endsOn} disabled={permanent} onChange={(event) => setEndsOn(event.target.value)} /></label>
-          <label className="ach-field"><span>Points (1–1000)</span><input type="number" min={1} max={1000} value={pointsReward} onChange={(event) => setPointsReward(event.target.value)} /></label>
+          <label className="ach-field"><span>Date de début</span><input type="date" value={permanent ? "" : startsOn} disabled={permanent || !contentEditable} onChange={(event) => setStartsOn(event.target.value)} /></label>
+          <label className="ach-field"><span>Date de fin</span><input type="date" value={permanent ? "" : endsOn} disabled={permanent || !contentEditable} onChange={(event) => setEndsOn(event.target.value)} /></label>
+          <label className="ach-field"><span>Points (1–1000)</span><input type="number" min={1} max={1000} value={pointsReward} disabled={!contentEditable} onChange={(event) => setPointsReward(event.target.value)} /></label>
           <fieldset className="ach-field ach-field-wide">
             <span>Comptes éligibles</span>
             <div className="ach-checks">{ACCOUNT_OPTIONS.map(([value, label]) => (
-              <label key={value}><input type="checkbox" checked={accountTypes.includes(value)} onChange={() => toggle(accountTypes, setAccountTypes, value)} /> {label}</label>
+              <label key={value}><input type="checkbox" checked={accountTypes.includes(value)} disabled={!contentEditable} onChange={() => toggle(accountTypes, setAccountTypes, value)} /> {label}</label>
             ))}</div>
           </fieldset>
           <fieldset className="ach-field ach-field-wide">
             <span>Instruments éligibles</span>
             <div className="ach-checks">{INSTRUMENT_OPTIONS.map(([value, label]) => (
-              <label key={value}><input type="checkbox" checked={instrumentTypes.includes(value)} onChange={() => toggle(instrumentTypes, setInstrumentTypes, value)} /> {label}</label>
+              <label key={value}><input type="checkbox" checked={instrumentTypes.includes(value)} disabled={!contentEditable} onChange={() => toggle(instrumentTypes, setInstrumentTypes, value)} /> {label}</label>
             ))}</div>
           </fieldset>
           <fieldset className="ach-field ach-field-wide">
-            <span>Disponibilité</span>
+            <span>Disponibilité (modifiable à tout moment)</span>
             <div className="ach-checks">
               <label><input type="radio" name="availabilityMode" checked={availabilityMode === "always"} onChange={() => setAvailabilityMode("always")} /> Toujours (dès que le défi est actif)</label>
               <label><input type="radio" name="availabilityMode" checked={availabilityMode === "sequential"} onChange={() => setAvailabilityMode("sequential")} /> Séquentiel (après un autre défi terminé)</label>
@@ -552,7 +580,11 @@ function ChallengeFormModal({ challenge, allChallenges, onClose, onSaved }: { ch
           {availabilityMode === "special" && (
             <p className="ach-muted ach-field-wide">Ce défi restera invisible pour tous les membres tant qu’il n’aura pas été débloqué individuellement, depuis « Membres » une fois le défi créé.</p>
           )}
-          <p className="ach-muted ach-field-wide">{isEdit ? "Le contenu reste modifiable tant que le défi n'est pas activé (brouillon ou programmé)." : "Type de défi : investissement mensuel régulier. Le défi est créé en brouillon ; activez-le ensuite depuis la liste."}</p>
+          <label className="ach-field ach-field-wide ach-field-check">
+            <input type="checkbox" checked={showInOnboarding} onChange={(event) => setShowInOnboarding(event.target.checked)} />
+            <span>Afficher aussi dans « Bien démarrer », en plus des 4 missions permanentes</span>
+          </label>
+          <p className="ach-muted ach-field-wide">{contentEditable ? (isEdit ? "Le contenu reste modifiable tant que le défi n'est pas activé (brouillon ou programmé)." : "Type de défi : investissement mensuel régulier. Le défi est créé en brouillon ; activez-le ensuite depuis la liste.") : "Le mécanisme du défi (inscription, achats, points) reste inchangé — seul l'endroit où il s'affiche peut changer."}</p>
           {permanent && <p className="ach-muted ach-field-wide">Défi permanent : il reste courant tant qu&apos;il est actif. Pour chaque membre, les achats comptent à partir du jour où il rejoint le défi.</p>}
           {error && <p className="ach-error ach-field-wide" role="alert">{error}</p>}
         </div>

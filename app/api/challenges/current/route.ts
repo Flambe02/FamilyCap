@@ -40,7 +40,7 @@ export async function GET(request: Request) {
         challenge: ctx.challenge ? {
           id: ctx.challenge.id, title: ctx.challenge.title, description: ctx.challenge.description,
           startsOn: ctx.challenge.starts_on, endsOn: ctx.challenge.ends_on, pointsReward: ctx.challenge.points_reward,
-          daysRemaining: daysRemaining(ctx.challenge.ends_on),
+          daysRemaining: daysRemaining(ctx.challenge.ends_on), showInOnboarding: ctx.challenge.show_in_onboarding,
         } : null,
         progress: ctx.progress ? {
           invested: ctx.progress.invested, targetAmount: ctx.progress.targetAmount, pct: ctx.progress.pct,

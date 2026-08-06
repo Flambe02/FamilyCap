@@ -282,12 +282,13 @@ export type ChallengeInput = {
   challengeType?: string;
   availabilityMode?: string | null;
   requiresChallengeId?: string | null;
+  showInOnboarding?: boolean | null;
 };
 
 export type ValidatedChallenge = {
   title: string; description: string | null; startsOn: string | null; endsOn: string | null; pointsReward: number;
   eligibleAccountTypes: string[]; eligibleInstrumentTypes: string[]; challengeType: "monthly_investment";
-  availabilityMode: AvailabilityMode; requiresChallengeId: string | null;
+  availabilityMode: AvailabilityMode; requiresChallengeId: string | null; showInOnboarding: boolean;
 };
 
 export function validateChallengeInput(input: ChallengeInput): { ok: true; value: ValidatedChallenge } | { ok: false; error: string } {
@@ -327,6 +328,7 @@ export function validateChallengeInput(input: ChallengeInput): { ok: true; value
       title, description: (input.description ?? "").trim() || null, startsOn, endsOn, pointsReward: points,
       eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes, challengeType: "monthly_investment",
       availabilityMode, requiresChallengeId: availabilityMode === "sequential" ? requiresChallengeId : null,
+      showInOnboarding: Boolean(input.showInOnboarding),
     },
   };
 }

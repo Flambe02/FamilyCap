@@ -64,6 +64,7 @@
 .ach-onboard-title { font-weight: 600; }
 .ach-onboard-points { font-variant-numeric: tabular-nums; font-weight: 700; color: #b07d1e; }
 .ach-onboard-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ach-onboard-pinned { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--line); }
 
 /* ---- Modale « Membres » (qui a fait ce défi, actions manuelles) ---- */
 .ach-members-modal { max-width: 760px; width: min(760px, 94vw); }

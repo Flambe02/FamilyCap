@@ -28,6 +28,18 @@ test("challenge_unlocks : unique par (challenge_id, member_id), RLS activée", (
   assert.match(availabilityMigration, /alter table public\.challenge_unlocks enable row level security/);
 });
 
+test("updateChallenge : le contenu reste verrouillé hors brouillon/programmé, la disponibilité reste modifiable à tout statut", () => {
+  const start = service.indexOf("export async function updateChallenge");
+  const end = service.indexOf("\nexport async function deleteChallenge");
+  assert.ok(start >= 0 && end > start, "updateChallenge introuvable");
+  const fn = service.slice(start, end);
+  assert.match(fn, /wantsContentEdit\s*&&\s*current\.status\s*!==\s*"draft"\s*&&\s*current\.status\s*!==\s*"scheduled"/);
+  assert.match(fn, /wantsAvailabilityEdit/);
+  // La condition de verrouillage ne doit JAMAIS inclure wantsAvailabilityEdit (sinon la
+  // disponibilité serait, elle aussi, bloquée une fois le défi actif).
+  assert.equal(/if \(wantsAvailabilityEdit[\s\S]{0,80}current\.status !== "draft"/.test(fn), false);
+});
+
 test("challenge_unlocks : le service n'y écrit que via unlockChallengeForMember (jamais une écriture client)", () => {
   const start = service.indexOf("export async function unlockChallengeForMember");
   assert.ok(start >= 0, "unlockChallengeForMember introuvable");

@@ -19,7 +19,7 @@ type MemberState = "no_plan" | "no_account" | "ready_to_join" | "in_progress" | 
 // échéance », jamais une date ou un décompte inventé.
 type CurrentResp = {
   available: boolean; state: MemberState; hasPlan: boolean; hasTargetAccount: boolean; isParticipant: boolean;
-  challenge: { id: string; title: string; description: string | null; startsOn: string | null; endsOn: string | null; pointsReward: number; daysRemaining: number | null } | null;
+  challenge: { id: string; title: string; description: string | null; startsOn: string | null; endsOn: string | null; pointsReward: number; daysRemaining: number | null; showInOnboarding?: boolean } | null;
   progress: { invested: number; targetAmount: number; pct: number; completed: boolean; status: string } | null;
 };
 // Plusieurs défis mensuels peuvent être actifs et visibles EN MÊME TEMPS pour un membre depuis la
@@ -323,10 +323,14 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
   }
 
   const available = challengesAvailable;
+  // Un défi épinglé (showInOnboarding) s'affiche dans « Bien démarrer », jamais dans le
+  // hero/« Autres défis disponibles » — sinon il apparaîtrait deux fois sur l'écran.
+  const regularChallenges = currentList.filter((entry) => !entry.challenge?.showInOnboarding);
+  const pinnedChallenges = currentList.filter((entry) => entry.challenge?.showInOnboarding);
   // Plusieurs défis peuvent être visibles en même temps : le PREMIER (ordre serveur — les plus
   // récents/permanents d'abord) reste le hero principal ; les autres s'affichent en dessous.
-  const primary = currentList[0] ?? null;
-  const secondaryChallenges = currentList.slice(1);
+  const primary = regularChallenges[0] ?? null;
+  const secondaryChallenges = regularChallenges.slice(1);
   const challenge = primary?.challenge ?? null;
   const state = primary?.state ?? "challenge_ended";
   const progress = primary?.progress ?? null;
@@ -479,49 +483,77 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
       )}
       {rulesPanel}
 
-      {/* Parcours individuel « Bien démarrer » — permanent, distinct du défi du mois. */}
-      {onboarding?.available && (
+      {/* Parcours individuel « Bien démarrer » — permanent, distinct du défi du mois. Un défi
+          épinglé par l'admin (showInOnboarding) s'y affiche aussi, avec son propre mécanisme
+          (inscription, achats, points) — seul son emplacement d'affichage change. */}
+      {(onboarding?.available || pinnedChallenges.length > 0) && (
         <section className="panel cha-onboard" aria-label="Bien démarrer">
-          <header className="cha-onboard-head">
-            <div>
-              <h3>Bien démarrer</h3>
-              <p>Complète ces étapes pour prendre en main ton espace d’investissement.</p>
-            </div>
-            {onboarding.completedCount < onboarding.totalCount ? (
-              <span className="cha-onboard-step-label">{onboarding.completedCount} étape{onboarding.completedCount > 1 ? "s" : ""} sur {onboarding.totalCount}</span>
-            ) : (
-              <span className="cha-badge cha-badge-done">Parcours terminé</span>
-            )}
-          </header>
-
-          {onboarding.completedCount < onboarding.totalCount && (
+          {onboarding?.available && (
             <>
-              <div className="cha-bar cha-onboard-bar"><span style={{ width: `${Math.round((onboarding.completedCount / onboarding.totalCount) * 100)}%` }} /></div>
-              <p className="cha-onboard-points">{intFmt.format(onboarding.earnedPoints)} / {intFmt.format(onboarding.totalPoints)} points</p>
+              <header className="cha-onboard-head">
+                <div>
+                  <h3>Bien démarrer</h3>
+                  <p>Complète ces étapes pour prendre en main ton espace d’investissement.</p>
+                </div>
+                {onboarding.completedCount < onboarding.totalCount ? (
+                  <span className="cha-onboard-step-label">{onboarding.completedCount} étape{onboarding.completedCount > 1 ? "s" : ""} sur {onboarding.totalCount}</span>
+                ) : (
+                  <span className="cha-badge cha-badge-done">Parcours terminé</span>
+                )}
+              </header>
+
+              {onboarding.completedCount < onboarding.totalCount && (
+                <>
+                  <div className="cha-bar cha-onboard-bar"><span style={{ width: `${Math.round((onboarding.completedCount / onboarding.totalCount) * 100)}%` }} /></div>
+                  <p className="cha-onboard-points">{intFmt.format(onboarding.earnedPoints)} / {intFmt.format(onboarding.totalPoints)} points</p>
+                </>
+              )}
+
+              {onboarding.completedCount === onboarding.totalCount ? (
+                <p className="cha-onboard-success">Bravo, tu as terminé les 4 premières étapes — {intFmt.format(onboarding.totalPoints)} points gagnés !</p>
+              ) : (
+                <ul className="cha-onboard-grid">
+                  {onboarding.missions.map((mission) => (
+                    <li key={mission.slug} className={mission.status === "done" ? "cha-onboard-item is-done" : "cha-onboard-item"}>
+                      <span className="cha-onboard-item-icon" aria-hidden="true">{mission.status === "done" ? <CheckIcon /> : <NavIcon id="star" />}</span>
+                      <div className="cha-onboard-item-body">
+                        <span className={mission.status === "done" ? "cha-chip cha-chip-done" : "cha-chip cha-chip-todo"}>{mission.status === "done" ? "Terminé" : "À faire"}</span>
+                        <strong>{mission.title}</strong>
+                        <small>{mission.description}</small>
+                      </div>
+                      <div className="cha-onboard-item-side">
+                        <span className="cha-onboard-item-points">{mission.status === "done" ? `+${mission.points} pts` : `${mission.points} pts`}</span>
+                        {mission.status === "done"
+                          ? <span className="cha-onboard-done-mark" aria-hidden="true"><CheckIcon /></span>
+                          : mission.slug === "onboarding_existing_portfolio" ? <span className="cha-onboard-choice"><button type="button" className="cha-onboard-cta" onClick={() => onStartMission ? onStartMission(mission) : navigateToOnboardingMission(mission, onNavigate)}>Saisir une opération</button><button type="button" className="cha-onboard-cta" onClick={() => navigateToPortfolioImport(onNavigate)}>Importer un relevé</button></span>
+                          : <button type="button" className="cha-onboard-cta" onClick={() => onStartMission ? onStartMission(mission) : navigateToOnboardingMission(mission, onNavigate)}>{mission.cta}</button>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </>
           )}
 
-          {onboarding.completedCount === onboarding.totalCount ? (
-            <p className="cha-onboard-success">Bravo, tu as terminé les 4 premières étapes — {intFmt.format(onboarding.totalPoints)} points gagnés !</p>
-          ) : (
-            <ul className="cha-onboard-grid">
-              {onboarding.missions.map((mission) => (
-                <li key={mission.slug} className={mission.status === "done" ? "cha-onboard-item is-done" : "cha-onboard-item"}>
-                  <span className="cha-onboard-item-icon" aria-hidden="true">{mission.status === "done" ? <CheckIcon /> : <NavIcon id="star" />}</span>
-                  <div className="cha-onboard-item-body">
-                    <span className={mission.status === "done" ? "cha-chip cha-chip-done" : "cha-chip cha-chip-todo"}>{mission.status === "done" ? "Terminé" : "À faire"}</span>
-                    <strong>{mission.title}</strong>
-                    <small>{mission.description}</small>
-                  </div>
-                  <div className="cha-onboard-item-side">
-                    <span className="cha-onboard-item-points">{mission.status === "done" ? `+${mission.points} pts` : `${mission.points} pts`}</span>
-                    {mission.status === "done"
-                      ? <span className="cha-onboard-done-mark" aria-hidden="true"><CheckIcon /></span>
-                      : mission.slug === "onboarding_existing_portfolio" ? <span className="cha-onboard-choice"><button type="button" className="cha-onboard-cta" onClick={() => onStartMission ? onStartMission(mission) : navigateToOnboardingMission(mission, onNavigate)}>Saisir une opération</button><button type="button" className="cha-onboard-cta" onClick={() => navigateToPortfolioImport(onNavigate)}>Importer un relevé</button></span>
-                      : <button type="button" className="cha-onboard-cta" onClick={() => onStartMission ? onStartMission(mission) : navigateToOnboardingMission(mission, onNavigate)}>{mission.cta}</button>}
-                  </div>
-                </li>
-              ))}
+          {pinnedChallenges.length > 0 && (
+            <ul className="cha-more-list cha-onboard-pinned-list">
+              {pinnedChallenges.filter((entry) => entry.challenge).map((entry) => {
+                const entryChallenge = entry.challenge!;
+                const entryMeta = STATE_META[entry.state];
+                return (
+                  <li key={entryChallenge.id} className="cha-more-row">
+                    <div className="cha-more-main">
+                      <span className={`cha-badge ${entryMeta.badgeCls}`}>{entryMeta.badge}</span>
+                      <strong>{entryChallenge.title}</strong>
+                      {entry.progress && <div className="cha-bar cha-bar-sm"><span style={{ width: `${Math.max(0, Math.min(100, entry.progress.pct))}%` }} /></div>}
+                    </div>
+                    <div className="cha-more-side">
+                      <span className="cha-more-reward">+{intFmt.format(entryChallenge.pointsReward)} pts</span>
+                      {renderCta({ state: entry.state, canAct, joining, onNavigate, onJoin: () => void join(entryChallenge.id) })}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

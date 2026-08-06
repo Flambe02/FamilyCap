@@ -359,6 +359,12 @@ test("le prérequis n'est conservé qu'en mode 'sequential'", () => {
   assert.equal(result.value.requiresChallengeId, null);
 });
 
+// ---- Épinglage « Bien démarrer » ----------------------------------------------------------
+test("showInOnboarding : false par défaut, conservé si fourni", () => {
+  assert.equal(validateChallengeInput({ title: "X", startsOn: "2026-07-01", endsOn: "2026-07-31" }).value.showInOnboarding, false);
+  assert.equal(validateChallengeInput({ title: "X", startsOn: "2026-07-01", endsOn: "2026-07-31", showInOnboarding: true }).value.showInOnboarding, true);
+});
+
 test("opt-in zero member remains ranked and opt-out is excluded", () => {
   const board = buildLeaderboard([
     { memberId: "a", name: "Alice", photoUrl: null, points: 20, defisCompleted: 1, lastPointsAt: null, optIn: true },

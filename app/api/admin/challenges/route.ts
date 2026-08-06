@@ -78,7 +78,7 @@ function toDto(row: AdminChallengeRow) {
     id: row.id, title: row.title, description: row.description, status: row.status,
     startsOn: row.starts_on, endsOn: row.ends_on, pointsReward: row.points_reward,
     eligibleAccountTypes: row.eligible_account_types, eligibleInstrumentTypes: row.eligible_instrument_types,
-    availabilityMode: row.availability_mode, requiresChallengeId: row.requires_challenge_id,
+    availabilityMode: row.availability_mode, requiresChallengeId: row.requires_challenge_id, showInOnboarding: row.show_in_onboarding,
     participants: row.participants, completed: row.completed, completionRate: row.completionRate, pointsAttributed: row.pointsAttributed,
   };
 }
