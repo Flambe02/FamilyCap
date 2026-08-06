@@ -1,9 +1,11 @@
 import { authErrorResponse, requireFamilyMember } from "../../../../lib/auth-server";
-import { getCurrentForMember, isMissingChallengeTable } from "../../../../lib/challenges-service";
+import { getCurrentChallengesForMember, isMissingChallengeTable } from "../../../../lib/challenges-service";
 
-// Contexte du défi COURANT pour le membre connecté : défi, état (no_plan / no_account /
-// ready_to_join / in_progress / completed / challenge_ended), et sa PROPRE progression.
-// Réconcilie à l'ouverture (reconnaît les achats importés/antérieurs). Aucun montant d'autrui.
+// Contexte des défis COURANTS pour le membre connecté : liste (plusieurs défis mensuels peuvent
+// être actifs et visibles en même temps depuis la migration 20260825 — ex. un défi permanent et
+// un défi spécial débloqué), chacun avec son état (no_plan / no_account / ready_to_join /
+// in_progress / completed / challenge_ended) et sa PROPRE progression. Réconcilie à l'ouverture
+// (reconnaît les achats importés/antérieurs). Aucun montant d'autrui.
 export const runtime = "nodejs";
 
 // null pour un défi PERMANENT (ends_on NULL) : il n'y a pas de compte à rebours. Le client doit
@@ -27,28 +29,28 @@ export async function GET(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
     const isAdminPreview = viewer.role === "admin" && Boolean(new URL(request.url).searchParams.get("asMember"));
-    const ctx = await getCurrentForMember(resolveTargetId(request, viewer), { reconcile: !isAdminPreview });
+    const list = await getCurrentChallengesForMember(resolveTargetId(request, viewer), { reconcile: !isAdminPreview });
     return Response.json({
       available: true,
-      state: ctx.state,
-      hasPlan: ctx.hasPlan,
-      hasTargetAccount: ctx.hasTargetAccount,
-      isParticipant: ctx.isParticipant,
-      challenge: ctx.challenge ? {
-        id: ctx.challenge.id, title: ctx.challenge.title, description: ctx.challenge.description,
-        startsOn: ctx.challenge.starts_on, endsOn: ctx.challenge.ends_on, pointsReward: ctx.challenge.points_reward,
-        daysRemaining: daysRemaining(ctx.challenge.ends_on),
-      } : null,
-      progress: ctx.progress ? {
-        invested: ctx.progress.invested, targetAmount: ctx.progress.targetAmount, pct: ctx.progress.pct,
-        completed: ctx.progress.completed, status: ctx.progress.status, linkedOperations: ctx.progress.linkedOperations,
-        lastEligibleDate: ctx.progress.lastEligibleDate,
-      } : null,
+      challenges: list.map((ctx) => ({
+        state: ctx.state,
+        hasPlan: ctx.hasPlan,
+        hasTargetAccount: ctx.hasTargetAccount,
+        isParticipant: ctx.isParticipant,
+        challenge: ctx.challenge ? {
+          id: ctx.challenge.id, title: ctx.challenge.title, description: ctx.challenge.description,
+          startsOn: ctx.challenge.starts_on, endsOn: ctx.challenge.ends_on, pointsReward: ctx.challenge.points_reward,
+          daysRemaining: daysRemaining(ctx.challenge.ends_on),
+        } : null,
+        progress: ctx.progress ? {
+          invested: ctx.progress.invested, targetAmount: ctx.progress.targetAmount, pct: ctx.progress.pct,
+          completed: ctx.progress.completed, status: ctx.progress.status, linkedOperations: ctx.progress.linkedOperations,
+          lastEligibleDate: ctx.progress.lastEligibleDate,
+        } : null,
+      })),
     });
   } catch (error) {
-    if (isMissingChallengeTable(error)) {
-      return Response.json({ available: false, state: "challenge_ended", hasPlan: false, hasTargetAccount: false, isParticipant: false, challenge: null, progress: null });
-    }
+    if (isMissingChallengeTable(error)) return Response.json({ available: false, challenges: [] });
     return authErrorResponse(error);
   }
 }

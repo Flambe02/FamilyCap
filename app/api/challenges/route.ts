@@ -1,5 +1,5 @@
 import { authErrorResponse, requireFamilyMember } from "../../../lib/auth-server";
-import { getActiveChallenge, getMemberChallengeHistory, isMissingChallengeTable } from "../../../lib/challenges-service";
+import { getActiveChallenges, getMemberChallengeHistory, isMissingChallengeTable } from "../../../lib/challenges-service";
 
 // Liste des défis visibles par le membre + un résumé de sa participation (historique). Lecture
 // seule ; identité déterminée depuis la session. Aucun montant d'autrui.
@@ -15,10 +15,10 @@ function resolveTargetId(request: Request, viewer: { id: string; role: string })
 export async function GET(request: Request) {
   try {
     const viewer = await requireFamilyMember(request);
-    const [active, history] = await Promise.all([getActiveChallenge(), getMemberChallengeHistory(resolveTargetId(request, viewer))]);
+    const [active, history] = await Promise.all([getActiveChallenges(), getMemberChallengeHistory(resolveTargetId(request, viewer))]);
     return Response.json({
       available: true,
-      current: active ? { id: active.id, title: active.title, status: active.status } : null,
+      current: active[0] ? { id: active[0].id, title: active[0].title, status: active[0].status } : null,
       history,
     });
   } catch (error) {

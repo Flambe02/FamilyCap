@@ -250,6 +250,25 @@ export function calculateMonthlyStreak(entries: MonthlyStreakLedgerEntry[], chal
   return streak;
 }
 
+// ---- Disponibilité d'un défi (visibilité par membre), PURE --------------------------------
+// Trois modes : 'always' (comportement historique) ; 'sequential' (verrouillé tant qu'un autre
+// défi n'est pas terminé PAR CE MEMBRE) ; 'special' (verrouillé tant que l'admin ne l'a pas
+// débloqué explicitement pour ce membre — cf. table challenge_unlocks). Les FAITS
+// (prérequis terminé, déblocage existant) sont résolus par l'appelant (challenges-service, accès
+// DB) ; cette fonction ne fait que la décision, testable sans base.
+export const AVAILABILITY_MODES = ["always", "sequential", "special"] as const;
+export type AvailabilityMode = (typeof AVAILABILITY_MODES)[number];
+
+export function isChallengeVisibleToMember(params: {
+  availabilityMode: AvailabilityMode;
+  requiresChallengeCompleted: boolean;
+  unlocked: boolean;
+}): boolean {
+  if (params.availabilityMode === "sequential") return params.requiresChallengeCompleted;
+  if (params.availabilityMode === "special") return params.unlocked;
+  return true;
+}
+
 // ---- Validation d'un défi (création / édition admin), PURE -------------------------------
 export const ELIGIBLE_ACCOUNT_TYPES = ["pea", "securities"] as const;
 export const ELIGIBLE_INSTRUMENT_TYPES = ["etf", "stock", "fund", "bond"] as const;
@@ -261,11 +280,14 @@ export type ChallengeInput = {
   eligibleAccountTypes?: string[] | null;
   eligibleInstrumentTypes?: string[] | null;
   challengeType?: string;
+  availabilityMode?: string | null;
+  requiresChallengeId?: string | null;
 };
 
 export type ValidatedChallenge = {
   title: string; description: string | null; startsOn: string | null; endsOn: string | null; pointsReward: number;
   eligibleAccountTypes: string[]; eligibleInstrumentTypes: string[]; challengeType: "monthly_investment";
+  availabilityMode: AvailabilityMode; requiresChallengeId: string | null;
 };
 
 export function validateChallengeInput(input: ChallengeInput): { ok: true; value: ValidatedChallenge } | { ok: false; error: string } {
@@ -293,9 +315,19 @@ export function validateChallengeInput(input: ChallengeInput): { ok: true; value
   const instrumentTypes = normalizeList(input.eligibleInstrumentTypes, ELIGIBLE_INSTRUMENT_TYPES as readonly string[], ["etf", "stock"]);
   if (instrumentTypes.length === 0) return { ok: false, error: "Choisissez au moins un type d'instrument éligible." };
 
+  const availabilityModeRaw = (input.availabilityMode ?? "always").trim();
+  if (!(AVAILABILITY_MODES as readonly string[]).includes(availabilityModeRaw)) return { ok: false, error: "Mode de disponibilité invalide." };
+  const availabilityMode = availabilityModeRaw as AvailabilityMode;
+  const requiresChallengeId = (input.requiresChallengeId ?? "").trim() || null;
+  if (availabilityMode === "sequential" && !requiresChallengeId) return { ok: false, error: "Choisissez le défi prérequis pour un défi séquentiel." };
+
   return {
     ok: true,
-    value: { title, description: (input.description ?? "").trim() || null, startsOn, endsOn, pointsReward: points, eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes, challengeType: "monthly_investment" },
+    value: {
+      title, description: (input.description ?? "").trim() || null, startsOn, endsOn, pointsReward: points,
+      eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes, challengeType: "monthly_investment",
+      availabilityMode, requiresChallengeId: availabilityMode === "sequential" ? requiresChallengeId : null,
+    },
   };
 }
 

@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import {
   isPurchaseEligible, computeChallengeProgress, completionKey, reversalKey, resolvePointsAction, buildLeaderboard,
   validateChallengeInput, canTransition, rankLeaderboard, compareLeaderboard, memberChallengeState,
-  effectiveWindowStart, deriveChallengeLevel, calculateMonthlyStreak,
+  effectiveWindowStart, deriveChallengeLevel, calculateMonthlyStreak, isChallengeVisibleToMember,
 } from "../lib/challenges.ts";
 
 const WINDOW = { startsOn: "2026-07-01", endsOn: "2026-07-31", eligibleInstrumentTypes: ["etf", "stock"] };
@@ -312,6 +312,51 @@ test("monthly streak ignores a month cancelled by challenge reversal", () => {
     { id: "jun", challengeType: "monthly_investment", startsOn: "2026-06-01", endsOn: "2026-06-30" },
   ];
   assert.equal(calculateMonthlyStreak([{ challengeId: "jul", points: 300 }, { challengeId: "jun", points: 300 }, { challengeId: "jun", points: -300 }], challenges), 1);
+});
+
+// ---- Disponibilité par défi (toujours / séquentiel / spécial) ----------------------------
+test("mode 'always' : toujours visible, quels que soient les faits", () => {
+  assert.equal(isChallengeVisibleToMember({ availabilityMode: "always", requiresChallengeCompleted: false, unlocked: false }), true);
+});
+
+test("mode 'sequential' : visible seulement si le prérequis est terminé", () => {
+  assert.equal(isChallengeVisibleToMember({ availabilityMode: "sequential", requiresChallengeCompleted: false, unlocked: true }), false);
+  assert.equal(isChallengeVisibleToMember({ availabilityMode: "sequential", requiresChallengeCompleted: true, unlocked: false }), true);
+});
+
+test("mode 'special' : visible seulement si débloqué manuellement", () => {
+  assert.equal(isChallengeVisibleToMember({ availabilityMode: "special", requiresChallengeCompleted: true, unlocked: false }), false);
+  assert.equal(isChallengeVisibleToMember({ availabilityMode: "special", requiresChallengeCompleted: false, unlocked: true }), true);
+});
+
+// ---- Validation admin : disponibilité --------------------------------------------------
+test("mode par défaut 'always' quand non précisé", () => {
+  const result = validateChallengeInput({ title: "X", startsOn: "2026-07-01", endsOn: "2026-07-31" });
+  assert.equal(result.ok, true);
+  assert.equal(result.value.availabilityMode, "always");
+  assert.equal(result.value.requiresChallengeId, null);
+});
+
+test("mode 'sequential' exige un défi prérequis", () => {
+  const result = validateChallengeInput({ title: "X", startsOn: "2026-07-01", endsOn: "2026-07-31", availabilityMode: "sequential" });
+  assert.equal(result.ok, false);
+});
+
+test("mode 'sequential' valide avec un prérequis renseigné", () => {
+  const result = validateChallengeInput({ title: "X", startsOn: "2026-07-01", endsOn: "2026-07-31", availabilityMode: "sequential", requiresChallengeId: "c1" });
+  assert.equal(result.ok, true);
+  assert.equal(result.value.availabilityMode, "sequential");
+  assert.equal(result.value.requiresChallengeId, "c1");
+});
+
+test("mode invalide refusé", () => {
+  assert.equal(validateChallengeInput({ title: "X", startsOn: "2026-07-01", endsOn: "2026-07-31", availabilityMode: "invented" }).ok, false);
+});
+
+test("le prérequis n'est conservé qu'en mode 'sequential'", () => {
+  const result = validateChallengeInput({ title: "X", startsOn: "2026-07-01", endsOn: "2026-07-31", availabilityMode: "special", requiresChallengeId: "c1" });
+  assert.equal(result.ok, true);
+  assert.equal(result.value.requiresChallengeId, null);
 });
 
 test("opt-in zero member remains ranked and opt-out is excluded", () => {

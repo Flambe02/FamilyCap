@@ -65,6 +65,21 @@
 .ach-onboard-points { font-variant-numeric: tabular-nums; font-weight: 700; color: #b07d1e; }
 .ach-onboard-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
+/* ---- Modale « Membres » (qui a fait ce défi, actions manuelles) ---- */
+.ach-members-modal { max-width: 760px; width: min(760px, 94vw); }
+.ach-members-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; }
+.ach-members-row { display: grid; grid-template-columns: 40px 1.1fr auto 1fr auto auto auto; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+.ach-members-row:last-child { border-bottom: none; }
+.ach-members-name { font-weight: 600; }
+.ach-members-progress { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ach-members-date { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ach-members-actions button { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.ach-members-actions button.ach-danger { color: #a34735; border-color: #f3d2c9; background: #fff0ed; }
+.ach-members-points { display: flex; align-items: center; gap: 6px; }
+.ach-members-points input { width: 64px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ach-members-points button { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; color: #16233a; }
+.ach-members-points button:disabled, .ach-members-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* ---- Modale de création ---- */
 .ach-modal { max-width: 620px; width: min(620px, 94vw); }
 .ach-modal-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; }
@@ -73,7 +88,7 @@
 .ach-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 8px 0; }
 .ach-field { display: flex; flex-direction: column; gap: 6px; border: none; padding: 0; margin: 0; }
 .ach-field > span { font-size: 12px; font-weight: 700; color: var(--muted); }
-.ach-field input { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 14px; }
+.ach-field input, .ach-field select { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 14px; font-family: inherit; }
 .ach-field-wide { grid-column: 1 / -1; }
 /* Case « Défi permanent » : ligne horizontale (case + libellé), contrairement aux champs empilés. */
 .ach-field-check { flex-direction: row; align-items: center; gap: 9px; }
@@ -94,4 +109,6 @@
   .ach-part-invest, .ach-part-points, .ach-part-pct { grid-column: span 1; }
   .ach-onboard-row { grid-template-columns: 1fr auto; row-gap: 4px; }
   .ach-onboard-count { grid-column: 1 / -1; }
+  .ach-members-row { grid-template-columns: 40px 1fr auto; row-gap: 6px; }
+  .ach-members-progress, .ach-members-date, .ach-members-actions, .ach-members-points { grid-column: 1 / -1; }
 }

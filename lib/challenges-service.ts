@@ -12,13 +12,15 @@ import { getOnboardingProgressForMember, type OnboardingReconcileResult } from "
 import {
   isPurchaseEligible, computeChallengeProgress, completionKey, reversalKey, resolvePointsAction, buildLeaderboard, memberChallengeState,
   validateChallengeInput, canTransition, CHALLENGE_STATUSES, effectiveWindowStart, deriveChallengeLevel, calculateMonthlyStreak,
-  type ParticipantStatus, type MemberChallengeState, type ChallengeStatus, type ChallengeInput, type LeaderboardBuildRow,
+  isChallengeVisibleToMember,
+  type ParticipantStatus, type MemberChallengeState, type ChallengeStatus, type ChallengeInput, type LeaderboardBuildRow, type AvailabilityMode,
 } from "./challenges.ts";
 
 export type ChallengeRow = {
   id: string; title: string; description: string | null; challenge_type: string; status: string;
   starts_on: string | null; ends_on: string | null; points_reward: number; // dates NULL = défi permanent
   eligible_account_types: string[]; eligible_instrument_types: string[];
+  availability_mode: string; requires_challenge_id: string | null;
   created_by: string | null; created_at: string; updated_at: string;
 };
 
@@ -40,7 +42,7 @@ type LinkRow = { operation_id: string; eligible_amount: number | string };
 type LedgerRow = { challenge_id: string | null; points: number; reason: string; created_at: string };
 
 export function isMissingChallengeTable(error: unknown): boolean {
-  return error instanceof Error && (/challenges|challenge_participants|challenge_operation_links|points_ledger/.test(error.message) || error.message.includes("PGRST205") || error.message.includes("PGRST106"));
+  return error instanceof Error && (/challenges|challenge_participants|challenge_operation_links|challenge_unlocks|points_ledger/.test(error.message) || error.message.includes("PGRST205") || error.message.includes("PGRST106"));
 }
 
 function todayISO(): string {
@@ -51,7 +53,7 @@ function num(value: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-const CHALLENGE_SELECT = "id,title,description,challenge_type,status,starts_on,ends_on,points_reward,eligible_account_types,eligible_instrument_types,created_by,created_at,updated_at";
+const CHALLENGE_SELECT = "id,title,description,challenge_type,status,starts_on,ends_on,points_reward,eligible_account_types,eligible_instrument_types,availability_mode,requires_challenge_id,created_by,created_at,updated_at";
 const PARTICIPANT_SELECT = "id,challenge_id,member_id,target_account_id,target_amount_snapshot,target_currency,status,joined_at,completed_at";
 
 // Toutes les lectures « défi mensuel » ci-dessous filtrent explicitement challenge_type :
@@ -63,18 +65,53 @@ const MONTHLY_TYPE_FILTER = "&challenge_type=eq.monthly_investment";
 
 // ---- Lectures de base ---------------------------------------------------------------------
 /**
- * Défi « courant » : actif et dont la période contient aujourd'hui (le plus récent).
+ * Défis « courants » : actifs et dont la période contient aujourd'hui, les plus récents d'abord.
  * Un défi PERMANENT (starts_on/ends_on NULL) est toujours courant : une borne absente ne filtre
  * rien. Sans ce traitement des NULL, un défi sans date serait invisible côté membre.
  * `nullsfirst` : à statut égal, le défi permanent passe avant les défis datés.
+ *
+ * Depuis la migration 20260825, PLUSIEURS défis mensuels peuvent être actifs simultanément
+ * (l'ancienne contrainte « un seul défi actif » a été retirée) : cette lecture renvoie TOUS ceux
+ * dans leur période, sans filtrer par membre — c'est isChallengeVisibleForMember ci-dessous qui
+ * décide, pour un membre donné, lesquels sont réellement visibles (mode 'always'/'sequential'/'special').
  */
-export async function getActiveChallenge(): Promise<ChallengeRow | null> {
+export async function getActiveChallenges(): Promise<ChallengeRow[]> {
   const today = todayISO();
   const period = `and=(or(starts_on.is.null,starts_on.lte.${today}),or(ends_on.is.null,ends_on.gte.${today}))`;
-  const rows = await supabaseRest<ChallengeRow[]>(
-    `challenges?select=${CHALLENGE_SELECT}&status=eq.active&${period}${MONTHLY_TYPE_FILTER}&order=starts_on.desc.nullsfirst&limit=1`,
+  return supabaseRest<ChallengeRow[]>(
+    `challenges?select=${CHALLENGE_SELECT}&status=eq.active&${period}${MONTHLY_TYPE_FILTER}&order=starts_on.desc.nullsfirst&limit=50`,
   );
-  return rows[0] ?? null;
+}
+
+/**
+ * Visibilité RÉELLE d'un défi pour un membre donné : résout les faits (prérequis terminé,
+ * déblocage explicite) puis délègue la décision au moteur pur isChallengeVisibleToMember.
+ */
+export async function isChallengeVisibleForMember(challenge: ChallengeRow, memberId: string): Promise<boolean> {
+  const mode = (challenge.availability_mode || "always") as AvailabilityMode;
+  if (mode === "always") return true;
+  if (mode === "sequential") {
+    if (!challenge.requires_challenge_id) return true; // mal configuré : ne bloque jamais silencieusement
+    const rows = await supabaseRest<Array<{ points: number }>>(
+      `points_ledger?select=points&member_id=eq.${encodeURIComponent(memberId)}&challenge_id=eq.${encodeURIComponent(challenge.requires_challenge_id)}`,
+    );
+    const net = rows.reduce((sum, row) => sum + num(row.points), 0);
+    return isChallengeVisibleToMember({ availabilityMode: mode, requiresChallengeCompleted: net > 0, unlocked: false });
+  }
+  const unlocks = await supabaseRest<Array<{ id: string }>>(
+    `challenge_unlocks?select=id&challenge_id=eq.${encodeURIComponent(challenge.id)}&member_id=eq.${encodeURIComponent(memberId)}&limit=1`,
+  );
+  return isChallengeVisibleToMember({ availabilityMode: mode, requiresChallengeCompleted: false, unlocked: unlocks.length > 0 });
+}
+
+/** Sous-ensemble de getActiveChallenges() réellement visible par CE membre, dans l'ordre reçu. */
+export async function getVisibleActiveChallengesForMember(memberId: string): Promise<ChallengeRow[]> {
+  const active = await getActiveChallenges();
+  const visible: ChallengeRow[] = [];
+  for (const challenge of active) {
+    if (await isChallengeVisibleForMember(challenge, memberId)) visible.push(challenge);
+  }
+  return visible;
 }
 
 export async function getChallengeById(id: string): Promise<ChallengeRow | null> {
@@ -104,9 +141,13 @@ export type JoinResult =
  * dans target_amount_snapshot. Idempotent : réutilise la participation existante. Le montant figé
  * ne suit plus les modifications ultérieures du plan.
  */
-export async function joinChallenge(memberId: string, challenge?: ChallengeRow): Promise<JoinResult> {
-  const active = challenge ?? (await getActiveChallenge());
-  if (!active) return { ok: false, reason: "no_active_challenge", message: "Aucun défi actif pour le moment." };
+export async function joinChallenge(memberId: string, challengeId: string): Promise<JoinResult> {
+  const activeList = await getActiveChallenges();
+  const active = activeList.find((item) => item.id === challengeId);
+  if (!active) return { ok: false, reason: "no_active_challenge", message: "Ce défi n'est pas disponible actuellement." };
+  if (!(await isChallengeVisibleForMember(active, memberId))) {
+    return { ok: false, reason: "no_active_challenge", message: "Ce défi n'est pas encore disponible pour toi." };
+  }
 
   const existing = await getParticipant(active.id, memberId);
   if (existing) {
@@ -258,7 +299,7 @@ export async function reconcileParticipant(participant: ParticipantRow, challeng
 }
 
 /** Lecture stricte des liens existants pour l'aperçu admin : aucune mutation ni attribution. */
-async function readParticipantProgress(participant: ParticipantRow): Promise<ReconcileResult> {
+export async function readParticipantProgress(participant: ParticipantRow): Promise<ReconcileResult> {
   const links = await supabaseRest<LinkRow[]>(`challenge_operation_links?select=operation_id,eligible_amount&participant_id=eq.${encodeURIComponent(participant.id)}`);
   const progress = computeChallengeProgress(links.map((link) => num(link.eligible_amount)), num(participant.target_amount_snapshot));
   return {
@@ -285,7 +326,7 @@ async function setParticipantStatus(participantId: string, status: ParticipantSt
 // (verrou participation + insert idempotent + update statut dans une seule transaction). L'unicité
 // de idempotency_key reste le dernier rempart contre un double, même sous appels concurrents.
 async function applyChallengePoints(params: {
-  participantId: string; challengeId: string; memberId: string; points: number; reason: string;
+  participantId: string | null; challengeId: string; memberId: string; points: number; reason: string;
   idempotencyKey: string; metadata: Record<string, unknown>; newStatus: ParticipantStatus; completed: boolean;
 }): Promise<void> {
   await supabaseRest("rpc/apply_challenge_points", {
@@ -299,16 +340,20 @@ async function applyChallengePoints(params: {
   });
 }
 
-/** Réconcilie la participation du membre au défi courant (si inscrit). Best-effort, sûr à rejouer. */
+/** Réconcilie TOUTES les participations actives et visibles du membre. Best-effort, sûr à rejouer. */
 export async function reconcileMemberForActive(memberId: string): Promise<void> {
-  const active = await getActiveChallenge();
-  if (!active) return;
-  const participant = await getParticipant(active.id, memberId);
-  if (!participant) return;
-  await reconcileParticipant(participant, active);
+  const visible = await getVisibleActiveChallengesForMember(memberId);
+  for (const active of visible) {
+    const participant = await getParticipant(active.id, memberId);
+    if (!participant) continue;
+    await reconcileParticipant(participant, active);
+  }
 }
 
-// ---- Contexte complet du défi courant pour un membre (écran « Défis ») --------------------
+// ---- Contexte complet des défis courants pour un membre (écran « Défis ») -----------------
+// Depuis la migration 20260825, plusieurs défis mensuels peuvent être actifs et visibles EN MÊME
+// TEMPS pour un membre (ex. un défi permanent + un défi spécial débloqué) : le contexte devient
+// une LISTE, une entrée par défi visible, chacune réconciliée indépendamment.
 export type CurrentForMember = {
   challenge: ChallengeRow | null;
   hasPlan: boolean;
@@ -319,31 +364,31 @@ export type CurrentForMember = {
   state: MemberChallengeState;
 };
 
-export async function getCurrentForMember(memberId: string, options: { reconcile?: boolean } = {}): Promise<CurrentForMember> {
-  const [active, planRows] = await Promise.all([
-    getActiveChallenge(),
+export async function getCurrentChallengesForMember(memberId: string, options: { reconcile?: boolean } = {}): Promise<CurrentForMember[]> {
+  const [visible, planRows] = await Promise.all([
+    getVisibleActiveChallengesForMember(memberId),
     supabaseRest<PlanRow[]>(`user_investment_plan?select=monthly_target,target_account_id,leaderboard_opt_in&member_id=eq.${encodeURIComponent(memberId)}&limit=1`),
   ]);
   const plan = planRows[0];
   const hasPlan = Boolean(plan && num(plan.monthly_target) > 0);
   const hasTargetAccount = Boolean(plan && plan.target_account_id);
 
-  if (!active) {
-    return { challenge: null, hasPlan, hasTargetAccount, isParticipant: false, participant: null, progress: null, state: "challenge_ended" };
+  const results: CurrentForMember[] = [];
+  for (const active of visible) {
+    const participant = await getParticipant(active.id, memberId);
+    let progress: ReconcileResult | null = null;
+    if (participant) {
+      // Réconciliation à l'ouverture : reconnaît les achats importés/antérieurs et met à jour points.
+      progress = options.reconcile === false ? await readParticipantProgress(participant) : await reconcileParticipant(participant, active);
+    }
+    const state = memberChallengeState({
+      hasPlan, hasTargetAccount, isParticipant: Boolean(participant),
+      participantStatus: participant ? participant.status : null,
+      challengeStatus: active.status as ChallengeStatus,
+    });
+    results.push({ challenge: active, hasPlan, hasTargetAccount, isParticipant: Boolean(participant), participant, progress, state });
   }
-
-  const participant = await getParticipant(active.id, memberId);
-  let progress: ReconcileResult | null = null;
-  if (participant) {
-    // Réconciliation à l'ouverture : reconnaît les achats importés/antérieurs et met à jour points.
-    progress = options.reconcile === false ? await readParticipantProgress(participant) : await reconcileParticipant(participant, active);
-  }
-  const state = memberChallengeState({
-    hasPlan, hasTargetAccount, isParticipant: Boolean(participant),
-    participantStatus: participant ? participant.status : null,
-    challengeStatus: active.status as ChallengeStatus,
-  });
-  return { challenge: active, hasPlan, hasTargetAccount, isParticipant: Boolean(participant), participant, progress, state };
+  return results;
 }
 
 // ---- Historique des défis du membre (écran « Défis ») ------------------------------------
@@ -413,7 +458,7 @@ export async function getMemberPoints(memberId: string, leaderboard?: Leaderboar
 
 export type ChallengeDashboardSummary = {
   available: boolean;
-  current: CurrentForMember;
+  current: CurrentForMember[];
   onboarding: OnboardingReconcileResult;
   points: MemberPoints;
   leaderboard: LeaderboardPublicRow[];
@@ -425,7 +470,7 @@ export async function getChallengeDashboardSummary(memberId: string, options: { 
   // Réconcilier d'abord, puis calculer le classement : un point tout juste attribué doit être
   // visible dans le même résumé, sans requête client supplémentaire.
   const [current, onboarding, plans] = await Promise.all([
-    getCurrentForMember(memberId, options),
+    getCurrentChallengesForMember(memberId, options),
     getOnboardingProgressForMember(memberId, options),
     supabaseRest<PlanRow[]>(`user_investment_plan?select=monthly_target,target_account_id,leaderboard_opt_in&member_id=eq.${encodeURIComponent(memberId)}&limit=1`),
   ]);
@@ -559,22 +604,18 @@ export async function createChallenge(input: ChallengeInput & { status?: string 
   if (!validated.ok) return validated;
   const value = validated.value;
   const status = input.status && (CHALLENGE_STATUSES as readonly string[]).includes(input.status) ? input.status : "draft";
-  try {
-    const rows = await supabaseRest<ChallengeRow[]>("challenges", {
-      method: "POST",
-      headers: { prefer: "return=representation" },
-      body: JSON.stringify({
-        title: value.title, description: value.description, challenge_type: value.challengeType, status,
-        starts_on: value.startsOn, ends_on: value.endsOn, points_reward: value.pointsReward,
-        eligible_account_types: value.eligibleAccountTypes, eligible_instrument_types: value.eligibleInstrumentTypes,
-        created_by: createdBy,
-      }),
-    });
-    return { ok: true, challenge: rows[0] };
-  } catch (error) {
-    if (isSingleActiveViolation(error)) return { ok: false, error: "Un autre défi est déjà actif : impossible d'en créer un second actif. Créez-le en brouillon puis activez-le après avoir terminé l'actuel." };
-    throw error;
-  }
+  const rows = await supabaseRest<ChallengeRow[]>("challenges", {
+    method: "POST",
+    headers: { prefer: "return=representation" },
+    body: JSON.stringify({
+      title: value.title, description: value.description, challenge_type: value.challengeType, status,
+      starts_on: value.startsOn, ends_on: value.endsOn, points_reward: value.pointsReward,
+      eligible_account_types: value.eligibleAccountTypes, eligible_instrument_types: value.eligibleInstrumentTypes,
+      availability_mode: value.availabilityMode, requires_challenge_id: value.requiresChallengeId,
+      created_by: createdBy,
+    }),
+  });
+  return { ok: true, challenge: rows[0] };
 }
 
 export async function updateChallenge(id: string, patch: ChallengeInput & { status?: string }): Promise<{ ok: true; challenge: ChallengeRow } | { ok: false; status: number; error: string }> {
@@ -588,7 +629,7 @@ export async function updateChallenge(id: string, patch: ChallengeInput & { stat
   }
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  const wantsContentEdit = ["title", "description", "startsOn", "endsOn", "pointsReward", "eligibleAccountTypes", "eligibleInstrumentTypes"].some((key) => key in patch);
+  const wantsContentEdit = ["title", "description", "startsOn", "endsOn", "pointsReward", "eligibleAccountTypes", "eligibleInstrumentTypes", "availabilityMode", "requiresChallengeId"].some((key) => key in patch);
 
   if (wantsContentEdit) {
     // Le contenu n'est modifiable qu'avant l'activation (brouillon / programmé).
@@ -603,12 +644,16 @@ export async function updateChallenge(id: string, patch: ChallengeInput & { stat
       pointsReward: patch.pointsReward ?? current.points_reward,
       eligibleAccountTypes: patch.eligibleAccountTypes ?? current.eligible_account_types,
       eligibleInstrumentTypes: patch.eligibleInstrumentTypes ?? current.eligible_instrument_types,
+      availabilityMode: patch.availabilityMode ?? current.availability_mode,
+      requiresChallengeId: patch.requiresChallengeId ?? current.requires_challenge_id,
     });
     if (!validated.ok) return { ok: false, status: 400, error: validated.error };
+    if (validated.value.requiresChallengeId === id) return { ok: false, status: 400, error: "Un défi ne peut pas dépendre de lui-même." };
     const value = validated.value;
     Object.assign(update, {
       title: value.title, description: value.description, starts_on: value.startsOn, ends_on: value.endsOn,
       points_reward: value.pointsReward, eligible_account_types: value.eligibleAccountTypes, eligible_instrument_types: value.eligibleInstrumentTypes,
+      availability_mode: value.availabilityMode, requires_challenge_id: value.requiresChallengeId,
     });
   }
 
@@ -620,25 +665,12 @@ export async function updateChallenge(id: string, patch: ChallengeInput & { stat
     update.status = patch.status;
   }
 
-  try {
-    const rows = await supabaseRest<ChallengeRow[]>(`challenges?id=eq.${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { prefer: "return=representation" },
-      body: JSON.stringify(update),
-    });
-    return { ok: true, challenge: rows[0] ?? current };
-  } catch (error) {
-    if (isSingleActiveViolation(error)) {
-      return { ok: false, status: 409, error: "Un autre défi est déjà actif : terminez-le ou archivez-le avant d'en activer un nouveau." };
-    }
-    throw error;
-  }
-}
-
-// Violation de l'index partiel « un seul défi actif » (23505 sur challenges_single_active_idx).
-function isSingleActiveViolation(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : "";
-  return message.includes("challenges_single_active_idx") || message.includes("23505");
+  const rows = await supabaseRest<ChallengeRow[]>(`challenges?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { prefer: "return=representation" },
+    body: JSON.stringify(update),
+  });
+  return { ok: true, challenge: rows[0] ?? current };
 }
 
 // FK RESTRICT (points_ledger.challenge_id / challenge_participants.id) : un défi ayant déjà
@@ -716,4 +748,121 @@ export async function getParticipantsForChallengeAdmin(challengeId: string): Pro
     });
   }
   return rows.sort((a, b) => b.pct - a.pct);
+}
+
+// ---- Administration : vue unifiée « qui a fait ce défi » + actions manuelles ---------------
+// Contrairement à getParticipantsForChallengeAdmin (réservée aux défis mensuels REJOINTS), cette
+// vue liste TOUS les membres actifs, qu'ils aient ou non rejoint/complété le défi — nécessaire
+// pour les missions « Bien démarrer » qui n'ont jamais de ligne challenge_participants
+// (participant_id NULL, cf. lib/onboarding-challenges-service.ts::applyOnboardingPoints).
+export type AdminChallengeMemberRow = {
+  memberId: string; name: string; photoUrl: string | null;
+  status: "completed" | "in_progress" | "not_started";
+  pointsEarned: number; completedAt: string | null;
+  pct: number | null; invested: number | null; targetAmount: number | null; // monthly uniquement
+  unlocked: boolean | null; // uniquement pour availability_mode='special' ; null = non pertinent
+};
+
+export async function getChallengeMembersAdmin(challengeId: string): Promise<AdminChallengeMemberRow[]> {
+  const challenge = await getChallengeById(challengeId);
+  if (!challenge) return [];
+  const isMonthly = challenge.challenge_type === "monthly_investment";
+  const isSpecial = challenge.availability_mode === "special";
+  let members: Array<{ id: string; name: string; photo_url?: string | null }>;
+  try {
+    members = await supabaseRest<Array<{ id: string; name: string; photo_url: string | null }>>("family_members?select=id,name,photo_url&is_active=eq.true&order=name.asc");
+  } catch {
+    members = await supabaseRest<Array<{ id: string; name: string }>>("family_members?select=id,name&order=name.asc");
+  }
+  const ledger = await supabaseRest<Array<{ member_id: string; points: number; created_at: string }>>(
+    `points_ledger?select=member_id,points,created_at&challenge_id=eq.${encodeURIComponent(challengeId)}&order=created_at.asc`,
+  );
+  const netByMember = new Map<string, { points: number; lastPositiveAt: string | null }>();
+  for (const row of ledger) {
+    const current = netByMember.get(row.member_id) ?? { points: 0, lastPositiveAt: null };
+    current.points += num(row.points);
+    if (row.points > 0) current.lastPositiveAt = row.created_at;
+    netByMember.set(row.member_id, current);
+  }
+  let participantsByMember = new Map<string, ParticipantRow>();
+  if (isMonthly) {
+    const participants = await supabaseRest<ParticipantRow[]>(`challenge_participants?select=${PARTICIPANT_SELECT}&challenge_id=eq.${encodeURIComponent(challengeId)}`);
+    participantsByMember = new Map(participants.map((row) => [row.member_id, row]));
+  }
+  let unlockedMembers = new Set<string>();
+  if (isSpecial) {
+    const unlocks = await supabaseRest<Array<{ member_id: string }>>(`challenge_unlocks?select=member_id&challenge_id=eq.${encodeURIComponent(challengeId)}`);
+    unlockedMembers = new Set(unlocks.map((row) => row.member_id));
+  }
+  const rows: AdminChallengeMemberRow[] = [];
+  for (const member of members) {
+    const net = netByMember.get(member.id) ?? { points: 0, lastPositiveAt: null };
+    const participant = participantsByMember.get(member.id);
+    const status: AdminChallengeMemberRow["status"] = net.points > 0 ? "completed" : participant ? "in_progress" : "not_started";
+    let pct: number | null = null;
+    let invested: number | null = null;
+    let targetAmount: number | null = null;
+    if (isMonthly && participant) {
+      const progress = await readParticipantProgress(participant);
+      pct = progress.pct; invested = progress.invested; targetAmount = progress.targetAmount;
+    }
+    rows.push({
+      memberId: member.id, name: member.name, photoUrl: member.photo_url ?? null, status,
+      pointsEarned: net.points, completedAt: net.points > 0 ? net.lastPositiveAt : null, pct, invested, targetAmount,
+      unlocked: isSpecial ? unlockedMembers.has(member.id) : null,
+    });
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+}
+
+/**
+ * Débloque manuellement un défi 'special' pour UN membre (table challenge_unlocks). Donne
+ * uniquement la VISIBILITÉ du défi — le membre doit ensuite le rejoindre lui-même comme tout
+ * autre défi visible ; aucun point n'est attribué ici.
+ */
+export async function unlockChallengeForMember(challengeId: string, memberId: string, adminId: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+  const challenge = await getChallengeById(challengeId);
+  if (!challenge) return { ok: false, error: "Défi introuvable." };
+  if (challenge.availability_mode !== "special") return { ok: false, error: "Seuls les défis en mode « spécial » se débloquent manuellement." };
+  await supabaseRest("challenge_unlocks?on_conflict=challenge_id,member_id", {
+    method: "POST",
+    headers: { prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({ challenge_id: challengeId, member_id: memberId, unlocked_by: adminId }),
+  });
+  return { ok: true };
+}
+
+/**
+ * Fixe manuellement le solde de points d'UN membre pour UN défi à `targetPoints` (0 pour
+ * « retirer », `challenge.points_reward` pour « valider », une valeur libre pour ajuster).
+ *
+ * points_ledger est un journal IMMUABLE (trigger points_ledger_no_update_delete, cf. migration
+ * 20260804) : impossible de modifier ou supprimer une ligne existante, même en service-role. On
+ * écrit donc une écriture de COMPENSATION dont le montant ramène le solde net exactement à
+ * targetPoints — jamais une réécriture de l'historique. Réutilise la RPC transactionnelle
+ * existante apply_challenge_points (verrou + insert idempotent + statut, une seule transaction).
+ */
+export async function adminSetChallengePoints(
+  challengeId: string, memberId: string, targetPoints: number, adminId: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const challenge = await getChallengeById(challengeId);
+  if (!challenge) return { ok: false, error: "Défi introuvable." };
+  const ledger = await supabaseRest<LedgerRow[]>(`points_ledger?select=points&member_id=eq.${encodeURIComponent(memberId)}&challenge_id=eq.${encodeURIComponent(challengeId)}`);
+  const currentNet = ledger.reduce((sum, row) => sum + num(row.points), 0);
+  const delta = targetPoints - currentNet;
+  if (delta === 0) return { ok: true };
+
+  let participantId: string | null = null;
+  if (challenge.challenge_type === "monthly_investment") {
+    const existing = await getParticipant(challengeId, memberId);
+    participantId = existing?.id ?? null;
+  }
+  const newStatus: ParticipantStatus = targetPoints > 0 ? "completed" : "in_progress";
+  await applyChallengePoints({
+    participantId, challengeId, memberId, points: delta, reason: "admin_adjustment",
+    idempotencyKey: `admin_adjustment:${challengeId}:${memberId}:${crypto.randomUUID()}`,
+    metadata: { adjustedBy: adminId, targetPoints, previousNet: currentNet },
+    newStatus, completed: targetPoints > 0,
+  });
+  return { ok: true };
 }

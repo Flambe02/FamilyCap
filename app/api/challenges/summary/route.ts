@@ -24,29 +24,34 @@ export async function GET(request: Request) {
     const summary = await getChallengeDashboardSummary(memberId, { reconcile: !isPreview });
     // Le contrat du dashboard est volontairement le même que les routes Défis existantes :
     // il ne laisse jamais remonter les champs SQL ni un montant privé d'un autre membre.
+    // Plusieurs défis peuvent être visibles en même temps (migration 20260825) ; la carte/section
+    // dashboard garde volontairement UN SEUL point focal (cf. doc de ChallengesDashboardCard) —
+    // on ne remonte donc que le premier défi visible ici. L'écran « Défis » complet, lui, lit la
+    // liste entière via /api/challenges/current.
+    const primary = summary.current[0] ?? null;
     return Response.json({
       available: true,
       current: {
         available: true,
-        state: summary.current.state,
-        hasPlan: summary.current.hasPlan,
-        hasTargetAccount: summary.current.hasTargetAccount,
-        isParticipant: summary.current.isParticipant,
-        challenge: summary.current.challenge ? {
-          id: summary.current.challenge.id,
-          title: summary.current.challenge.title,
-          description: summary.current.challenge.description,
-          startsOn: summary.current.challenge.starts_on,
-          endsOn: summary.current.challenge.ends_on,
-          pointsReward: summary.current.challenge.points_reward,
-          daysRemaining: daysRemaining(summary.current.challenge.ends_on),
+        state: primary?.state ?? "challenge_ended",
+        hasPlan: primary?.hasPlan ?? false,
+        hasTargetAccount: primary?.hasTargetAccount ?? false,
+        isParticipant: primary?.isParticipant ?? false,
+        challenge: primary?.challenge ? {
+          id: primary.challenge.id,
+          title: primary.challenge.title,
+          description: primary.challenge.description,
+          startsOn: primary.challenge.starts_on,
+          endsOn: primary.challenge.ends_on,
+          pointsReward: primary.challenge.points_reward,
+          daysRemaining: daysRemaining(primary.challenge.ends_on),
         } : null,
-        progress: summary.current.progress ? {
-          invested: summary.current.progress.invested,
-          targetAmount: summary.current.progress.targetAmount,
-          pct: summary.current.progress.pct,
-          completed: summary.current.progress.completed,
-          status: summary.current.progress.status,
+        progress: primary?.progress ? {
+          invested: primary.progress.invested,
+          targetAmount: primary.progress.targetAmount,
+          pct: primary.progress.pct,
+          completed: primary.progress.completed,
+          status: primary.progress.status,
         } : null,
       },
       onboarding: {

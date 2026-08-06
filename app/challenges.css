@@ -207,6 +207,17 @@
 .cha-chip-muted { background: rgba(7, 45, 58, 0.07); color: var(--color-muted, var(--muted)); }
 .cha-mine-reward { display: block; margin-top: 6px; color: var(--color-muted, var(--muted)); font-size: 12px; font-weight: 700; }
 .cha-mine-reward.up { color: #2f8f5b; }
+
+/* Autres défis disponibles (plusieurs défis visibles en même temps depuis 20260825) */
+.cha-more { padding: 20px 22px; }
+.cha-more-list { display: flex; flex-direction: column; gap: 10px; }
+.cha-more-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px; border: 1px solid var(--color-border, var(--line)); border-radius: 13px; background: var(--color-card-warm, #fcf9f4); }
+.cha-more-main { min-width: 0; flex: 1 1 240px; }
+.cha-more-main > strong { display: block; margin: 6px 0 4px; font-size: 15px; }
+.cha-more-main > small { color: var(--color-muted, var(--muted)); font-size: 12px; }
+.cha-more-main .cha-bar { max-width: 220px; }
+.cha-more-side { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.cha-more-reward { color: #b07d1e; font-weight: 700; font-size: 13px; white-space: nowrap; }
 .cha-mine-pct { font-family: var(--font-display-stack); font-size: 14px; font-weight: 700; color: var(--color-text, var(--ink)); font-variant-numeric: tabular-nums; }
 .cha-mine-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 12px 18px; text-align: center; }
 .cha-mine-art { width: 150px; height: auto; opacity: 0.85; }
@@ -287,10 +298,12 @@
   .cha-stat-body strong { font-size: 21px; }
 
   .cha-lower { grid-template-columns: 1fr; }
-  .cha-board, .cha-mine, .cha-history { padding: 16px; }
+  .cha-board, .cha-mine, .cha-history, .cha-more { padding: 16px; }
   .cha-history-row { grid-template-columns: 1.6fr 1fr auto; gap: 10px; }
   .cha-history-result { display: none; }
   .cha-history-head span:nth-child(3) { display: none; }
+  .cha-more-row { flex-direction: column; align-items: stretch; }
+  .cha-more-side { justify-content: space-between; }
 }
 
 /* Dashboard : une section patrimoniale, compacte et lisible. */

@@ -10,7 +10,31 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(path, "utf8");
 const migration = read("supabase/migrations/20260804_challenges_mvp.sql");
+const availabilityMigration = read("supabase/migrations/20260825_challenge_availability.sql");
 const service = read("lib/challenges-service.ts");
+
+// ---- Migration 20260825 : disponibilité par défi + retrait de la contrainte « un seul actif » -
+test("l'index « un seul défi actif » est retiré (plusieurs défis mensuels peuvent être actifs)", () => {
+  assert.match(availabilityMigration, /drop index if exists public\.challenges_single_active_idx/);
+});
+
+test("availability_mode contraint aux 3 valeurs attendues", () => {
+  assert.match(availabilityMigration, /check \(availability_mode in \('always', 'sequential', 'special'\)\)/);
+});
+
+test("challenge_unlocks : unique par (challenge_id, member_id), RLS activée", () => {
+  assert.match(availabilityMigration, /create table if not exists public\.challenge_unlocks/);
+  assert.match(availabilityMigration, /constraint challenge_unlocks_unique unique \(challenge_id, member_id\)/);
+  assert.match(availabilityMigration, /alter table public\.challenge_unlocks enable row level security/);
+});
+
+test("challenge_unlocks : le service n'y écrit que via unlockChallengeForMember (jamais une écriture client)", () => {
+  const start = service.indexOf("export async function unlockChallengeForMember");
+  assert.ok(start >= 0, "unlockChallengeForMember introuvable");
+  const fn = service.slice(start, service.indexOf("\n}\n", start) + 3);
+  assert.match(fn, /on_conflict=challenge_id,member_id/);
+  assert.match(fn, /resolution=ignore-duplicates/);
+});
 
 // ---- Migration : immutabilité, FKs, défi actif unique, RPC -------------------------------
 test("points_ledger : trigger BEFORE UPDATE OR DELETE (immutabilité réelle)", () => {
@@ -54,10 +78,13 @@ const leaderboardRoute = read("app/api/challenges/leaderboard/route.ts");
 const summaryRoute = read("app/api/challenges/summary/route.ts");
 const currentRoute = read("app/api/challenges/current/route.ts");
 
-test("route join : identité serveur (viewer.id), aucune lecture de champ client sensible", () => {
+test("route join : identité serveur (viewer.id), le corps ne sélectionne QUE le défi (jamais member_id / points / status)", () => {
+  // Depuis la migration 20260825, plusieurs défis peuvent être visibles en même temps : le
+  // membre doit préciser LEQUEL rejoindre (challengeId). L'identité reste forcée côté serveur
+  // (viewer.id) — joinChallenge revérifie de toute façon que ce défi est actif et visible.
   assert.match(joinRoute, /requireFamilyMember/);
-  assert.match(joinRoute, /joinChallenge\(viewer\.id\)/);
-  assert.equal(joinRoute.includes("request.json"), false); // n'accepte aucun corps → ni member_id, ni points, ni status
+  assert.match(joinRoute, /joinChallenge\(viewer\.id,\s*body\.challengeId\)/);
+  assert.equal(/body\.(memberId|member_id|points|status)/.test(joinRoute), false, "la route join ne doit lire aucun champ sensible du corps");
 });
 
 test("routes membre : aucune ne lit un member_id / points / status='completed' du corps", () => {

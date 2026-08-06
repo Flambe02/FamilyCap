@@ -22,6 +22,13 @@ type CurrentResp = {
   challenge: { id: string; title: string; description: string | null; startsOn: string | null; endsOn: string | null; pointsReward: number; daysRemaining: number | null } | null;
   progress: { invested: number; targetAmount: number; pct: number; completed: boolean; status: string } | null;
 };
+// Plusieurs défis mensuels peuvent être actifs et visibles EN MÊME TEMPS pour un membre depuis la
+// migration 20260825 (ex. un défi permanent + un défi spécial débloqué) : /api/challenges/current
+// renvoie désormais une LISTE. La carte/section du tableau de bord (ChallengesDashboardCard /
+// ChallengesDashboardSection) garde volontairement un seul point focal et lit /api/challenges/summary
+// (contrat singulier CurrentResp, inchangé) — seule cette page complète consomme la liste.
+type CurrentEntry = Omit<CurrentResp, "available">;
+type CurrentListResp = { available: boolean; challenges: CurrentEntry[] };
 type PointsResp = {
   available?: boolean; monthPoints: number; totalPoints: number; yearPoints: number; challengesCompleted: number;
   rank: number | null; participantCount: number; level: string; nextLevel: string | null;
@@ -197,7 +204,8 @@ function navigateToPortfolioImport(onNavigate: (view: View) => void) {
 }
 
 export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission }: { canAct: boolean; onNavigate: (view: View) => void; asMemberId?: string; onStartMission?: (mission: OnboardingMissionDto) => void }) {
-  const [current, setCurrent] = useState<CurrentResp | null>(null);
+  const [currentList, setCurrentList] = useState<CurrentEntry[]>([]);
+  const [challengesAvailable, setChallengesAvailable] = useState(true);
   const [points, setPoints] = useState<PointsResp | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingResp | null>(null);
   const [period, setPeriod] = useState<"month" | "year">("month");
@@ -220,7 +228,9 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
       authenticatedFetch(withAsMember("/api/challenges/onboarding", asMemberId)),
     ]);
     const [currentBody, pointsBody, listBody, onboardingBody] = await Promise.all([currentRes.json(), pointsRes.json(), listRes.json(), onboardingRes.json()]);
-    setCurrent(currentBody as CurrentResp);
+    const currentData = currentBody as CurrentListResp;
+    setChallengesAvailable(currentData.available !== false);
+    setCurrentList(currentData.challenges ?? []);
     setPoints(pointsBody as PointsResp);
     setHistory((listBody.history ?? []) as HistoryItem[]);
     const onboardingData = onboardingBody as OnboardingResp;
@@ -279,12 +289,12 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
     return () => { cancelled = true; };
   }, [period, reloadToken, asMemberId]);
 
-  async function join() {
+  async function join(challengeId: string) {
     if (!canAct || joining) return;
     setJoining(true);
     setError("");
     try {
-      const response = await authenticatedFetch("/api/challenges/current/join", { method: "POST" });
+      const response = await authenticatedFetch("/api/challenges/current/join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ challengeId }) });
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Inscription impossible.");
       setNotice("Tu participes au défi.");
@@ -312,17 +322,23 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
     );
   }
 
-  const available = current?.available !== false;
-  const challenge = current?.challenge ?? null;
-  const state = current?.state ?? "challenge_ended";
-  const progress = current?.progress ?? null;
+  const available = challengesAvailable;
+  // Plusieurs défis peuvent être visibles en même temps : le PREMIER (ordre serveur — les plus
+  // récents/permanents d'abord) reste le hero principal ; les autres s'affichent en dessous.
+  const primary = currentList[0] ?? null;
+  const secondaryChallenges = currentList.slice(1);
+  const challenge = primary?.challenge ?? null;
+  const state = primary?.state ?? "challenge_ended";
+  const progress = primary?.progress ?? null;
   const meta = STATE_META[state];
+  const progressById = new Map(currentList.filter((entry) => entry.challenge).map((entry) => [entry.challenge!.id, entry.progress]));
+  const activeIds = new Set(currentList.filter((entry) => entry.challenge && entry.state === "in_progress").map((entry) => entry.challenge!.id));
 
-  // « Mes défis » : les défis rejoints, l'actif d'abord, puis les plus récents.
+  // « Mes défis » : les défis rejoints, les actifs d'abord, puis les plus récents.
   const joined = history.filter((item) => item.joined);
   const myChallenges = [...joined].sort((a, b) => {
-    const aActive = challenge && a.id === challenge.id ? 1 : 0;
-    const bActive = challenge && b.id === challenge.id ? 1 : 0;
+    const aActive = activeIds.has(a.id) ? 1 : 0;
+    const bActive = activeIds.has(b.id) ? 1 : 0;
     if (aActive !== bActive) return bActive - aActive;
     return startSortKey(b).localeCompare(startSortKey(a));
   });
@@ -417,10 +433,38 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
               <small>points</small>
             </div>
             <div className="cha-hero-actions">
-              {renderCta({ state, canAct, joining, onNavigate, onJoin: join })}
+              {renderCta({ state, canAct, joining, onNavigate, onJoin: () => void join(challenge.id) })}
               <button type="button" className="cha-hero-rules" onClick={() => setShowRules((value) => !value)}>Voir les règles</button>
             </div>
           </aside>
+        </section>
+      )}
+
+      {/* Plusieurs défis peuvent être visibles en même temps (défi permanent + défi spécial
+          débloqué, p. ex.) : le hero ci-dessus montre le premier, les autres suivent ici. */}
+      {available && secondaryChallenges.length > 0 && (
+        <section className="panel cha-more" aria-label="Autres défis disponibles">
+          <header className="cha-board-head"><h3>Autres défis disponibles</h3></header>
+          <ul className="cha-more-list">
+            {secondaryChallenges.filter((entry) => entry.challenge).map((entry) => {
+              const entryChallenge = entry.challenge!;
+              const entryMeta = STATE_META[entry.state];
+              return (
+                <li key={entryChallenge.id} className="cha-more-row">
+                  <div className="cha-more-main">
+                    <span className={`cha-badge ${entryMeta.badgeCls}`}>{entryMeta.badge}</span>
+                    <strong>{entryChallenge.title}</strong>
+                    <small>{formatPeriod(entryChallenge.startsOn, entryChallenge.endsOn)}</small>
+                    {entry.progress && <div className="cha-bar cha-bar-sm"><span style={{ width: `${Math.max(0, Math.min(100, entry.progress.pct))}%` }} /></div>}
+                  </div>
+                  <div className="cha-more-side">
+                    <span className="cha-more-reward">+{intFmt.format(entryChallenge.pointsReward)} pts</span>
+                    {renderCta({ state: entry.state, canAct, joining, onNavigate, onJoin: () => void join(entryChallenge.id) })}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </section>
       )}
 
@@ -536,11 +580,12 @@ export function ChallengesPage({ canAct, onNavigate, asMemberId, onStartMission 
             <>
               <ul className="cha-mine-list">
                 {myChallenges.slice(0, 3).map((item) => {
-                  const isActive = Boolean(challenge && item.id === challenge.id) && item.participantStatus === "in_progress";
+                  const isActive = activeIds.has(item.id) && item.participantStatus === "in_progress";
                   const won = item.participantStatus === "completed";
                   const iconCls = isActive ? "is-active" : won ? "is-done" : "is-muted";
                   const chipCls = isActive ? "cha-chip-progress" : won ? "cha-chip-done" : "cha-chip-muted";
-                  const pct = isActive && progress ? Math.round(progress.pct) : 0;
+                  const itemProgress = progressById.get(item.id) ?? null;
+                  const pct = isActive && itemProgress ? Math.round(itemProgress.pct) : 0;
                   return (
                     <li key={item.id} className="cha-mine-row">
                       <span className={`cha-mine-icon ${iconCls}`} aria-hidden="true">{isActive ? <NavIcon id="star" /> : <CheckIcon />}</span>

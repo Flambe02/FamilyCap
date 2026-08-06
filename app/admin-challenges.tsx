@@ -13,12 +13,21 @@ type ChallengeDto = {
   id: string; title: string; description: string | null; status: string;
   startsOn: string | null; endsOn: string | null; // null = défi permanent (sans échéance)
   pointsReward: number; eligibleAccountTypes: string[]; eligibleInstrumentTypes: string[];
+  availabilityMode: string; requiresChallengeId: string | null;
   participants: number; completed: number; completionRate: number; pointsAttributed: number;
 };
 type ParticipantDto = { memberId: string; name: string; photoUrl: string | null; status: string; pct: number; invested: number; targetAmount: number; pointsEarned: number; lastEligibleDate: string | null };
 type OnboardingMissionDto = { id: string; slug: string; title: string; description: string; points: number; cta: string; successMessage: string; active: boolean; displayOrder: number; completedCount: number };
+type MemberRowDto = {
+  memberId: string; name: string; photoUrl: string | null;
+  status: "completed" | "in_progress" | "not_started";
+  pointsEarned: number; completedAt: string | null;
+  pct: number | null; invested: number | null; targetAmount: number | null;
+  unlocked: boolean | null;
+};
 
 const STATUS_LABEL: Record<string, string> = { draft: "Brouillon", scheduled: "Programmé", active: "Actif", completed: "Terminé", archived: "Archivé" };
+const AVAILABILITY_LABEL: Record<string, string> = { always: "Toujours", sequential: "Séquentiel", special: "Spécial" };
 const ACCOUNT_OPTIONS: [string, string][] = [["pea", "PEA"], ["securities", "Compte-titres"]];
 const INSTRUMENT_OPTIONS: [string, string][] = [["etf", "ETF"], ["stock", "Action"], ["fund", "Fonds"], ["bond", "Obligation"]];
 const euro0 = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
@@ -43,6 +52,7 @@ export function AdminChallenges() {
   const [participants, setParticipants] = useState<ParticipantDto[]>([]);
   const [formModal, setFormModal] = useState<"create" | ChallengeDto | null>(null);
   const [onboardingModal, setOnboardingModal] = useState<OnboardingMissionDto | null>(null);
+  const [membersModal, setMembersModal] = useState<{ id: string; title: string; defaultPoints: number; availabilityMode: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -165,6 +175,7 @@ export function AdminChallenges() {
                 <span className="ach-onboard-points">{mission.points} pts</span>
                 <span className="ach-onboard-count">{mission.completedCount} membre{mission.completedCount > 1 ? "s" : ""} terminé{mission.completedCount > 1 ? "s" : ""}</span>
                 <span className={`ach-status ach-status-${mission.active ? "active" : "archived"}`}>{mission.active ? "Actif" : "Inactif"}</span>
+                <button type="button" className="quiet" onClick={() => setMembersModal({ id: mission.id, title: mission.title, defaultPoints: mission.points, availabilityMode: "always" })}>Membres</button>
                 <button type="button" className="quiet" onClick={() => setOnboardingModal(mission)}>Modifier</button>
               </li>
             ))}
@@ -182,12 +193,13 @@ export function AdminChallenges() {
           ) : (
             <div className="responsive-table">
               <table className="ach-table">
-                <thead><tr><th>Défi</th><th>Période</th><th>Statut</th><th>Part.</th><th>Complétion</th><th>Points</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Défi</th><th>Période</th><th>Disponibilité</th><th>Statut</th><th>Part.</th><th>Complétion</th><th>Points</th><th>Actions</th></tr></thead>
                 <tbody>
                   {challenges.map((challenge) => (
                     <tr key={challenge.id}>
                       <td data-label="Défi"><strong>{challenge.title}</strong></td>
                       <td data-label="Période">{fmtPeriod(challenge.startsOn, challenge.endsOn)}</td>
+                      <td data-label="Disponibilité">{AVAILABILITY_LABEL[challenge.availabilityMode] ?? challenge.availabilityMode}{challenge.availabilityMode === "sequential" && challenge.requiresChallengeId && <small className="ach-muted"><br />après « {challenges.find((item) => item.id === challenge.requiresChallengeId)?.title ?? "défi supprimé"} »</small>}</td>
                       <td data-label="Statut"><span className={`ach-status ach-status-${challenge.status}`}>{STATUS_LABEL[challenge.status] ?? challenge.status}</span></td>
                       <td data-label="Participants" className="num">{challenge.participants}</td>
                       <td data-label="Complétion">
@@ -208,6 +220,7 @@ export function AdminChallenges() {
                           {challenge.status !== "archived" && <button type="button" className="quiet" disabled={busy} onClick={() => transition(challenge.id, { status: "archived" })}>Archiver</button>}
                           {(challenge.status === "draft" || challenge.status === "scheduled") && <button type="button" className="quiet" disabled={busy} onClick={() => setFormModal(challenge)}>Modifier</button>}
                           <button type="button" className="quiet" onClick={() => { setSelectedId(challenge.id); setTab("participants"); }}>Participants ›</button>
+                          <button type="button" className="quiet" onClick={() => setMembersModal({ id: challenge.id, title: challenge.title, defaultPoints: challenge.pointsReward, availabilityMode: challenge.availabilityMode })}>Membres</button>
                           <button type="button" className="quiet ach-danger" disabled={busy} onClick={() => void remove(challenge)}>Supprimer</button>
                         </div>
                       </td>
@@ -254,8 +267,140 @@ export function AdminChallenges() {
         </section>
       )}
 
-      {formModal && <ChallengeFormModal challenge={formModal === "create" ? null : formModal} onClose={() => setFormModal(null)} onSaved={() => { setFormModal(null); setReloadToken((token) => token + 1); }} />}
+      {formModal && <ChallengeFormModal challenge={formModal === "create" ? null : formModal} allChallenges={challenges} onClose={() => setFormModal(null)} onSaved={() => { setFormModal(null); setReloadToken((token) => token + 1); }} />}
       {onboardingModal && <OnboardingMissionModal mission={onboardingModal} onClose={() => setOnboardingModal(null)} onSaved={() => { setOnboardingModal(null); setReloadToken((token) => token + 1); }} />}
+      {membersModal && <ChallengeMembersModal challengeId={membersModal.id} title={membersModal.title} defaultPoints={membersModal.defaultPoints} availabilityMode={membersModal.availabilityMode} onClose={() => setMembersModal(null)} onChanged={() => setReloadToken((token) => token + 1)} />}
+    </div>
+  );
+}
+
+// Vue admin unifiée « qui a fait ce défi, ou pas » (défi mensuel ET missions « Bien démarrer »).
+// Le journal des points est immuable côté serveur : « Enregistrer » écrit une compensation qui
+// ramène le solde du membre à la valeur saisie — jamais une réécriture de l'historique existant.
+function ChallengeMembersModal({ challengeId, title, defaultPoints, availabilityMode, onClose, onChanged }: { challengeId: string; title: string; defaultPoints: number; availabilityMode: string; onClose: () => void; onChanged: () => void }) {
+  const [members, setMembers] = useState<MemberRowDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    const response = await fetch(`/api/admin/challenges/members?challengeId=${encodeURIComponent(challengeId)}`, { headers: await headers() });
+    const body = (await response.json()) as { members?: MemberRowDto[]; error?: string };
+    if (!response.ok) throw new Error(body.error ?? "Chargement impossible.");
+    return body.members ?? [];
+  }, [challengeId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const list = await load();
+        if (!cancelled) setMembers(list);
+      } catch (caught) {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Chargement impossible.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [load]);
+
+  async function save(memberId: string, points: number) {
+    setSavingId(memberId);
+    setError("");
+    try {
+      const response = await fetch("/api/admin/challenges/members", { method: "POST", headers: await headers(), body: JSON.stringify({ challengeId, memberId, points }) });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Action impossible.");
+      setMembers(await load());
+      onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Action impossible.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function unlock(memberId: string) {
+    setSavingId(memberId);
+    setError("");
+    try {
+      const response = await fetch("/api/admin/challenges/members", { method: "POST", headers: await headers(), body: JSON.stringify({ challengeId, memberId, action: "unlock" }) });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Déblocage impossible.");
+      setMembers(await load());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Déblocage impossible.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  const statusLabel: Record<MemberRowDto["status"], string> = { completed: "Terminé", in_progress: "En cours", not_started: "Non commencé" };
+  const statusClass: Record<MemberRowDto["status"], string> = { completed: "active", in_progress: "scheduled", not_started: "archived" };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="modal ach-modal ach-members-modal" role="dialog" aria-modal="true" aria-label={`Membres — ${title}`}>
+        <header className="ach-modal-head"><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Fermer">×</button></header>
+        {error && <p className="ach-error" role="alert">{error}</p>}
+        {loading ? (
+          <p className="ach-muted">Chargement…</p>
+        ) : members.length === 0 ? (
+          <p className="ach-muted">Aucun membre actif.</p>
+        ) : (
+          <ul className="ach-members-list">
+            {members.map((member) => {
+              const draft = drafts[member.memberId] ?? String(member.pointsEarned);
+              const dirty = draft.trim() !== "" && Number(draft) !== member.pointsEarned;
+              return (
+                <li key={member.memberId} className="ach-members-row">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- avatar Supabase Storage ; le projet n'utilise pas next/image. */}
+                  {member.photoUrl ? <img className="ach-avatar" src={member.photoUrl} alt="" aria-hidden="true" /> : <span className="ach-avatar" aria-hidden="true">{initials(member.name)}</span>}
+                  <span className="ach-members-name">{member.name}</span>
+                  <span className={`ach-status ach-status-${statusClass[member.status]}`}>{statusLabel[member.status]}</span>
+                  {member.targetAmount !== null ? (
+                    <span className="ach-members-progress">{euro0.format(member.invested ?? 0)} / {euro0.format(member.targetAmount)} · {member.pct ?? 0} %</span>
+                  ) : availabilityMode === "special" ? (
+                    <span className="ach-members-progress">{member.unlocked ? "Débloqué" : "Non débloqué"}</span>
+                  ) : <span className="ach-members-progress" />}
+                  <span className="ach-members-date">{member.completedAt ? fmtDate(member.completedAt.slice(0, 10)) : "—"}</span>
+                  <div className="ach-members-actions">
+                    {availabilityMode === "special" && !member.unlocked && (
+                      <button type="button" className="quiet" disabled={savingId !== null} onClick={() => void unlock(member.memberId)}>
+                        {savingId === member.memberId ? "…" : "Débloquer"}
+                      </button>
+                    )}
+                    {member.status === "completed" ? (
+                      <button type="button" className="quiet ach-danger" disabled={savingId !== null} onClick={() => void save(member.memberId, 0)}>
+                        {savingId === member.memberId ? "…" : "Retirer les points"}
+                      </button>
+                    ) : (
+                      <button type="button" className="quiet" disabled={savingId !== null} onClick={() => void save(member.memberId, defaultPoints)}>
+                        {savingId === member.memberId ? "…" : `Valider (+${defaultPoints} pts)`}
+                      </button>
+                    )}
+                  </div>
+                  <div className="ach-members-points">
+                    <input
+                      type="number" min={0} max={10000} value={draft} disabled={savingId === member.memberId}
+                      onChange={(event) => setDrafts((current) => ({ ...current, [member.memberId]: event.target.value }))}
+                      aria-label={`Points de ${member.name} pour ce défi`}
+                    />
+                    <button type="button" className="quiet" disabled={savingId !== null || !dirty} onClick={() => void save(member.memberId, Number(draft))}>
+                      {savingId === member.memberId ? "…" : "Enregistrer"}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="ach-muted ach-note">Le journal des points est immuable : « Enregistrer » ajoute une écriture de compensation qui ramène le solde du membre à la valeur saisie (0 pour retirer les points, valeur par défaut du défi pour valider manuellement). L’historique complet reste conservé.</p>
+      </section>
     </div>
   );
 }
@@ -311,7 +456,7 @@ function lastOfMonthISO() {
 // Modale unique pour créer OU modifier un défi mensuel (le contenu ne se modifie qu'en
 // brouillon/programmé, garde déjà appliquée côté serveur par updateChallenge). `challenge` NULL
 // = création (POST) ; renseigné = édition pré-remplie (PATCH sur cet id).
-function ChallengeFormModal({ challenge, onClose, onSaved }: { challenge: ChallengeDto | null; onClose: () => void; onSaved: () => void }) {
+function ChallengeFormModal({ challenge, allChallenges, onClose, onSaved }: { challenge: ChallengeDto | null; allChallenges: ChallengeDto[]; onClose: () => void; onSaved: () => void }) {
   const isEdit = challenge !== null;
   const [title, setTitle] = useState(challenge?.title ?? "");
   const [description, setDescription] = useState(challenge?.description ?? "");
@@ -323,8 +468,11 @@ function ChallengeFormModal({ challenge, onClose, onSaved }: { challenge: Challe
   const [pointsReward, setPointsReward] = useState(String(challenge?.pointsReward ?? 300));
   const [accountTypes, setAccountTypes] = useState<string[]>(challenge?.eligibleAccountTypes ?? ["pea", "securities"]);
   const [instrumentTypes, setInstrumentTypes] = useState<string[]>(challenge?.eligibleInstrumentTypes ?? ["etf", "stock"]);
+  const [availabilityMode, setAvailabilityMode] = useState(challenge?.availabilityMode ?? "always");
+  const [requiresChallengeId, setRequiresChallengeId] = useState(challenge?.requiresChallengeId ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const prerequisiteOptions = allChallenges.filter((item) => item.id !== challenge?.id);
 
   function toggle(list: string[], setList: (next: string[]) => void, value: string) {
     setList(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
@@ -342,6 +490,7 @@ function ChallengeFormModal({ challenge, onClose, onSaved }: { challenge: Challe
         startsOn: permanent ? null : startsOn,
         endsOn: permanent ? null : endsOn,
         pointsReward: Number(pointsReward), eligibleAccountTypes: accountTypes, eligibleInstrumentTypes: instrumentTypes,
+        availabilityMode, requiresChallengeId: availabilityMode === "sequential" ? requiresChallengeId : null,
       };
       const response = await fetch("/api/admin/challenges", {
         method: isEdit ? "PATCH" : "POST", headers: await headers(),
@@ -383,6 +532,26 @@ function ChallengeFormModal({ challenge, onClose, onSaved }: { challenge: Challe
               <label key={value}><input type="checkbox" checked={instrumentTypes.includes(value)} onChange={() => toggle(instrumentTypes, setInstrumentTypes, value)} /> {label}</label>
             ))}</div>
           </fieldset>
+          <fieldset className="ach-field ach-field-wide">
+            <span>Disponibilité</span>
+            <div className="ach-checks">
+              <label><input type="radio" name="availabilityMode" checked={availabilityMode === "always"} onChange={() => setAvailabilityMode("always")} /> Toujours (dès que le défi est actif)</label>
+              <label><input type="radio" name="availabilityMode" checked={availabilityMode === "sequential"} onChange={() => setAvailabilityMode("sequential")} /> Séquentiel (après un autre défi terminé)</label>
+              <label><input type="radio" name="availabilityMode" checked={availabilityMode === "special"} onChange={() => setAvailabilityMode("special")} /> Spécial (débloqué manuellement, par membre)</label>
+            </div>
+          </fieldset>
+          {availabilityMode === "sequential" && (
+            <label className="ach-field ach-field-wide">
+              <span>Défi prérequis</span>
+              <select value={requiresChallengeId} onChange={(event) => setRequiresChallengeId(event.target.value)}>
+                <option value="">Choisir un défi…</option>
+                {prerequisiteOptions.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+              </select>
+            </label>
+          )}
+          {availabilityMode === "special" && (
+            <p className="ach-muted ach-field-wide">Ce défi restera invisible pour tous les membres tant qu’il n’aura pas été débloqué individuellement, depuis « Membres » une fois le défi créé.</p>
+          )}
           <p className="ach-muted ach-field-wide">{isEdit ? "Le contenu reste modifiable tant que le défi n'est pas activé (brouillon ou programmé)." : "Type de défi : investissement mensuel régulier. Le défi est créé en brouillon ; activez-le ensuite depuis la liste."}</p>
           {permanent && <p className="ach-muted ach-field-wide">Défi permanent : il reste courant tant qu&apos;il est actif. Pour chaque membre, les achats comptent à partir du jour où il rejoint le défi.</p>}
           {error && <p className="ach-error ach-field-wide" role="alert">{error}</p>}
